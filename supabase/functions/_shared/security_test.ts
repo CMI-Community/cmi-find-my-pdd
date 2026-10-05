@@ -1,5 +1,5 @@
 import { capability, canonicalJson, contact, dimensions, sha256, withoutMetadata } from './security.ts';
-import { ApiError, corsHeaders } from './http.ts';
+import { ApiError, candidateRequest, corsHeaders } from './http.ts';
 import { createRuntimeCache } from './runtime.ts';
 
 function assert(condition: unknown, message = 'assertion failed'): asserts condition { if (!condition) throw new Error(message); }
@@ -56,6 +56,23 @@ Deno.test('CORS allows configured origin only, with no wildcard credential leak'
   const headers = corsHeaders(new Request('https://api.test', { headers: { origin: 'https://example.test' } }), configured);
   assert(headers['Access-Control-Allow-Origin'] === 'https://example.test');
   throws(() => corsHeaders(new Request('https://api.test', { headers: { origin: 'https://malicious.test' } }), configured), 'FORBIDDEN');
+});
+
+Deno.test('candidate paging requires the displayed input version and identifier selection', () => {
+  const valid = candidateRequest(new URL('https://example.test/candidates?imageVersion=3&offset=20&selectedIdentifierId=chosen-id'), 3, 'chosen-id');
+  assert(valid.offset === 20 && valid.imageVersion === 3 && valid.selectedIdentifierId === 'chosen-id');
+  const unselected = candidateRequest(new URL('https://example.test/candidates?imageVersion=3'), 3, null);
+  assert(unselected.offset === 0 && unselected.selectedIdentifierId === null);
+  throws(() => candidateRequest(new URL('https://example.test/candidates?imageVersion=2&offset=20&selectedIdentifierId=chosen-id'), 3, 'chosen-id'), 'VERSION_CONFLICT');
+  throws(() => candidateRequest(new URL('https://example.test/candidates?imageVersion=3&offset=20'), 3, 'chosen-id'), 'VERSION_CONFLICT');
+  throws(() => candidateRequest(new URL('https://example.test/candidates?imageVersion=3&offset=20&selectedIdentifierId=old-id'), 3, 'chosen-id'), 'VERSION_CONFLICT');
+});
+
+Deno.test('candidate paging rejects ambiguous or unbounded query parameters', () => {
+  for (const query of ['offset=20', 'imageVersion=0', 'imageVersion=3&offset=-1', 'imageVersion=3&offset=1.5', 'imageVersion=3&offset=100001',
+    'imageVersion=3&offset=20&offset=40', 'imageVersion=3&selectedIdentifierId=', 'imageVersion=3&trackingNumber=manual']) {
+    throws(() => candidateRequest(new URL(`https://example.test/candidates?${query}`), 3, null), 'INVALID_REQUEST');
+  }
 });
 
 Deno.test('runtime configuration shares concurrent loads and refreshes rotated Vault values after sixty seconds', async () => {

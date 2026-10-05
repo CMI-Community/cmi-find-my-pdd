@@ -1,4 +1,4 @@
-import type { ApiResponse, Community, Stats, ScanCreate, ScanStart, ScanSubmit, ScanProgress, PrivateRecord, PublicRecord, AdminRecord, AdminTask, Extraction } from '../shared/contracts';
+import type { ApiResponse, Community, Stats, ScanCreate, ScanStart, ScanSubmit, ScanProgress, PrivateRecord, PublicRecord, AdminRecord, AdminTask, Extraction, CandidatePage } from '../shared/contracts';
 import type { Draft } from './drafts';
 import { updateDraft, getDraft } from './drafts';
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
@@ -48,6 +48,12 @@ export const api = {
     create: (body: ScanCreate, cap: string) => request<ScanStart>('/v1/scans', { method: 'POST', body, cap, key: body.requestId }),
     submit: (id: string, body: ScanSubmit, cap: string) => request<ScanProgress>(`/v1/scans/${encodeURIComponent(id)}/submit`, { method: 'POST', body, cap, key: `${id}:${body.imageVersion}:submit:${body.selectedIdentifierId || 'default'}` }),
     progress: (id: string, cap: string) => request<ScanProgress>(`/v1/scans/${encodeURIComponent(id)}`, { cap }),
+    candidates: (id: string, imageVersion: number, selectedIdentifierId: string | null, offset: number, cap: string, signal?: AbortSignal) => {
+        const query = new URLSearchParams({ imageVersion: String(imageVersion), offset: String(offset) });
+        if (selectedIdentifierId)
+            query.set('selectedIdentifierId', selectedIdentifierId);
+        return request<CandidatePage>(`/v1/scans/${encodeURIComponent(id)}/candidates?${query}`, { cap, signal });
+    },
     retry: (id: string, imageVersion: number, cap: string) => request<ScanProgress>(`/v1/scans/${encodeURIComponent(id)}/retry`, { method: 'POST', body: { imageVersion }, cap }),
     track: (body: {
         scanId: string;

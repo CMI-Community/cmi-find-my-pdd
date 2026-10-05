@@ -17,6 +17,10 @@ export interface PublicRecord {
   resolution: Resolution; visibility: Visibility; updatedAt: string; url: string; imageUrl?: string | null;
 }
 export interface MatchResult { record: PublicRecord; kind: MatchKind; reasons: string[] }
+export interface CandidatePage {
+  results: MatchResult[]; nextOffset: number | null; totalMatches: number;
+  imageVersion: number; selectedIdentifierId: string | null;
+}
 export interface ScanProgress {
   id: string; intent: Intent; imageVersion: number; state: RecognitionState; quality: Quality | null;
   extraction: Extraction | null; record: PublicRecord | null; results: MatchResult[];
