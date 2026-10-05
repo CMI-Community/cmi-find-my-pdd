@@ -1,6 +1,7 @@
 import { dbRpc, downloadOriginal, ensureRuntimeConfig, env, removeStorage } from '../_shared/db.ts';
 import { validateExtraction, qualityOf, matchEvidence, publicSummary } from '../../../shared/domain.ts';
 import type { Extraction } from '../../../shared/contracts.ts';
+import { openAIErrorCode } from '../_shared/openai-errors.ts';
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 type Image = { id: string; path: string; role: string; width: number; height: number };
@@ -38,7 +39,7 @@ function sameSecret(a: string, b: string): boolean {
 
 function stableError(error: unknown): string {
   const code = error instanceof Error ? error.message : '';
-  const allowed = ['CONFIGURATION_ERROR', 'IMAGE_UNAVAILABLE', 'OPENAI_AUTH_ERROR', 'OPENAI_RATE_LIMIT', 'OPENAI_TIMEOUT', 'OPENAI_UNAVAILABLE', 'INVALID_EXTRACTION', 'OPENAI_INCOMPLETE', 'STALE_LEASE'];
+  const allowed = ['CONFIGURATION_ERROR', 'IMAGE_UNAVAILABLE', 'OPENAI_AUTH_ERROR', 'OPENAI_CREDIT_EXHAUSTED', 'OPENAI_SPEND_LIMIT', 'OPENAI_USAGE_LIMIT', 'OPENAI_QUOTA_EXCEEDED', 'OPENAI_RATE_LIMIT', 'OPENAI_TIMEOUT', 'OPENAI_UNAVAILABLE', 'INVALID_EXTRACTION', 'OPENAI_INCOMPLETE', 'STALE_LEASE'];
   return allowed.includes(code) ? code : 'PROCESSING_ERROR';
 }
 
@@ -74,9 +75,8 @@ async function process(job: Job): Promise<void> {
     }).catch((error: unknown) => { throw new Error(error instanceof DOMException && error.name === 'TimeoutError' ? 'OPENAI_TIMEOUT' : 'OPENAI_UNAVAILABLE'); });
     if (!response.ok) {
       usageUnknown = response.status >= 500;
-      if ([401, 403].includes(response.status)) throw new Error('OPENAI_AUTH_ERROR');
-      if (response.status === 429) throw new Error('OPENAI_RATE_LIMIT');
-      throw new Error(response.status >= 500 ? 'OPENAI_UNAVAILABLE' : 'INVALID_EXTRACTION');
+      const failure = await response.json().catch(() => null);
+      throw new Error(openAIErrorCode(response.status, failure));
     }
     const result = await response.json() as { status?: string; output?: { content?: { type: string; text?: string }[] }[]; usage?: { input_tokens?: number; output_tokens?: number } };
     inputTokens = result.usage?.input_tokens;
