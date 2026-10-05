@@ -33,7 +33,7 @@ try {
       if ((data?.length ?? 0) < 100) break;
     }
   }
-  await folder('parcel-originals'); await folder('parcel-public');
+  await folder('parcel-originals'); await folder('parcel-public'); await folder('community-assets');
   await writeFile(path.join(temporary, 'manifest.json'), JSON.stringify({ product: 'cmi-find-my-pdd', project, createdAt: new Date().toISOString(), files, sha: process.env.APP_SHA ?? null }), { mode: 0o600 });
   const archive = path.join(temporary, 'archive.tar.gz');
   await run('tar', ['-czf', archive, '-C', temporary, 'database.dump', 'manifest.json', ...(files.length ? ['storage'] : [])]);

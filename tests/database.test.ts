@@ -66,6 +66,15 @@ async function recognize(fixture: Awaited<ReturnType<typeof finalized>>, data: E
 }
 
 describe('real Postgres schema and transactions', () => {
+  it('publishes only community assets while both parcel buckets remain private', async () => {
+    const rows = await db.query<{ id: string; public: boolean }>('select id,public from storage.buckets order by id');
+    expect(rows.rows).toEqual([
+      { id: 'community-assets', public: true },
+      { id: 'parcel-originals', public: false },
+      { id: 'parcel-public', public: false },
+    ]);
+  });
+
   it('passes durable jobs, fencing, budgets, matching, handover and cleanup smoke', async () => {
     await db.exec(await readFile(new URL('./db.sql', import.meta.url), 'utf8'));
     const afterRollback = await db.query<{ count: number }>('select count(*)::integer as count from public.scans');

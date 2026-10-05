@@ -32,7 +32,7 @@ insert into public.site_settings(key,value) values('runtime','${runtime}'::jsonb
 commit;`, { mode: 0o600 });
   await run('psql', ['--set', 'ON_ERROR_STOP=1', '--dbname', 'postgres', '--file', isolate], { env: dbEnvironment });
   for (const file of manifest.files) {
-    if (!['parcel-originals', 'parcel-public'].includes(file.bucket) || file.key.includes('..') || file.key.startsWith('/')) throw new Error('Invalid storage manifest.');
+    if (!['parcel-originals', 'parcel-public', 'community-assets'].includes(file.bucket) || file.key.includes('..') || file.key.startsWith('/')) throw new Error('Invalid storage manifest.');
     const data = await readFile(path.join(temporary, 'storage', file.bucket, file.key));
     const { error } = await db.storage.from(file.bucket).upload(file.key, data, { contentType: file.contentType, upsert: true });
     if (error) throw new Error('Storage restore failed.');
