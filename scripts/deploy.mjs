@@ -1,0 +1,24 @@
+import { readFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { projectGuard, required, run } from './ops.mjs';
+
+const environment = process.argv[2];
+if (!['test', 'production'].includes(environment)) throw new Error('Usage: npm run ops:deploy -- test|production');
+const project = projectGuard();
+if (process.env.DEPLOY_TARGET_CONFIRM !== project) throw new Error('DEPLOY_TARGET_CONFIRM must equal the new product project ID.');
+const projectId = required('VERCEL_PROJECT_ID');
+if (projectId === 'prj_gMEhOL3gRSNKTvATClpNbcJKIT3k') throw new Error('The old swap product cannot be a deployment target.');
+const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+if (execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim()) throw new Error('Commit reviewed source before deploying.');
+const settings = JSON.parse(await readFile('.vercel/project.json', 'utf8'));
+if (settings.projectId !== projectId || settings.orgId !== required('VERCEL_ORG_ID')) throw new Error('Vercel binding does not match intended project.');
+if (environment === 'production' && process.env.TEST_ACCEPTANCE_SHA !== sha) throw new Error('Provide the SHA accepted in the isolated test environment.');
+await run('npm', ['run', 'check']); await run('npm', ['run', 'build']);
+await run('npx', ['--yes', 'supabase@latest', 'link', '--project-ref', project]);
+await run('npx', ['--yes', 'supabase@latest', 'db', 'push', '--linked']);
+const secretFile = required('EDGE_SECRET_FILE');
+if (!secretFile.startsWith('.private/') && !secretFile.startsWith('/')) throw new Error('Use a private secret file.');
+await run('npx', ['--yes', 'supabase@latest', 'secrets', 'set', '--project-ref', project, '--env-file', secretFile]);
+for (const name of ['api', 'worker']) await run('npx', ['--yes', 'supabase@latest', 'functions', 'deploy', name, '--project-ref', project, '--no-verify-jwt']);
+await run('npx', ['--yes', 'vercel@latest', '--yes', ...(environment === 'production' ? ['--prod'] : [])]);
+console.log(`Deployment sent for ${sha}. Record actual URLs and acceptance before tagging a release.`);
