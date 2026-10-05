@@ -4,6 +4,8 @@
 
 ## 环境建立
 
+交互配置可运行 `npm run setup`，打开 `http://localhost:5180`。面板仅绑定本机，检查Host/Origin和随机请求令牌，配置及二维码写入已忽略的`.private/`；不会回显密钥或自动开启生产提交。OpenAI key使用安全连接器单独写入`.private/test.env`。表单选择测试环境、管理员邮箱和社区资料；保存后由维护者核对目标资源、创建管理员并接入后端。免费配额不足时，是否把尚未开放的空项目改为测试环境需本人明确选择；不能擅自暂停其他项目。
+
 1. 测试与生产分开配置资源。免费配额不足时使用本地独立 PostgreSQL 事务测试，记录其限制，不能把它写成真实云端 OCR 验收。
 2. `npm ci`，按 `.env.example` 创建私有配置。前端 `VITE_API_BASE_URL` 为 `https://项目.supabase.co/functions/v1/api`，helper再加`/v1`。其余为同项目的公开 URL 和 publishable/anon key。
 3. 本地 Supabase 完整服务需要 Docker：`npx supabase start`，`npx supabase db reset`仅用于本地测试。PGlite测试会保留真实数据库逻辑、用stub替代网络/定时/对象存储，不替代线上储存和OCR测试。

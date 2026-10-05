@@ -6,6 +6,7 @@
   "engines": { "node": ">=22.12.0" },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "setup": "node scripts/local-setup.mjs",
     "typecheck": "tsc --noEmit && deno check --config supabase/functions/deno.json supabase/functions/api/index.ts supabase/functions/worker/index.ts",
     "test": "vitest run",
     "test:edge": "deno test --allow-env=APP_PUBLIC_URL,ALLOWED_ORIGINS --config supabase/functions/deno.json supabase/functions/_shared/security_test.ts",
