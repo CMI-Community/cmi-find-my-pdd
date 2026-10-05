@@ -1,6 +1,6 @@
 # 首版运行、检查与版本维护
 
-本项目独立于旧的 Chiang Mai Swap。仓库 `CMI-Community/cmi-find-my-pdd`，生产数据库 `fogncjjsnakbhfdbfvdi`。任何发布先核对这些身份；旧站 Vercel 项目 `prj_gMEhOL3gRSNKTvATClpNbcJKIT3k` 和其他 Supabase 库禁止作为本项目目标。
+本项目独立于旧的 Chiang Mai Swap。仓库 `CMI-Community/cmi-find-my-pdd`。2026-10-06 用户通过本机配置表单明确选择把尚无用户资料的 `fogncjjsnakbhfdbfvdi` 改作测试数据库；运行配置为 `APP_ENVIRONMENT=test`，正式上线时另建独立生产库。任何发布先核对这些身份；旧站 Vercel 项目 `prj_gMEhOL3gRSNKTvATClpNbcJKIT3k` 和其他 Supabase 库禁止作为本项目目标。
 
 ## 环境建立
 
@@ -26,7 +26,7 @@
 
 ## 社区配置与上线开关
 
-管理员社区设置录入真实 HTTPS 群二维码、小助手微信/二维码、公众号名称/二维码。不得使用占位QR。`submissionsEnabled=false`为默认；资料和识别未配置时正式登记被拒绝，页面仍可显示说明。只有现场验证入口后才能打开。
+管理员社区设置录入真实 HTTPS 群二维码、小助手微信/二维码、公众号名称/二维码。经本人授权公开的社区二维码上传至独立 `community-assets` bucket；这个公开库只装社区入口，不放面单、商品截图或提交者照片，且没有匿名写入权限。包裹原图与审核副本所在的两个 bucket 继续保持私有。替换二维码使用新文件名，验证可读取后再更新设置，避免缓存旧图。不得使用占位QR。`submissionsEnabled=false`为默认；资料和识别未配置时正式登记被拒绝，页面仍可显示说明。只有现场验证入口后才能打开。
 
 二维码过期、群满或停止受理时立即更新；切换群资料不改变旧记录URL。点击已入群声明不释放任何私人资料。公众号关注是邀请，正式提交需要加群或小助手声明。
 
@@ -66,7 +66,7 @@ node --env-file=.private/production.env scripts/backup.mjs
 node --env-file=.private/restore-test.env scripts/restore.mjs backups/指定.cmibak
 ```
 
-备份包含public/Auth数据库与两个图片bucket，先打包后scrypt派生AES-256-GCM加密，滚动最近7份；临时明文目录完成或失败后删除。backups目录不进Git。把加密文件存到独立可靠存储，并私下保管密码；仅本机目录不足以保障主机丢失恢复。
+备份包含public/Auth数据库、两个私有包裹图片bucket及独立社区入口bucket，先打包后scrypt派生AES-256-GCM加密，滚动最近7份；临时明文目录完成或失败后删除。backups目录不进Git。恢复目标先应用完整迁移以建立三个bucket。把加密文件存到独立可靠存储，并私下保管密码；仅本机目录不足以保障主机丢失恢复。
 
 仓库提供每日曼谷02:15执行的backup workflow。先配其列出的GitHub secrets和vars，再把`ENABLE_ENCRYPTED_BACKUP`设为`true`；加密artifact保留7天。首次手动执行、下载并独立恢复成功后才标记已启用备份。未配置时不会假报每天已有备份。
 
