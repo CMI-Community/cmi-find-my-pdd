@@ -9,5 +9,6 @@
 - Versioned specification, acceptance tests and encrypted backup tooling.
 - Separate public community QR storage, private parcel buckets, and community-asset backup coverage.
 - Explicitly reclassify the empty cloud resource as test after the local setup form selection.
+- Classify OpenAI credit and spending errors separately from transient throttling; stop automatic retries for exhausted quota.
 
 This entry describes source changes, not a completed production deployment.
