@@ -31,7 +31,7 @@ npm run build
 | `scripts/` | 加密备份、独立环境恢复和目标核对 |
 | `docs/` | 产品、接口、运行与发布记录 |
 
-先读 [产品规格](docs/PRODUCT.md)，开发遵循 [工程规则](AGENTS.md)，发布和维护遵循 [运行手册](docs/RUNBOOK.md)。当前状态见 [首版交付记录](docs/releases/v0.1.0.md)。
+先读 [产品规格](docs/PRODUCT.md) 和 [接口合同](docs/API.md)，开发遵循 [工程规则](AGENTS.md)，发布和维护遵循 [运行手册](docs/RUNBOOK.md)。当前状态见 [首版交付记录](docs/releases/v0.1.0.md)。
 
 ## 服务配置
 

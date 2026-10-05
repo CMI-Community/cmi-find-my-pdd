@@ -1,8 +1,8 @@
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.4';
-import type { Community, Extraction, ImageRole, PublicRecord, ScanProgress, ScanStart, PrivateRecord } from '../../../shared/contracts.ts';
+import type { CandidatePage, Community, Extraction, ImageRole, PublicRecord, ScanProgress, ScanStart, PrivateRecord } from '../../../shared/contracts.ts';
 import { APP_VERSION } from '../../../shared/contracts.ts';
 import { publicSummary } from '../../../shared/domain.ts';
-import { ApiError, body, corsHeaders, failure, json, onlyKeys, stringValue, uuid, version } from '../_shared/http.ts';
+import { ApiError, body, candidateRequest, corsHeaders, failure, json, onlyKeys, stringValue, uuid, version } from '../_shared/http.ts';
 import { bearer, capability, canonicalJson, contact, dimensions, fingerprint, sha256, withoutMetadata } from '../_shared/security.ts';
 import { ensureRuntimeConfig, getRuntime } from '../_shared/runtime.ts';
 
@@ -143,6 +143,13 @@ async function publicFor(db: SupabaseClient, code: string): Promise<PublicRecord
   return publicDto(result.record ?? result);
 }
 
+async function matchResults(db: SupabaseClient, rawMatches: Row[]): Promise<ScanProgress['results']> {
+  return await Promise.all(rawMatches.map(async (entry: Row) => {
+    const record = entry.record ? publicDto(entry.record) : await publicFor(db, entry.publicCode ?? entry.public_code ?? entry.code);
+    return { record, kind: entry.kind === 'exact' ? 'exact' as const : 'possible' as const, reasons: Array.isArray(entry.reasons) ? entry.reasons.filter((text: unknown) => typeof text === 'string').map((text: string) => text.replace(/\d{6,}/g, '***')) : [] };
+  }));
+}
+
 async function scanProgress(db: SupabaseClient, id: string): Promise<ScanProgress> {
   const source = await rpc(db, 'get_scan_status', { scan_id: id });
   const state = source.state;
@@ -154,10 +161,7 @@ async function scanProgress(db: SupabaseClient, id: string): Promise<ScanProgres
   }
   const code = source.publicCode ?? source.public_code ?? source.record?.code;
   const rawMatches = Array.isArray(source.matches) ? source.matches : Array.isArray(source.results) ? source.results : [];
-  const results = await Promise.all(rawMatches.map(async (entry: Row) => {
-    const record = entry.record ? publicDto(entry.record) : await publicFor(db, entry.publicCode ?? entry.public_code ?? entry.code);
-    return { record, kind: entry.kind === 'exact' ? 'exact' as const : 'possible' as const, reasons: Array.isArray(entry.reasons) ? entry.reasons.filter((text: unknown) => typeof text === 'string').map((text: string) => text.replace(/\d{6,}/g, '***')) : [] };
-  }));
+  const results = await matchResults(db, rawMatches);
   const extraction = source.extraction ?? source.recognition ?? null;
   const identifiers = (extraction as Extraction | null)?.identifiers ?? [];
   const selected = source.selectedIdentifierId ?? source.selected_identifier_id ?? null;
@@ -257,6 +261,22 @@ async function route(request: Request, db: SupabaseClient, headers: Record<strin
   if (parts[0] === 'scans' && parts[1]) {
     const scan = await scanAccess(db, request, parts[1]);
     if (parts.length === 2 && method === 'GET') return json(await scanProgress(db, scan.id), 200, headers);
+    if (parts[2] === 'candidates' && parts.length === 3 && method === 'GET') {
+      const page = candidateRequest(url, scan.input_version, scan.selected_identifier_id ?? null);
+      if (scan.state !== 'succeeded' || scan.quality === 'unusable') throw new ApiError('INVALID_REQUEST', '请先完成有效图片识别后查看候选。', 422);
+      const source = await rpc(db, 'match_scan', { scan_id: scan.id, version: page.imageVersion, offset: page.offset,
+        enforce_selection: true, expected_selected_identifier_id: page.selectedIdentifierId });
+      if (source.requiresSelection === true) throw new ApiError('INVALID_REQUEST', '请先选择本次要查询的包裹运单线索。');
+      const total = source.totalMatches;
+      const next = source.nextOffset;
+      if (!Array.isArray(source.results) || source.results.length > 20 || !Number.isSafeInteger(total) || total < 0 ||
+          !(next === null || Number.isSafeInteger(next) && next > page.offset && next <= total)) {
+        throw new ApiError('SERVICE_UNAVAILABLE', '暂时无法加载候选，请稍后再试。', 503, true);
+      }
+      const data: CandidatePage = { results: await matchResults(db, source.results), nextOffset: next, totalMatches: total,
+        imageVersion: page.imageVersion, selectedIdentifierId: page.selectedIdentifierId };
+      return json(data, 200, headers);
+    }
     if (parts[2] === 'submit' && method === 'POST') {
       const input = await body(request); onlyKeys(input, ['imageVersion', 'imageIds', 'contact', 'selectedIdentifierId']);
       if (version(input.imageVersion) !== scan.input_version) throw new ApiError('VERSION_CONFLICT', '照片版本已更新，请刷新。', 409);

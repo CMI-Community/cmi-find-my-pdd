@@ -177,8 +177,11 @@ function Capture({ intent, batch = false }: {
             if (d.contact)
                 contactRef.current = { contact: d.contact, group: !!d.groupDeclared };
             return d;
-        }) : newDraft(intent)).then(d => { setDraft(d); if (!resumeId)
-            navigate(`${location.pathname}?draft=${d.id}`, { replace: true }); }).catch(e => setError(message(e)));
+        }) : newDraft(intent)).then(d => {
+            setDraft(d);
+            if (!resumeId)
+                navigate(`${location.pathname}?draft=${d.id}`, { replace: true });
+        }).catch(e => setError(message(e)));
     }, [intent]);
     const primaryRole: PhotoRole = intent === 'received' ? 'label' : 'logistics', secondaryRole: PhotoRole = intent === 'received' ? 'item' : 'product';
     const put = async (patch: Partial<Draft>) => {
@@ -254,15 +257,19 @@ function Capture({ intent, batch = false }: {
         }
     };
     const submitted = drafts.filter(d => d.kind === intent && d.status !== 'draft' && (intent !== 'received' || !draft?.batchId || d.batchId === draft.batchId));
-    return <div className="page capture-page entrance"><Back /><div className="page-heading"><span className="eyebrow">{intent === 'received' ? '把多收到的包裹交回去' : '先查询，再决定是否登记'}</span><h1>{intent === 'received' ? '我误收了快递' : '我丢件了'}</h1><p>{intent === 'received' ? '每包 1—2 张：面单必拍，拆开后可补拍物品。' : '上传物流详情截图，商品截图可补充。无需填写快递单号。'}</p></div><div className="capture-layout"><section className="panel"><div className="step-label"><span>01</span>拍照与检查</div><div className="photo-grid">{[primaryRole, secondaryRole].map((role, index) => { const photo = draft?.photos.find(p => p.role === role); return <div key={role}>{photo && <PhotoTile photo={photo} onEdit={() => setEditor(photo)} onDelete={() => void put({ photos: draft!.photos.filter(p => p.id !== photo.id) })}/>}<label className={`photo-input ${photo ? 'retake' : 'empty-photo'}`}>{photo ? <RotateCcw size={18}/> : index === 0 ? <Camera size={28}/> : <ImagePlus size={26}/>}<strong>{photo ? '重新拍摄／上传' : roleText[role]}</strong>{!photo && <small>{index === 0 ? '必需 · 信息清楚完整' : '可选 · 最多补充 1 张'}</small>}<input type="file" accept="image/*" {...(intent === 'received' ? { capture: 'environment' as const } : {})} disabled={busy} onChange={e => { void addPhoto(e.target.files?.[0], role); e.target.value = ''; }}/></label></div>; })}</div><p className="privacy-line"><ShieldCheck size={16}/>点击提交才上传；面单与联系方式不公开。</p>{busy && <Spinner text="正在处理照片，请稍候…"/>}<ErrorNote text={error}/><div className="button-row"><button className="button primary" disabled={busy || !draft?.photos.some(p => p.role === primaryRole)} onClick={() => void submit('finish')}>{intent === 'received' ? '提交这包' : '识别并查询'}<ArrowRight size={18}/></button>{intent === 'received' && <button className="button secondary" disabled={busy || !draft?.photos.some(p => p.role === primaryRole)} onClick={() => void submit('next')}><Plus size={18}/>提交并拍下一包</button>}</div></section>{intent === 'received' && <aside className={`queue-aside ${batch ? 'batch-queue' : ''}`}><div className="step-label"><span>02</span>本次提交进度</div>{submitted.length ? <>{(batch ? submitted : submitted.slice(0, 6)).map(d => <QueueItem key={d.id} draft={d} compact={!batch}/>)}<button className="text-button" onClick={() => { if (draft?.batchId)
-        sessionStorage.setItem('cmi-pdd-completed-batch', draft.batchId); sessionStorage.removeItem('cmi-pdd-active-batch'); navigate('/success'); }}>完成本批，查看提交结果</button><Link to="/queue" className="text-button">查看完整队列<ArrowRight size={15}/></Link></> : <p className="muted">提交后自动上传、识别和匹配。你可以继续拍下一包。</p>}</aside>}</div>{editor && <PhotoEditor photo={editor} onClose={() => setEditor(undefined)} onSave={async (p) => { await put({ photos: draft!.photos.map(x => x.id === p.id ? p : x) }); }}/>}{contactOpen && <ContactDrawer initial={contactRef.current?.contact} busy={busy} error={error} onClose={() => setContactOpen(false)} onConfirm={(c, g) => void submit(pendingAction, c, g)}/>}</div>;
+    return <div className="page capture-page entrance"><Back /><div className="page-heading"><span className="eyebrow">{intent === 'received' ? '把多收到的包裹交回去' : '先查询，再决定是否登记'}</span><h1>{intent === 'received' ? '我误收了快递' : '我丢件了'}</h1><p>{intent === 'received' ? '每包 1—2 张：面单必拍，拆开后可补拍物品。' : '上传物流详情截图，商品截图可补充。无需填写快递单号。'}</p></div><div className="capture-layout"><section className="panel"><div className="step-label"><span>01</span>拍照与检查</div><div className="photo-grid">{[primaryRole, secondaryRole].map((role, index) => { const photo = draft?.photos.find(p => p.role === role); return <div key={role}>{photo && <PhotoTile photo={photo} onEdit={() => setEditor(photo)} onDelete={() => void put({ photos: draft!.photos.filter(p => p.id !== photo.id) })}/>}<label className={`photo-input ${photo ? 'retake' : 'empty-photo'}`}>{photo ? <RotateCcw size={18}/> : index === 0 ? <Camera size={28}/> : <ImagePlus size={26}/>}<strong>{photo ? '重新拍摄／上传' : roleText[role]}</strong>{!photo && <small>{index === 0 ? '必需 · 信息清楚完整' : '可选 · 最多补充 1 张'}</small>}<input type="file" accept="image/*" {...(intent === 'received' ? { capture: 'environment' as const } : {})} disabled={busy} onChange={e => { void addPhoto(e.target.files?.[0], role); e.target.value = ''; }}/></label></div>; })}</div><p className="privacy-line"><ShieldCheck size={16}/>点击提交才上传；面单与联系方式不公开。</p>{busy && <Spinner text="正在处理照片，请稍候…"/>}<ErrorNote text={error}/><div className="button-row"><button className="button primary" disabled={busy || !draft?.photos.some(p => p.role === primaryRole)} onClick={() => void submit('finish')}>{intent === 'received' ? '提交这包' : '识别并查询'}<ArrowRight size={18}/></button>{intent === 'received' && <button className="button secondary" disabled={busy || !draft?.photos.some(p => p.role === primaryRole)} onClick={() => void submit('next')}><Plus size={18}/>提交并拍下一包</button>}</div></section>{intent === 'received' && <aside className={`queue-aside ${batch ? 'batch-queue' : ''}`}><div className="step-label"><span>02</span>本次提交进度</div>{submitted.length ? <>{(batch ? submitted : submitted.slice(0, 6)).map(d => <QueueItem key={d.id} draft={d} compact={!batch}/>)}<button className="text-button" onClick={() => {
+                    if (draft?.batchId)
+                        sessionStorage.setItem('cmi-pdd-completed-batch', draft.batchId);
+                    sessionStorage.removeItem('cmi-pdd-active-batch');
+                    navigate('/success');
+                }}>完成本批，查看提交结果</button><Link to="/queue" className="text-button">查看完整队列<ArrowRight size={15}/></Link></> : <p className="muted">提交后自动上传、识别和匹配。你可以继续拍下一包。</p>}</aside>}</div>{editor && <PhotoEditor photo={editor} onClose={() => setEditor(undefined)} onSave={async (p) => { await put({ photos: draft!.photos.map(x => x.id === p.id ? p : x) }); }}/>}{contactOpen && <ContactDrawer initial={contactRef.current?.contact} busy={busy} error={error} onClose={() => setContactOpen(false)} onConfirm={(c, g) => void submit(pendingAction, c, g)}/>}</div>;
 }
 function QueueItem({ draft: d, compact = false }: {
     draft: Draft;
     compact?: boolean;
 }) { const image = useObjectUrl(d.photos[0]?.blob); const [error, setError] = useState(''); return <article className={`queue-item ${compact ? 'compact' : ''}`}><img src={image || undefined} alt="本机包裹照片"/><div><strong>{d.response?.record?.title || d.response?.extraction?.itemNames?.join('、') || (d.kind === 'received' ? '误收包裹' : '物流查询')}</strong><span className={`status status-${d.status}`}>{['queued', 'uploading', 'recognizing'].includes(d.status) && <LoaderCircle className="spin" size={13}/>} {statusText[d.status]}</span>{d.response?.record && <Link to={`/p/${d.response.record.code}`}>记录 {d.response.record.code}</Link>}{d.response?.results.length ? <Link className="match-notice" to={d.kind === 'search' ? `/search/${d.id}` : '/success'}><Check size={14}/>发现 {d.response.results.length} 条对应登记，查看并入群核实</Link> : null}{!compact && <><small>{formatDate(d.createdAt)}</small><ErrorNote text={error || d.error}/>{d.status === 'error' && <button className="text-button" onClick={() => { setError(''); void retryDraft(d).catch(e => setError(message(e))); }}><RefreshCw size={14}/>重试／继续识别</button>}{d.response?.state === 'needs_photo' && <Link className="text-button" to={`/${d.kind === 'received' ? 'received' : 'search'}/new?draft=${d.id}`}>重新拍图</Link>}{d.response?.record && <Link className="text-button" to={`/m/${d.response.record.code}#key=${d.cap}`}>私密管理</Link>}{d.kind === 'search' && d.status === 'done' && <Link className="text-button" to={`/search/${d.id}`}>查看查询结果</Link>}</>}</div></article>; }
 function QueuePage() { const { drafts } = useContext(AppContext); const records = drafts.filter(d => d.status !== 'draft'); return <div className="page"><Back /><div className="page-heading"><h1>提交队列</h1><p>离开拍照页不会停止当前页面内的上传。关闭浏览器可能中断，请从这里重试。</p></div><div className="queue-list">{records.length ? records.map(d => <QueueItem key={d.id} draft={d}/>) : <Empty>还没有提交记录。</Empty>}</div><Link className="button primary" to="/received/new"><Camera size={17}/>继续拍下一包</Link></div>; }
-function SuccessPage() { const { drafts } = useContext(AppContext); const batchId = sessionStorage.getItem('cmi-pdd-completed-batch'); const received = drafts.filter(d => d.kind === 'received' && d.status !== 'draft' && (!batchId || d.batchId === batchId)); const completed = received.filter(d => !!d.response?.record); const matches = received.flatMap(d => d.response?.results || []); const [show, setShow] = useState(true); return <div className="page narrow success-page"><div className="success-stamp"><Check size={32}/></div><span className="eyebrow">{received.length ? '感谢你多走这一步' : '本次提交'}</span><h1>{received.length ? '让包裹回到主人手里。' : '还没有提交包裹'}</h1><p>CMI 代表 <strong>Connect, Make an Impact</strong>。</p><p>{received.length ? <>{completed.length ? `${completed.length} 个包裹信息已收录。` : '提交正在处理中。'}若后续有人寻找并匹配成功，管理员会通过微信联系你。</> : '请先拍摄快递面单，检查照片后提交。'}</p>{matches.length > 0 && <div className="match-banner"><strong>发现对应寻件登记</strong><p>请把本页截图发到群里，由管理员核实。</p><MatchList results={matches}/></div>}{received.slice(0, 4).map(d => <QueueItem key={d.id} draft={d}/>)}<CommunityBlock /><AccountBlock /><div className="button-row"><Link to="/received/new" className="button primary">继续提交<Plus size={16}/></Link><Link to="/queue" className="button secondary">查看完整队列</Link></div>{matches.length > 0 && show && <div className="modal-backdrop"><section className="dialog" role="dialog" aria-modal="true"><button aria-label="关闭匹配提示" className="icon-button close" onClick={() => setShow(false)}><X /></button><span className="eyebrow">有线索了</span><h2>找到对应的寻件登记</h2><p>这是号码对应的登记线索，还需要在群里核实归属。</p><button className="button primary full" onClick={() => setShow(false)}>查看结果并入群核实</button></section></div>}</div>; }
+function SuccessPage() { const { drafts } = useContext(AppContext); const batchId = sessionStorage.getItem('cmi-pdd-completed-batch'); const received = drafts.filter(d => d.kind === 'received' && d.status !== 'draft' && (!batchId || d.batchId === batchId)); const completed = received.filter(d => !!d.response?.record); const matches = received.flatMap(d => d.response?.results || []); const [show, setShow] = useState(true); return <div className="page narrow success-page"><div className="success-stamp"><Check size={32}/></div><span className="eyebrow">{received.length ? '感谢你多走这一步' : '本次提交'}</span><h1>{received.length ? '让包裹回到主人手里。' : '还没有提交包裹'}</h1><p>CMI 代表 <strong>Connect, Make an Impact</strong>。</p><p>{received.length ? <>{completed.length ? `${completed.length} 个包裹信息已收录。` : '提交正在处理中。'}若后续有人寻找并匹配成功，管理员会通过微信联系你。</> : '请先拍摄快递面单，检查照片后提交。'}</p>{matches.length > 0 && <div className="match-banner"><strong>发现对应寻件登记</strong><p>请把本页截图发到群里，由管理员核实。</p><div>{received.filter(d => !!d.response?.results.length).map(d => <section key={d.id}><span className="record-code">{d.response?.record?.code || '本次包裹'}</span><CandidateMatches progress={d.response!} cap={d.cap} draftId={d.id}/></section>)}</div></div>}{received.slice(0, 4).map(d => <QueueItem key={d.id} draft={d}/>)}<CommunityBlock /><AccountBlock /><div className="button-row"><Link to="/received/new" className="button primary">继续提交<Plus size={16}/></Link><Link to="/queue" className="button secondary">查看完整队列</Link></div>{matches.length > 0 && show && <div className="modal-backdrop"><section className="dialog" role="dialog" aria-modal="true"><button aria-label="关闭匹配提示" className="icon-button close" onClick={() => setShow(false)}><X /></button><span className="eyebrow">有线索了</span><h2>找到对应的寻件登记</h2><p>这是号码对应的登记线索，还需要在群里核实归属。</p><button className="button primary full" onClick={() => setShow(false)}>查看结果并入群核实</button></section></div>}</div>; }
 function LocalPage() {
     const { drafts } = useContext(AppContext);
     const [error, setError] = useState('');
@@ -301,6 +308,74 @@ function ReadFields({ progress: p, images = [] }: {
 function MatchList({ results }: {
     results: MatchResult[];
 }) { return <div className="match-list">{results.map((m, i) => <Link className="match-card" key={`${m.record.code}-${i}`} to={`/p/${m.record.code}`}><div><span className={`match-kind ${m.kind}`}>{m.kind === 'exact' ? '号码对应' : '可能相关，需核实'}</span><span className="record-code">{m.record.code}</span></div><h3>{m.record.title}</h3><p>{m.reasons.join(' · ')}</p><span>{resolutionText[m.record.resolution]}<ArrowRight size={15}/></span></Link>)}</div>; }
+function CandidateMatches({ progress, cap, draftId }: {
+    progress: ScanProgress;
+    cap: string;
+    draftId: string;
+}) {
+    const snapshotKey = JSON.stringify([progress.id, progress.imageVersion, progress.selectedIdentifierId, progress.results]);
+    const initial = () => ({ key: snapshotKey, results: progress.results, nextOffset: progress.results.length >= 20 ? 20 as number | null : null, loading: false, error: '' });
+    const [page, setPage] = useState(initial);
+    const generation = useRef(0);
+    const activeRequest = useRef<AbortController | null>(null);
+    useEffect(() => {
+        generation.current++;
+        activeRequest.current?.abort();
+        activeRequest.current = null;
+        setPage(initial());
+        return () => {
+            generation.current++;
+            activeRequest.current?.abort();
+            activeRequest.current = null;
+        };
+    }, [snapshotKey]);
+    // Rendering a new recognition/selection must not briefly display the previous page.
+    const shown = page.key === snapshotKey ? page : initial();
+    const loadMore = async () => {
+        if (shown.nextOffset === null || activeRequest.current)
+            return;
+        const currentGeneration = generation.current;
+        const controller = new AbortController();
+        activeRequest.current = controller;
+        setPage({ ...shown, loading: true, error: '' });
+        try {
+            const next = await api.candidates(progress.id, progress.imageVersion, progress.selectedIdentifierId, shown.nextOffset, cap, controller.signal);
+            if (currentGeneration !== generation.current)
+                return;
+            if (next.imageVersion !== progress.imageVersion || next.selectedIdentifierId !== progress.selectedIdentifierId)
+                throw new ApiFailure('识别信息已经更新，请重新查看候选。', 'VERSION_CONFLICT', undefined, false);
+            setPage(current => {
+                const unique = new Map(current.results.map(result => [result.record.code, result]));
+                for (const result of next.results)
+                    unique.set(result.record.code, result);
+                return { ...current, results: [...unique.values()], nextOffset: next.nextOffset, loading: false, error: '' };
+            });
+        }
+        catch (error) {
+            if (controller.signal.aborted || currentGeneration !== generation.current)
+                return;
+            if (error instanceof ApiFailure && error.code === 'VERSION_CONFLICT') {
+                setPage({ ...initial(), error: '包裹信息已经更新，正在刷新当前识别结果…' });
+                try {
+                    const latest = await api.progress(progress.id, cap);
+                    if (currentGeneration === generation.current)
+                        await updateDraft(draftId, { response: latest, inputVersion: latest.imageVersion });
+                }
+                catch (refreshError) {
+                    if (currentGeneration === generation.current)
+                        setPage({ ...initial(), error: message(refreshError) });
+                }
+            }
+            else
+                setPage(current => ({ ...current, loading: false, error: message(error) }));
+        }
+        finally {
+            if (activeRequest.current === controller)
+                activeRequest.current = null;
+        }
+    };
+    return <div className="candidate-results"><MatchList results={shown.results}/><ErrorNote text={shown.error}/>{shown.nextOffset !== null && <button className="button secondary full" disabled={shown.loading} onClick={() => void loadMore()}>{shown.loading ? <LoaderCircle className="spin" size={18}/> : <Plus size={18}/>} {shown.loading ? '正在加载更多候选…' : '加载更多候选'}</button>}</div>;
+}
 function SearchResult({ trackingIntent = false }: {
     trackingIntent?: boolean;
 }) {
@@ -339,7 +414,7 @@ function SearchResult({ trackingIntent = false }: {
     };
     if (!draft)
         return <div className="page narrow"><Back to="/search/new"/><h1>查询记录不在当前浏览器</h1><p>请使用原浏览器查看，或重新上传物流截图。</p><Link to="/search/new" className="button primary">重新查询</Link></div>;
-    return <div className="page narrow"><Back to="/search/new"/><span className="eyebrow">我丢件了</span><h1>{tracked ? '追踪申请已收录' : p?.requiresSelection ? '请选择要核对的号码' : p?.results.length ? (p.results.some(r => r.kind === 'exact') ? '发现对应的登记' : '发现相关线索，需要核实') : p?.quality === 'partial' ? '已识别部分线索，暂时无法确认包裹' : draft.status === 'done' ? '暂时没有查到匹配' : draft.status === 'error' ? '查询需要处理' : '正在核对你的包裹'}</h1>{['queued', 'uploading', 'recognizing'].includes(draft.status) && <Spinner text={`${statusText[draft.status]}，请耐心等待…`}/>}<ErrorNote text={error || draft.error}/>{p?.requiresSelection && <section className="panel"><h2>截图里有多个号码</h2><p>选择要查询的快递单号，不需要手动输入。</p>{p.extraction?.identifiers.filter(i => ['domestic_waybill', 'consolidation_waybill', 'last_mile_waybill'].includes(i.type)).map(i => <button className="identifier-option" key={i.id} disabled={busy} onClick={() => void select(i.id)}><span>{typeText[i.type]}</span><code>{i.value}</code><ArrowRight size={17}/></button>)}</section>}{p && !p.requiresSelection && p.results.length > 0 && <><MatchList results={p.results}/><div className="panel"><h2>入群核实，联系对方</h2><p>为保护隐私，这里不展示对方微信。请把对应记录页面的截图发到拼多多找货群，管理员核实后提供联系人信息。</p></div><CommunityBlock /></>}{p && !p.requiresSelection && draft.status === 'done' && !p.results.length && !tracked && <section className="panel"><h2>{p.quality === 'partial' ? '要保留这些识别线索吗？' : '要留下这条寻件信息吗？'}</h2><p>之后有人提交对应包裹，提交页面会出现匹配提示。管理员也会通过微信联系你告知线索。</p><p>建议先加入拼多多找货群，方便后续核实和联系。</p><button className="button primary" onClick={() => navigate(`/search/${draft.id}/track`)}>申请追踪<ArrowRight size={17}/></button><Link to="/" className="text-button">暂不登记</Link></section>}{tracked && <><Link to={`/p/${tracked.code}`} className="button primary">查看寻件记录</Link><button className="text-button" onClick={() => void copyText(managementUrl(tracked.code, draft.cap)).then(() => setError('私密管理链接已复制，请妥善保存。'))}>保存私密管理链接</button><CommunityBlock /><AccountBlock /></>}{p && <ReadFields progress={p} images={draft.uploadSlots || []}/>}<Link className="button secondary" to="/search/new"><Camera size={17}/>重新拍图查询</Link>{contactOpen && <ContactDrawer title="提交寻件追踪申请" busy={busy} error={error} onClose={() => {
+    return <div className="page narrow"><Back to="/search/new"/><span className="eyebrow">我丢件了</span><h1>{tracked ? '追踪申请已收录' : p?.requiresSelection ? '请选择要核对的号码' : p?.results.length ? (p.results.some(r => r.kind === 'exact') ? '发现对应的登记' : '发现相关线索，需要核实') : p?.quality === 'partial' ? '已识别部分线索，暂时无法确认包裹' : draft.status === 'done' ? '暂时没有查到匹配' : draft.status === 'error' ? '查询需要处理' : '正在核对你的包裹'}</h1>{['queued', 'uploading', 'recognizing'].includes(draft.status) && <Spinner text={`${statusText[draft.status]}，请耐心等待…`}/>}<ErrorNote text={error || draft.error}/>{p?.requiresSelection && <section className="panel"><h2>截图里有多个号码</h2><p>选择要查询的快递单号，不需要手动输入。</p>{p.extraction?.identifiers.filter(i => ['domestic_waybill', 'consolidation_waybill', 'last_mile_waybill'].includes(i.type)).map(i => <button className="identifier-option" key={i.id} disabled={busy} onClick={() => void select(i.id)}><span>{typeText[i.type]}</span><code>{i.value}</code><ArrowRight size={17}/></button>)}</section>}{p && !p.requiresSelection && p.results.length > 0 && <><CandidateMatches progress={p} cap={draft.cap} draftId={draft.id}/><div className="panel"><h2>入群核实，联系对方</h2><p>为保护隐私，这里不展示对方微信。请把对应记录页面的截图发到拼多多找货群，管理员核实后提供联系人信息。</p></div><CommunityBlock /></>}{p && !p.requiresSelection && draft.status === 'done' && !p.results.length && !tracked && <section className="panel"><h2>{p.quality === 'partial' ? '要保留这些识别线索吗？' : '要留下这条寻件信息吗？'}</h2><p>之后有人提交对应包裹，提交页面会出现匹配提示。管理员也会通过微信联系你告知线索。</p><p>建议先加入拼多多找货群，方便后续核实和联系。</p><button className="button primary" onClick={() => navigate(`/search/${draft.id}/track`)}>申请追踪<ArrowRight size={17}/></button><Link to="/" className="text-button">暂不登记</Link></section>}{tracked && <><Link to={`/p/${tracked.code}`} className="button primary">查看寻件记录</Link><button className="text-button" onClick={() => void copyText(managementUrl(tracked.code, draft.cap)).then(() => setError('私密管理链接已复制，请妥善保存。'))}>保存私密管理链接</button><CommunityBlock /><AccountBlock /></>}{p && <ReadFields progress={p} images={draft.uploadSlots || []}/>}<Link className="button secondary" to="/search/new"><Camera size={17}/>重新拍图查询</Link>{contactOpen && <ContactDrawer title="提交寻件追踪申请" busy={busy} error={error} onClose={() => {
                 setContactOpen(false);
                 if (trackingIntent)
                     navigate(`/search/${draft.id}`);

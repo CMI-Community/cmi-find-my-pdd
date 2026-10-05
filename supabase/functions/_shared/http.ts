@@ -59,3 +59,20 @@ export function version(value: unknown): number {
   if (!Number.isInteger(value) || Number(value) < 1) throw new ApiError('INVALID_REQUEST', '缺少有效版本号。');
   return Number(value);
 }
+
+/** Candidate GETs are fenced to the version and selection the browser rendered. */
+export function candidateRequest(url: URL, currentVersion: number, currentSelection: string | null): { imageVersion: number; offset: number; selectedIdentifierId: string | null } {
+  const params = url.searchParams;
+  const allowed = ['imageVersion', 'offset', 'selectedIdentifierId'];
+  for (const key of params.keys()) {
+    if (!allowed.includes(key) || params.getAll(key).length !== 1) throw new ApiError('INVALID_REQUEST', '候选分页参数有误。');
+  }
+  const rawVersion = params.get('imageVersion') ?? '';
+  const rawOffset = params.get('offset') ?? '0';
+  if (!/^[1-9]\d*$/.test(rawVersion) || !/^\d+$/.test(rawOffset)) throw new ApiError('INVALID_REQUEST', '候选分页参数有误。');
+  const imageVersion = Number(rawVersion), offset = Number(rawOffset);
+  if (!Number.isSafeInteger(imageVersion) || !Number.isSafeInteger(offset) || offset > 100000) throw new ApiError('INVALID_REQUEST', '候选分页参数超出范围。');
+  const selectedIdentifierId = params.has('selectedIdentifierId') ? stringValue(params.get('selectedIdentifierId'), '选择的识别编号', 100) : null;
+  if (imageVersion !== currentVersion || selectedIdentifierId !== currentSelection) throw new ApiError('VERSION_CONFLICT', '照片或选择的号码已更新，请刷新后再加载候选。', 409);
+  return { imageVersion, offset, selectedIdentifierId };
+}

@@ -147,6 +147,42 @@ describe('real Postgres schema and transactions', () => {
     expect(candidates[0].extraction.identifiers.map(number => number.value)).toEqual(['AA111111']);
     await rpc('match_scan', { scan_id: lost.id, version: 1, selected_evidence_id: 'number-2' });
     expect(await rpc('get_scan_status', { scan_id: found.id })).toMatchObject({ results: [{ kind: 'exact' }] });
+    await db.exec('savepoint stale_page');
+    await expect(rpc('match_scan', { scan_id: lost.id, version: 1, offset: 20, enforce_selection: true,
+      expected_selected_identifier_id: 'number-1' })).rejects.toThrow(/VERSION_CONFLICT/);
+    await db.exec('rollback to stale_page');
+    expect((await db.query<{ selected_identifier_id: string }>('select selected_identifier_id from public.scans where id=$1', [lost.id])).rows[0].selected_identifier_id).toBe('number-2');
+  });
+
+  it('serves deterministic first twenty candidates and the next page without duplicate or missing results', async () => {
+    await db.exec('begin');
+    const searching = await finalized('search');
+    const evidence = extraction(undefined, { itemNames: ['电动打蛋器'] });
+    await recognize(searching, evidence);
+    for (let n = 0; n < 21; n++) {
+      const found = await finalized('received');
+      await recognize(found, evidence);
+    }
+    type Page = { results: { record: { code: string } }[]; totalMatches: number; nextOffset: number | null; selectedIdentifierId: string | null };
+    const request = { scan_id: searching.id, version: 1, enforce_selection: true, expected_selected_identifier_id: null };
+    const first = await rpc<Page>('match_scan', { ...request, offset: 0 });
+    const second = await rpc<Page>('match_scan', { ...request, offset: 20 });
+    expect(first.results).toHaveLength(20);
+    expect(first.totalMatches).toBe(21);
+    expect(first.nextOffset).toBe(20);
+    expect(second.results).toHaveLength(1);
+    expect(second.totalMatches).toBe(21);
+    expect(second.nextOffset).toBeNull();
+    const codes = [...first.results, ...second.results].map(match => match.record.code);
+    const stored = await db.query<{ public_code: string }>('select public_code from public.records order by public_code');
+    expect(codes).toEqual(stored.rows.map(row => row.public_code));
+    expect(new Set(codes).size).toBe(21);
+    expect(await rpc<Page>('match_scan', { ...request, offset: 0 })).toEqual(first);
+    await db.exec('savepoint stale_image');
+    await expect(rpc('match_scan', { ...request, version: 2, offset: 20 })).rejects.toThrow(/VERSION_CONFLICT/);
+    await db.exec('rollback to stale_image');
+    const raw = JSON.stringify(second);
+    expect(raw).not.toMatch(/fixture_user|sourceImageId|capability_hash|contact|extraction/);
   });
 
   it('invalidates prior tasks after a selection changes, blocks stale admin actions and locks confirmed ownership', async () => {
