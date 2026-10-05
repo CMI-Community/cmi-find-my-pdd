@@ -1,0 +1,28 @@
+project_id = "cmi-find-my-pdd"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+
+[db]
+port = 54322
+major_version = 17
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+enable_signup = false
+
+[storage]
+enabled = true
+file_size_limit = "5MiB"
+
+[functions.api]
+# Capabilities and validated admin JWTs are checked inside this function.
+verify_jwt = false
+
+[functions.worker]
+# Constant-time comparison of a private internal worker secret.
+verify_jwt = false
