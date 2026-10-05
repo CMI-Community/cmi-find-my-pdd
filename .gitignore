@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.vercel/
+.private/
+backups/
+output/
+.playwright-cli/
+资料/
+CMI_找货板_最简产品设计与开发说明书.md
+*.log
+.DS_Store
+supabase/.temp/
