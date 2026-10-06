@@ -20,7 +20,7 @@ capability 仅保存 SHA-256 摘要。查询凭证关联本次 queryId；批量�
 
 ## 输入与结果
 
-`mode` 为 `lost | received`，分别表示丢件和错收件；`source` 为 `manual | barcode`。`number` 仅接受完整国内运输单号：删除空白、转大写，保留前导零；规范结果为 6–40 位 ASCII 字母或数字。不推测缺位、不转换全角字符，不以尾号、拼多多订单号、商品条码或集运总单代替国内运单。
+`mode` 为 `lost | received`，分别表示丢件和错收件；`source` 为 `manual | barcode`。正式登记的 `number` 仅接受完整国内运输单号：删除空白、转大写，保留前导零；规范结果为 6–40 位 ASCII 字母或数字。不推测缺位、不转换全角字符，不以尾号、拼多多订单号、商品条码或集运总单代替国内运单。
 
 ```ts
 type PddContact = { kind: 'wechat' | 'phone'; value: string };
@@ -28,7 +28,7 @@ type PddContact = { kind: 'wechat' | 'phone'; value: string };
 
 微信号字母开头，6–64 字符，后续为字母、数字、下划线或连字符；不接受昵称。电话最多 32 字符，至少 7 个数字，可包含开头 `+`、空格、括号和连字符。表单明确说明：相同完整单号的另一方可查看这项自填联系方式；不要求注册或额外互相批准。
 
-查询依次判断：有效对侧登记 → `matched`；否则同侧已有登记 → `duplicate`；否则 → `not_found`。已实际交还为 `closed`。已撤回、联系资料已清理或已知承运商冲突不能返回对侧联系方式。服务失败必须是错误，不能当作 `not_found`。
+查询依次判断：有效对侧登记 → `matched`；否则同侧已有登记 → `duplicate`；否则 → `not_found`。已实际交还为 `closed`。以上精确结果优先，精确未找到时才查找疑似对侧并返回 `possible`。已撤回、联系资料已清理或已知承运商冲突不能返回对侧联系方式。服务失败必须是错误，不能当作 `not_found`。
 
 **专用完整单号查询是直接联系方式及用户自填备注的明确例外。** `matched` 结果允许返回 `{kind,value}` 及对侧 `note`，不提供地址字段、原图、OCR、凭证、管理 URL 或管理员功能。普通公开记录始终不含联系方式、备注和完整单号；不存在通过公开编号、尾号或 query flag 解锁这些资料的接口。单号匹配不证明归属或交还。
 
@@ -40,7 +40,7 @@ type PddContact = { kind: 'wechat' | 'phone'; value: string };
 | `GET /v1/community` | 无 | `Community`；缺项为 null，不使用假二维码 |
 | `GET /v1/stats` | 无 | `Stats`：有效误收包裹数、按联系方式规范值去重的未完成寻件人数；实际交还数不大于 5 时为 null |
 | `GET /v1/waybill-stats` | 无 | `{lostRegistered,receivedRegistered,matchedParcels}`，三个非负安全整数 |
-| `POST /v1/waybill-queries` | 本人头；`{queryId,number,mode,source}` | `PddQueryResult`；HTTP 200 |
+| `POST /v1/waybill-queries` | 本人头；`{queryId,number,mode,source,allowPossible?}` | `PddQueryResult`；HTTP 200 |
 | `POST /v1/waybill-queries/:queryId/contact` | 查询凭证、稳定 `Idempotency-Key`；`{contact}` | `PddQueryContactResult`；HTTP 200 |
 | `POST /v1/waybill-batches` | 本批凭证、稳定 `Idempotency-Key`；`{mode,contact,note?,items:[{requestId,number,source}]}` | `PddBatchResult`；HTTP 200 |
 | `POST /v1/feedback` | 稳定UUID `Idempotency-Key`；`{message,contact?}`，无需账号或包裹凭证 | `{submitted:true,feedbackId,submittedAt}`；HTTP 201 |
@@ -49,13 +49,17 @@ type PddContact = { kind: 'wechat' | 'phone'; value: string };
 | `PATCH /v1/waybill-manage/:registrationCode` | 本人凭证；`{revision,contact}` | 更新后的 `PddRegistration` |
 | `POST /v1/waybill-manage/:registrationCode/withdraw` | 本人凭证；`{revision}` | 撤回后的 `PddRegistration` |
 
-`PddQueryResult={queryId,result,queriedAt,record,registeredAt,contact,note}`。`result` 为 `matched | duplicate | not_found | closed`；未匹配时 `contact` 和 `note` 均为 null。每次用户明确查询产生新 UUID；网络重试保留 queryId、请求体和凭证，只记一次日志。日志记录规范单号、类型、来源、服务器具体时间和原始查询结果，保留 30 天。输入、扫码填号和逐字编辑不自动发查询。
+`PddQueryResult={queryId,result,queriedAt,record,registeredAt,contact,note,candidates}`。`result` 为 `matched | possible | duplicate | not_found | closed`；只有matched可有contact/note，possible顶层record、registeredAt、contact、note全部null。其他结果的candidates为空数组。每次用户明确查询产生新 UUID；网络重试保留 queryId、请求体和凭证，只记一次日志。日志记录规范单号、类型、来源、服务器具体时间和原始查询结果，保留 30 天。输入、扫码填号和逐字编辑不自动发查询。
 
 首页累计登记按历史正式登记的 `(waybill_id,mode)` 去重，包括已撤回/已结案，不含查询日志与本机草稿。`matchedParcels` 按主记录首次成功查询/批量重查匹配时间去重；幂等重放读到新匹配时也仅标记一次。首次匹配标记永久保留，30天查询日志清理不减少累计数字。历史仅按已有 `matched` 查询日志回填，不推测丢失历史。旧 `/stats` 的实际交还计数与此独立。
 
 批量 `note` 可省略、null或字符串，去两端空白，空串为null；最多500个Unicode字符，保留换行，拒绝非法控制字符。每个新登记复制同一备注，重复项不覆盖原值；旧客户端省略该字段与旧幂等请求继续兼容。非匹配的普通公开DTO不返回备注。
 
 反馈 `message` 去两端空白后为1–2000个Unicode字符，可换行；可选 `contact` 与包裹联系校验相同。反馈写接口额外每分钟5次限流。相同请求编号/内容幂等，不同内容为409；公开响应只含提交回执，不返回任何反馈内容或联系方式。无公开列表或详情接口。
+
+新客户端发送 `allowPossible:true` 才启用疑似线索；省略或false保持旧客户端的完整号精确查询行为，避免旧页面误解新结果。该字段只接受boolean，原请求体用于幂等摘要，不向旧请求补字段。这个开关不能改变联系方式披露规则。
+
+模糊查询允许6–40位ASCII字母、数字、`?`和`*`，至少6个已知字母或数字，仍去空白转大写、保留前导零；每个未知字符代表一个看不清的位置并计入差异。相似度 `100 × (1 − Levenshtein距离 / max(输入长度,登记长度))`，只选严格大于70且小于100的值。只查有效对侧、有有效联系资料且未交还的登记，按相似度、时间和编号稳定排序，最多5条。`candidates:[{code,tail,similarity,registeredAt}]`只有公开编号、最多4位尾号、字符相似度和登记时间，绝不返回完整号码、联系、备注或管理能力。精确重复与已结案不被疑似结果覆盖；100%相同完整号仍按原有效性/承运商条件判断，不能用模糊标志解锁联系。疑似查询写result=possible日志但不写matched_at；同UUID重试只一条日志。未知字符输入不能加入正式队列或登记；提交查询者联系方式时服务器重新检查当前结果，仍为疑似时拒绝，只有当前完整号精确匹配才可提交。旧批量接口继续仅接受完整单号。
 
 未匹配列表是本机草稿，查询日志不等于正式登记。批量每次 1–50 个不同单号，事务内重新核对当前状态，返回逐条 `registered | matched | duplicate | closed`；不会因查询与提交之间出现新登记而丢掉匹配。一个规范单号只有一条主记录，每侧最多一条有效登记，重复不会覆盖原联系方式或授予其管理权。
 
@@ -99,7 +103,7 @@ action：`verify` 开始核实；`claim` 确认归属，进入待交还；`retur
 | `410` | `QUERY_EXPIRED`；重新查询后再留联系方式 |
 | `413/415` | `INVALID_REQUEST`；请求过大或不是 JSON |
 | `429` | `RATE_LIMITED`；稍后重试，不绕过限额 |
-| `503/500` | `SERVICE_UNAVAILABLE/INTERNAL_ERROR`；保留草稿和请求编号，不显示查无此件 |
+| `503/500` | `SERVICE_UNAVAILABLE/INTERNAL_ERROR/QUERY_TIMEOUT`；保留草稿和请求编号，不显示查无此件 |
 
 全体查询日志与幂等元数据保留 30 天；登记结案/撤回 30 天后清除联系、管理凭证和批量备注，累计登记、首次匹配及匿名交还事实保留。反馈标记closed后30天删除内容和联系方式，审计仅保留编号与状态。诊断日志只记录请求编号与白名单错误码，不输出完整单号、联系方式、凭证或 SQL 原始错误。
 

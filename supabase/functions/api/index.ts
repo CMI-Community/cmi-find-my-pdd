@@ -24,11 +24,12 @@ async function rpc(db: SupabaseClient, name: string, payload: Row): Promise<Row>
   const { data, error } = await db.rpc(name, { p_payload: payload });
   if (error) {
     const raw = String(error.message ?? '');
-    const recognized = ['VERSION_CONFLICT', 'SCAN_EXPIRED', 'QUERY_EXPIRED', 'RATE_LIMITED', 'FORBIDDEN', 'INVALID_IMAGE', 'UPLOAD_INCOMPLETE', 'NEEDS_PHOTO', 'OCR_DEFERRED', 'INVALID_REQUEST', 'INVALID_CONTACT', 'INVALID_WAYBILL', 'IDEMPOTENCY_CONFLICT', 'RECORD_NOT_FOUND', 'SCAN_NOT_FOUND', 'WAYBILL_NOT_FOUND', 'QUERY_NOT_FOUND', 'OWNERSHIP_LOCKED', 'NEEDS_RECEIVED', 'INVALID_ADMIN_STATE'].find((code) => raw.includes(code));
+    const recognized = ['VERSION_CONFLICT', 'SCAN_EXPIRED', 'QUERY_EXPIRED', 'QUERY_TIMEOUT', 'RATE_LIMITED', 'FORBIDDEN', 'INVALID_IMAGE', 'UPLOAD_INCOMPLETE', 'NEEDS_PHOTO', 'OCR_DEFERRED', 'INVALID_REQUEST', 'INVALID_CONTACT', 'INVALID_WAYBILL', 'IDEMPOTENCY_CONFLICT', 'RECORD_NOT_FOUND', 'SCAN_NOT_FOUND', 'WAYBILL_NOT_FOUND', 'QUERY_NOT_FOUND', 'OWNERSHIP_LOCKED', 'NEEDS_RECEIVED', 'INVALID_ADMIN_STATE'].find((code) => raw.includes(code));
     if (recognized === 'RECORD_NOT_FOUND' || recognized === 'SCAN_NOT_FOUND' || recognized === 'WAYBILL_NOT_FOUND' || recognized === 'QUERY_NOT_FOUND') throw new ApiError('NOT_FOUND', '记录不存在。', 404);
     if (recognized === 'OWNERSHIP_LOCKED') throw new ApiError('OWNERSHIP_LOCKED', '包裹已确认归属，撤回请联系小助手处理。', 409);
     if (recognized === 'NEEDS_RECEIVED') throw new ApiError('NEEDS_RECEIVED', '需有有效的错收件登记才能确认实际包裹归属。', 409);
     if (recognized === 'INVALID_ADMIN_STATE') throw new ApiError('INVALID_ADMIN_STATE', '当前状态不能执行此操作，请先核实并确认归属。', 409);
+    if (recognized === 'QUERY_TIMEOUT') throw new ApiError('QUERY_TIMEOUT', '疑似线索查询暂时较慢，请稍后重试，或核对完整国内单号后再查询。', 503, true);
     if (recognized === 'QUERY_EXPIRED') throw new ApiError('QUERY_EXPIRED', '这次查询已过期，请重新查询后留下联系方式。', 410);
     if (error.code === '40001' || error.code === '23505' || recognized === 'VERSION_CONFLICT' || recognized === 'IDEMPOTENCY_CONFLICT') throw new ApiError(recognized ?? 'VERSION_CONFLICT', '内容已更新或请求重复，请刷新后重试。', 409);
     if (recognized === 'SCAN_EXPIRED') throw new ApiError('SCAN_EXPIRED', '本次查询已过期，请重新上传。', 410);

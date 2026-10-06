@@ -3,11 +3,36 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../src/api', async importOriginal => ({ ...await importOriginal<typeof import('../src/api')>(), request: vi.fn() }));
 import { request } from '../src/api';
 import { pddApi } from '../src/pdd-api';
+import type { PddQueryResult } from '../shared/waybill';
 
 const mockedRequest = vi.mocked(request);
 beforeEach(() => { mockedRequest.mockReset(); });
 
 describe('PDD404 new public and administrator API contracts', () => {
+  it('explicitly opts in to safe fuzzy clues and strips private or unexpected fields from possible results', async () => {
+    const input = { queryId: 'synthetic-query', number: '0012?456', mode: 'lost' as const, source: 'manual' as const };
+    mockedRequest.mockResolvedValueOnce({ queryId: input.queryId, result: 'possible', queriedAt: '2026-10-06T14:00:00Z', record: { number: 'private_number' }, registeredAt: 'private_time', contact: { kind: 'wechat', value: 'private_contact' }, note: 'private_note', capability: 'private_capability', candidates: [{ code: 'PDD-P-SYNTHETIC', tail: '3456', similarity: 87.5, registeredAt: '2026-10-06T13:00:00Z', number: 'private_number', contact: 'private_contact' }] });
+    const result = await pddApi.query(input, 'synthetic-capability');
+    expect(mockedRequest).toHaveBeenLastCalledWith('/v1/waybill-queries', { method: 'POST', body: { ...input, allowPossible: true }, cap: 'synthetic-capability', key: input.queryId });
+    expect(result.contact).toBeNull();
+    expect(result.note).toBeNull();
+    expect(result.record).toBeNull();
+    expect(result.registeredAt).toBeNull();
+    expect(result.candidates).toEqual([{ code: 'PDD-P-SYNTHETIC', tail: '3456', similarity: 87.5, registeredAt: '2026-10-06T13:00:00Z' }]);
+    expect(JSON.stringify(result)).not.toContain('private_');
+  });
+  it('does not present threshold-boundary, exact or unmasked results as fuzzy candidates', async () => {
+    const base = { queryId: 'synthetic-query', result: 'possible', queriedAt: '2026-10-06T14:00:00Z', record: null, registeredAt: null, contact: null, note: null };
+    for (const candidate of [{ code: 'PDD-P-SYNTHETIC', tail: '3456', similarity: 70, registeredAt: '2026-10-06T13:00:00Z' }, { code: 'PDD-P-SYNTHETIC', tail: '3456', similarity: 100, registeredAt: '2026-10-06T13:00:00Z' }, { code: 'PDD-P-SYNTHETIC', tail: '00123456', similarity: 90, registeredAt: '2026-10-06T13:00:00Z' }]) {
+      mockedRequest.mockResolvedValueOnce({ ...base, candidates: [candidate] });
+      await expect(pddApi.query({ queryId: base.queryId, number: '0012?456', mode: 'lost', source: 'manual' }, 'synthetic-capability')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    }
+  });
+  it('keeps exact matching contacts and notes available under the existing query contract', async () => {
+    const exact = { queryId: 'synthetic-query', result: 'matched', queriedAt: '2026-10-06T14:00:00Z', record: null, registeredAt: '2026-10-06T13:00:00Z', contact: { kind: 'wechat', value: 'synthetic_user' }, note: '晚上领取', candidates: [] } as PddQueryResult;
+    mockedRequest.mockResolvedValueOnce(exact);
+    expect(await pddApi.query({ queryId: exact.queryId, number: '00123456', mode: 'lost', source: 'manual' }, 'synthetic-capability')).toBe(exact);
+  });
   it('reads only validated cumulative counts and rejects malformed data instead of showing zeros', async () => {
     mockedRequest.mockResolvedValueOnce({ lostRegistered: 3, receivedRegistered: 4, matchedParcels: 2, internal: 'synthetic' });
     expect(await pddApi.stats()).toEqual({ lostRegistered: 3, receivedRegistered: 4, matchedParcels: 2 });

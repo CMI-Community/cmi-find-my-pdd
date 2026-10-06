@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { addQueueEntry, draftBatchNote, newPendingBatch, normalizeWaybillInput, pendingBatchInput, receiptFromRegistration, setDraftBatchNote, settleQueue, waybillInputError, type QueueEntry, type WaybillDraftState } from '../src/waybill-drafts';
+import { addQueueEntry, draftBatchNote, newPendingBatch, newQueueEntry, normalizeWaybillInput, pendingBatchInput, queryQueueAction, receiptFromRegistration, setDraftBatchNote, settleQueue, waybillInputError, waybillQueryInputError, type QueueEntry, type WaybillDraftState } from '../src/waybill-drafts';
 import { createCameraSession } from '../src/pdd-camera';
 import type { PddRegistration } from '../shared/waybill';
 
@@ -10,6 +10,23 @@ describe('PDD404 local single-number queues', () => {
     expect(normalizeWaybillInput('O01234')).not.toBe(normalizeWaybillInput('001234'));
     expect(waybillInputError('123')).toBeTruthy();
     expect(waybillInputError('00AB1234')).toBe('');
+  });
+  it('allows readable query patterns while rejecting them from every registration path', () => {
+    for (const pattern of ['00AB?234', '00AB*234']) {
+      expect(waybillQueryInputError(pattern)).toBe('');
+      expect(waybillInputError(pattern)).toBeTruthy();
+      expect(queryQueueAction(pattern, 'not_found')).toBe('complete_number');
+      expect(queryQueueAction(pattern, 'possible')).toBe('show_result');
+      expect(() => newQueueEntry(pattern, 'lost', 'manual')).toThrow('完整单号');
+      expect(() => addQueueEntry([], entry('pattern', pattern))).toThrow('完整单号');
+      const contact = { kind: 'wechat' as const, value: 'synthetic_user' };
+      expect(() => newPendingBatch('lost', [entry('pattern', pattern)], contact)).toThrow('不完整单号');
+      expect(() => pendingBatchInput({ id: 'synthetic-id', capability: 'synthetic-cap', mode: 'lost', contact, items: [entry('pattern', pattern)] })).toThrow('不完整单号');
+    }
+    expect(waybillQueryInputError('12?45*')).toBeTruthy();
+    expect(waybillQueryInputError('1234-5678')).toBeTruthy();
+    expect(queryQueueAction('00123456', 'not_found')).toBe('queue');
+    for (const result of ['possible', 'matched', 'duplicate', 'closed'] as const) expect(queryQueueAction('00123456', result)).toBe('show_result');
   });
   it('deduplicates the current mode while preserving the other mode', () => {
     const first = entry('a', '00AB1234');

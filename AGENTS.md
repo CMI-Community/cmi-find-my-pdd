@@ -20,6 +20,11 @@ the implementation contract. Record genuine deployment state in docs/releases/.
 - PDD404 matches equal normalized complete domestic waybills only. Normalize
   whitespace and letter case; retain leading zeroes. A match never confirms
   ownership. Legacy evidence matching retains type/quality/carrier restrictions.
+- Approximate queries are suggestions only: normalized character similarity
+  must exceed 70% and stay below 100%, with unreadable ?/* characters penalized.
+  Return at most five allowlisted masked references, never contact or note;
+  instruct screenshot and CMI assistant follow-up. Registration remains full
+  waybill only; approximate suggestions never increment matched-parcel counts.
 - Worker calls require atomic budget reservation. Unknown cost retains the
   reservation. Do not loosen daily limits or retry indefinitely.
 - No fabricated community QR, contacts, recognition output, progress or counters.

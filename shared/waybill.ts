@@ -4,7 +4,8 @@ export type PddMode = 'lost' | 'received';
 export type PddSource = 'manual' | 'barcode';
 export interface PddContact { kind: 'wechat' | 'phone'; value: string }
 export interface PddHomeStats { lostRegistered: number; receivedRegistered: number; matchedParcels: number }
-export type PddResult = 'matched' | 'duplicate' | 'not_found' | 'closed';
+export type PddResult = 'matched' | 'possible' | 'duplicate' | 'not_found' | 'closed';
+export interface PddPossibleCandidate { code: string; tail: string; similarity: number; registeredAt: string }
 export interface PddPublicRecord {
   code: string; tail: string; resolution: Resolution; visibility: Visibility;
   revision: number; lostRegistered: boolean; receivedRegistered: boolean;
@@ -15,11 +16,12 @@ export interface PddRegistration {
   contact: PddContact | null; note: string | null; revision: number; visibility: 'active' | 'withdrawn';
   createdAt: string; updatedAt: string; record: PddPublicRecord;
 }
-export interface PddQueryInput { queryId: string; number: string; mode: PddMode; source: PddSource }
+export interface PddQueryInput { queryId: string; number: string; mode: PddMode; source: PddSource; allowPossible?: boolean }
 /** The exact-number lookup is the sole intentional direct-contact projection. */
 export interface PddQueryResult {
   queryId: string; result: PddResult; queriedAt: string;
   record: PddPublicRecord | null; registeredAt: string | null; contact: PddContact | null; note: string | null;
+  candidates: PddPossibleCandidate[];
 }
 export interface PddQueryContactResult { saved: true; registration: PddRegistration | null }
 export interface PddBatchItem { requestId: string; number: string; source: PddSource }
@@ -53,6 +55,13 @@ export function validateWaybill(input: unknown): string {
   if (typeof input !== 'string' || input.length > 100) throw new Error('INVALID_WAYBILL');
   const value = normalizeWaybill(input);
   if (!/^[A-Z0-9]{6,40}$/.test(value)) throw new Error('INVALID_WAYBILL');
+  return value;
+}
+/** Unknown characters are literal one-character placeholders, never inferred digits. */
+export function validateWaybillQuery(input: unknown): string {
+  if (typeof input !== 'string' || input.length > 100) throw new Error('INVALID_WAYBILL');
+  const value = normalizeWaybill(input);
+  if (!/^[A-Z0-9?*]{6,40}$/.test(value) || value.replace(/[?*]/g, '').length < 6) throw new Error('INVALID_WAYBILL');
   return value;
 }
 export function validatePddContact(input: unknown): PddContact {

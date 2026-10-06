@@ -28,7 +28,7 @@ async function rpc<T = Record<string, unknown>>(name: string, payload: Record<st
   return (await db.query<{ value: T }>(`select public.${name}($1::jsonb) as value`, [JSON.stringify(payload)])).rows[0].value;
 }
 async function query(number: string, mode: PddMode, cap = capB, queryId = randomUUID()): Promise<PddQueryResult> {
-  return rpc('pdd_query', { query_id: queryId, number, mode, source: 'manual', capability_hash: cap, body_hash: `query-${number}-${mode}` });
+  return rpc('pdd_query', { query_id: queryId, number, mode, source: 'manual', allow_possible: true, capability_hash: cap, body_hash: `query-${number}-${mode}` });
 }
 async function batch(number: string, mode: PddMode, contact = lostContact, cap = capA, requestId = randomUUID(), note?: string): Promise<PddBatchResult> {
   return rpc('pdd_batch_register', { request_id: requestId, mode, contact, note, capability_hash: cap, body_hash: `batch-${number}-${mode}`,
@@ -38,6 +38,134 @@ type HomeStats = { lostRegistered: number; receivedRegistered: number; matchedPa
 const homeStats = () => rpc<HomeStats>('pdd_home_stats');
 
 describe('PDD404 isolated transactional flow', () => {
+  it('preserves exact-only clients unless they explicitly opt into possible candidates', async () => {
+    await batch('ABCDEFGH12', 'received', receivedContact);
+    const payload = { number: 'ABCDEFGHXY', mode: 'lost', source: 'manual', capability_hash: capB, body_hash: 'legacy-exact-query' };
+    const legacy = { ...payload, query_id: randomUUID() };
+    const first = await rpc('pdd_query', legacy);
+    expect(first).toMatchObject({ result: 'not_found', contact: null, note: null, candidates: [] });
+    expect(await rpc('pdd_query', legacy)).toEqual(first);
+    expect((await db.query('select result from public.pdd_query_events where id=$1::uuid', [legacy.query_id])).rows).toEqual([{ result: 'not_found' }]);
+    expect(await rpc('pdd_query', { ...payload, query_id: randomUUID(), allow_possible: false })).toMatchObject({ result: 'not_found', contact: null, note: null, candidates: [] });
+    expect((await query(payload.number, 'lost')).result).toBe('possible');
+    await db.exec('savepoint legacy_unknown;');
+    await expect(rpc('pdd_query', { ...payload, number: 'ABCDEFGH1?', query_id: randomUUID() })).rejects.toThrow('INVALID_WAYBILL');
+    await db.exec('rollback to savepoint legacy_unknown;');
+    expect((await homeStats()).matchedParcels).toBe(0);
+  });
+  it('rejects overly uncertain patterns and nonboolean fuzzy opt-in at the database boundary', async () => {
+    for (const number of ['ABCDE?????', '**********', `ABCDEF${'?'.repeat(35)}`]) {
+      await db.exec('savepoint invalid_query;');
+      await expect(query(number, 'lost')).rejects.toThrow('INVALID_WAYBILL');
+      await db.exec('rollback to savepoint invalid_query;');
+    }
+    await expect(rpc('pdd_query', { query_id: randomUUID(), number: 'ABCDEFGH12', mode: 'lost', source: 'manual', allow_possible: 'true', capability_hash: capB, body_hash: 'invalid-flag' })).rejects.toThrow('INVALID_REQUEST');
+  });
+  it('keeps exactly 70% similarity out while showing an 80% safe candidate and reserving direct contact for an exact number', async () => {
+    const item = (await batch('ABCDEFGH12', 'received', receivedContact, capA, randomUUID(), 'Private holder description')).items[0];
+    expect(await query('ABCDEFGXYZ', 'lost')).toMatchObject({ result: 'not_found', contact: null, note: null });
+    const possible = await query('ABCDEFGHXY', 'lost');
+    expect(possible).toMatchObject({ result: 'possible', record: null, registeredAt: null, contact: null, note: null });
+    expect(possible.candidates).toEqual([{ code: item.record.code, tail: 'GH12', similarity: 80, registeredAt: item.registration!.createdAt }]);
+    expect(Object.keys(possible.candidates[0]).sort()).toEqual(['code', 'registeredAt', 'similarity', 'tail']);
+    expect(JSON.stringify(possible)).not.toContain('ABCDEFGH12'); expect(JSON.stringify(possible)).not.toContain(receivedContact.value); expect(JSON.stringify(possible)).not.toContain('Private');
+    expect(await homeStats()).toEqual({ lostRegistered: 0, receivedRegistered: 1, matchedParcels: 0 });
+    expect(await query(' abcdefgh12 ', 'lost')).toMatchObject({ result: 'matched', contact: receivedContact, note: 'Private holder description', candidates: [] });
+    expect(await homeStats()).toEqual({ lostRegistered: 0, receivedRegistered: 1, matchedParcels: 1 });
+  });
+  it('treats each question mark and asterisk as one unknown character, never as an exact match or an arbitrary-length wildcard', async () => {
+    await batch('ABCDEFGH12', 'received', receivedContact);
+    for (const number of ['ABCDEFGH1?', 'ABCDEFGH1*']) {
+      const possible = await query(number, 'lost');
+      expect(possible.result).toBe('possible'); expect(possible.candidates).toHaveLength(1); expect(possible.candidates[0].similarity).toBe(90);
+      expect(possible.contact).toBeNull(); expect(possible.note).toBeNull();
+    }
+    for (const number of ['ABCDEF??12', 'ABCDEF**12']) expect((await query(number, 'lost')).candidates[0].similarity).toBe(80);
+    // Six wildcards are six uncertain characters rather than one glob operator.
+    for (const number of ['ABCDEF*', 'ABCDEF******']) expect(await query(number, 'lost')).toMatchObject({ result: 'not_found', contact: null, candidates: [] });
+    expect(await homeStats()).toEqual({ lostRegistered: 0, receivedRegistered: 1, matchedParcels: 0 });
+  });
+  it('finds an inserted or omitted character with normalized Levenshtein similarity', async () => {
+    await batch('ABCDEFGH12', 'received', receivedContact);
+    const omitted = await query('ABCDEGH12', 'lost'), inserted = await query('ABCDEFXGH12', 'lost');
+    expect(omitted.result).toBe('possible'); expect(omitted.candidates[0].similarity).toBe(90);
+    expect(inserted.result).toBe('possible'); expect(inserted.candidates[0].similarity).toBeCloseTo(100 * (1 - 1 / 11), 2);
+    expect(await homeStats()).toEqual({ lostRegistered: 0, receivedRegistered: 1, matchedParcels: 0 });
+  });
+  it('gives exact duplicate and closed records priority over nearby opposite-side candidates', async () => {
+    await batch('PRIORITY01', 'lost'); await batch('PRIORITY02', 'received', receivedContact);
+    expect(await query('PRIORITY01', 'lost')).toMatchObject({ result: 'duplicate', contact: null, note: null, candidates: [] });
+    await batch('PRIORITY03', 'received', receivedContact);
+    await db.exec("update public.pdd_waybills set resolution='resolved',closed_at=now() where number='PRIORITY03';");
+    expect(await query('PRIORITY03', 'lost')).toMatchObject({ result: 'closed', contact: null, note: null, candidates: [] });
+    expect(await homeStats()).toEqual({ lostRegistered: 1, receivedRegistered: 2, matchedParcels: 0 });
+  });
+  it('restricts fuzzy candidates to active opposite registrations with usable contact on unresolved records', async () => {
+    await batch('FILTERR1230', 'lost');
+    const withdrawn = (await batch('FILTERR1231', 'received', receivedContact)).items[0].registration!;
+    await rpc('pdd_manage_update', { registration_code: withdrawn.registrationCode, capability_hash: capA, revision: withdrawn.revision, action: 'withdraw' });
+    await batch('FILTERR1232', 'received', receivedContact);
+    await db.exec("update public.pdd_waybills set resolution='resolved',closed_at=now() where number='FILTERR1232';");
+    await batch('FILTERR1233', 'received', receivedContact);
+    await db.exec("update public.pdd_registrations set contact=null where waybill_id=(select id from public.pdd_waybills where number='FILTERR1233');");
+    const valid = (await batch('FILTERR1235', 'received', receivedContact)).items[0];
+    const answer = await query('FILTERR1234', 'lost');
+    expect(answer.result).toBe('possible'); expect(answer.candidates.map(item => item.code)).toEqual([valid.record.code]);
+    expect(answer.contact).toBeNull(); expect(answer.note).toBeNull(); expect(answer.record).toBeNull();
+    expect((await homeStats()).matchedParcels).toBe(0);
+  });
+  it('returns at most five candidates in decreasing similarity with deterministic ties', async () => {
+    const fixtures = ['ABCDEF1235', 'ABCDEF1236', 'ABCDEF1237', 'ABCDEF1238', 'ABCDEF1239', 'ABCDEG1235', 'ABCDEG1236'];
+    const records = [];
+    for (const number of fixtures) records.push((await batch(number, 'received', receivedContact)).items[0]);
+    const answer = await query('ABCDEF1234', 'lost');
+    expect(answer.result).toBe('possible'); expect(answer.candidates).toHaveLength(5);
+    expect(answer.candidates.every(item => item.similarity === 90)).toBe(true);
+    expect(new Set(answer.candidates.map(item => item.code))).toEqual(new Set(records.slice(0, 5).map(item => item.record.code)));
+    expect(answer.candidates.map(item => item.code)).toEqual(records.slice(0, 5).map(item => item.record.code).sort());
+    const repeated = await query('ABCDEF1234', 'lost');
+    expect(repeated.candidates).toEqual(answer.candidates);
+    expect(answer.candidates.every(item => Object.keys(item).sort().join(',') === 'code,registeredAt,similarity,tail')).toBe(true);
+    expect((await homeStats()).matchedParcels).toBe(0);
+  });
+  it('logs a possible query pattern once for its UUID and exposes its result to the administrator without changing lifetime matches', async () => {
+    const registration = (await batch('ABCDEFGH12', 'received', receivedContact)).items[0].registration!;
+    const id = randomUUID();
+    const first = await query(' abcdefgh1? ', 'lost', capB, id);
+    expect(first.result).toBe('possible');
+    expect(await query(' abcdefgh1? ', 'lost', capB, id)).toEqual(first);
+    const events = (await db.query<{ id: string; number: string; result: string; contact: null }>('select id,number,result,contact from public.pdd_query_events')).rows;
+    expect(events).toEqual([{ id, number: 'ABCDEFGH1?', result: 'possible', contact: null }]);
+    expect((await rpc<{ items: { queryId: string; number: string; result: string }[] }>('pdd_admin_queries')).items).toEqual([expect.objectContaining({ queryId: id, number: 'ABCDEFGH1?', result: 'possible' })]);
+    await rpc('pdd_manage_update', { registration_code: registration.registrationCode, capability_hash: capA, revision: registration.revision, action: 'withdraw' });
+    expect(await query(' abcdefgh1? ', 'lost', capB, id)).toMatchObject({ result: 'not_found', candidates: [], contact: null, note: null });
+    expect((await db.query('select result from public.pdd_query_events')).rows).toEqual([{ result: 'possible' }]);
+    expect((await homeStats()).matchedParcels).toBe(0);
+  });
+  it('rejects contact submission from a possible query and leaves the candidate registration untouched', async () => {
+    await batch('ABCDEFGH12', 'received', receivedContact, capA, randomUUID(), 'Keep private');
+    const possible = await query('ABCDEFGHXY', 'lost');
+    await db.exec('savepoint possible_contact;');
+    await expect(rpc('pdd_query_contact', { query_id: possible.queryId, capability_hash: capB, contact: lostContact, idempotency_key: 'fuzzy-contact', body_hash: 'fuzzy-contact' })).rejects.toThrow('VERSION_CONFLICT');
+    await db.exec('rollback to savepoint possible_contact;');
+    expect((await db.query('select * from public.pdd_registrations')).rows).toHaveLength(1);
+    expect((await db.query<{ contact: null }>('select contact from public.pdd_query_events')).rows).toEqual([{ contact: null }]);
+    expect(await homeStats()).toEqual({ lostRegistered: 0, receivedRegistered: 1, matchedParcels: 0 });
+  });
+  it('rejects uncertain numbers in batch registration but allows a separately confirmed complete number', async () => {
+    await batch('ABCDEFGH12', 'received', receivedContact);
+    const possible = await query('ABCDEFGHXY', 'lost'); expect(possible.result).toBe('possible');
+    for (const pattern of ['ABCDEFGH1?', 'ABCDEFGH1*']) {
+      await db.exec('savepoint invalid_pattern;');
+      await expect(batch(pattern, 'lost')).rejects.toThrow('INVALID_WAYBILL');
+      await db.exec('rollback to savepoint invalid_pattern;');
+    }
+    const explicit = await batch('ABCDEFGHXY', 'lost', lostContact, capB, randomUUID(), 'User confirmed this complete number');
+    expect(explicit.items[0].result).toBe('registered'); expect(explicit.items[0].contact).toBeNull();
+    expect((await db.query('select number from public.pdd_waybills order by number')).rows).toEqual([{ number: 'ABCDEFGH12' }, { number: 'ABCDEFGHXY' }]);
+    expect((await db.query('select waybill_id from public.pdd_query_events where id=$1::uuid', [possible.queryId])).rows).toEqual([{ waybill_id: null }]);
+    expect(await homeStats()).toEqual({ lostRegistered: 1, receivedRegistered: 1, matchedParcels: 0 });
+  });
   it('stores feedback once, returns a nonprivate receipt and lists only explicit admin fields', async () => {
     const payload = { request_id: randomUUID(), body_hash: 'synthetic-feedback', message: '  Synthetic camera feedback  ', contact: lostContact };
     const receipt = await rpc<PddFeedbackReceipt>('pdd_feedback_submit', payload);

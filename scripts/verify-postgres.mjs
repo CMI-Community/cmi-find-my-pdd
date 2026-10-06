@@ -157,7 +157,7 @@ try {
 
   // Independent successful-query transactions (including the same query id)
   // must mark one lifetime match and write only one idempotent query event.
-  const concurrentNumber = 'SF990000006006';
+  const concurrentNumber = 'CONCURRENTSCAN6006';
   const concurrentRegistration = (await rpc('pdd_batch_register', batch(concurrentNumber, 'received', capA, 'fictional_concurrent_holder', randomUUID(), 'Concurrent holder note'))).items[0].registration;
   const beforeConcurrent = await rpc('pdd_home_stats', {});
   const simultaneous = { query_id: randomUUID(), number: concurrentNumber, mode: 'lost', source: 'barcode', capability_hash: capB, body_hash: 'concurrent-query' };
@@ -212,6 +212,66 @@ try {
   await assert.rejects(() => sql('set role anon; select * from public.pdd_feedback;'), /permission denied/);
   assert.deepEqual(await rpc('pdd_home_stats', {}), afterBatchReplay);
   console.log('Real PostgreSQL concurrent feedback idempotency, private receipt, audited states and browser denial passed.');
+
+  const fuzzyNumber = 'ZXABCDEF12';
+  const fuzzyRegistration = (await rpc('pdd_batch_register', batch(fuzzyNumber, 'received', capA, 'fictional_fuzzy_holder', randomUUID(), 'Private fuzzy holder note'))).items[0];
+  const fuzzyQuery = number => ({ query_id: randomUUID(), number, mode: 'lost', source: 'manual', allow_possible: true, capability_hash: capB, body_hash: `fuzzy-${number}` });
+  const beforeFuzzy = await rpc('pdd_home_stats', {});
+  const legacyFuzzy = fuzzyQuery('ZXABCDEFXY'); delete legacyFuzzy.allow_possible;
+  const firstLegacy = await rpc('pdd_query', legacyFuzzy);
+  assert.equal(firstLegacy.result, 'not_found');
+  assert.deepEqual(await rpc('pdd_query', legacyFuzzy), firstLegacy);
+  assert.equal(await sql(`select count(*) from public.pdd_query_events where id='${legacyFuzzy.query_id}' and result='not_found';`), '1');
+  assert.equal((await rpc('pdd_query', { ...legacyFuzzy, query_id: randomUUID(), allow_possible: false })).result, 'not_found');
+  await assert.rejects(() => rpc('pdd_query', { ...legacyFuzzy, query_id: randomUUID(), number: 'ZXABCDEF1?' }), /INVALID_WAYBILL/);
+  assert.equal((await rpc('pdd_query', fuzzyQuery('ZXABCDEXYZ'))).result, 'not_found', 'Exactly 70% must be excluded.');
+  const uncertain = fuzzyQuery('ZXABCDEF1?');
+  const uncertainAnswers = await Promise.all(Array.from({ length: 6 }, () => rpc('pdd_query', uncertain)));
+  assert(uncertainAnswers.every(answer => answer.result === 'possible' && answer.contact === null && answer.note === null && answer.record === null && answer.registeredAt === null));
+  assert.equal(await sql(`select count(*) from public.pdd_query_events where id='${uncertain.query_id}';`), '1');
+  assert.equal(uncertainAnswers[0].candidates[0].similarity, 90);
+  assert.deepEqual(Object.keys(uncertainAnswers[0].candidates[0]).sort(), ['code', 'registeredAt', 'similarity', 'tail']);
+  assert(!JSON.stringify(uncertainAnswers[0]).includes(fuzzyNumber)); assert(!JSON.stringify(uncertainAnswers[0]).includes('fictional_')); assert(!JSON.stringify(uncertainAnswers[0]).includes('Private'));
+  assert.equal((await rpc('pdd_admin_queries', { limit: 100 })).items.find(item => item.queryId === uncertain.query_id).result, 'possible');
+  for (const pattern of ['ZXABCDEF1*', 'ZXABCDE12', 'ZXABCDEFX12']) {
+    const answer = await rpc('pdd_query', fuzzyQuery(pattern));
+    assert.equal(answer.result, 'possible'); assert.equal(answer.contact, null); assert(answer.candidates[0].similarity > 70 && answer.candidates[0].similarity < 100);
+  }
+  const completePossible = await rpc('pdd_query', fuzzyQuery('ZXABCDEFXY'));
+  assert.equal(completePossible.result, 'possible'); assert.equal(completePossible.candidates[0].similarity, 80);
+  await assert.rejects(() => rpc('pdd_query_contact', { query_id: completePossible.queryId, capability_hash: capB, contact: { kind: 'wechat', value: 'fictional_fuzzy_owner' }, idempotency_key: 'fuzzy-contact', body_hash: 'fuzzy-contact' }), /VERSION_CONFLICT/);
+  for (const pattern of ['ZXABCDEF1?', 'ZXABCDEF1*']) await assert.rejects(() => rpc('pdd_batch_register', batch(pattern, 'lost', capB, 'fictional_fuzzy_owner')), /INVALID_WAYBILL/);
+  assert.deepEqual(await rpc('pdd_home_stats', {}), beforeFuzzy);
+  assert.equal((await rpc('pdd_batch_register', batch('ZXABCDEFXY', 'lost', capB, 'fictional_fuzzy_owner', randomUUID(), 'Explicit complete-number registration'))).items[0].result, 'registered');
+  assert.equal(await sql(`select waybill_id is null from public.pdd_query_events where id='${completePossible.queryId}';`), 't');
+  const rank = [];
+  for (let index = 1; index <= 6; index++) {
+    const number = `QRORDER000${index}`;
+    const item = (await rpc('pdd_batch_register', batch(number, 'received', capA, 'fictional_rank_holder', randomUUID(), 'Private ranking note'))).items[0];
+    await sql(`update public.pdd_registrations set created_at='2026-10-06T10:00:0${index}Z' where registration_code='${item.registration.registrationCode}';`);
+    rank.push(item);
+  }
+  const ranked = await rpc('pdd_query', fuzzyQuery('QRORDER0000'));
+  assert.equal(ranked.result, 'possible'); assert.equal(ranked.candidates.length, 5);
+  assert.deepEqual(ranked.candidates.map(item => item.code), rank.slice(1).reverse().map(item => item.record.code));
+  assert(ranked.candidates.every(item => Object.keys(item).sort().join(',') === 'code,registeredAt,similarity,tail'));
+  await sql(`update public.pdd_waybills set resolution='resolved',closed_at=now() where public_code='${rank[5].record.code}';`);
+  await rpc('pdd_manage_update', { registration_code: rank[4].registration.registrationCode, capability_hash: capA, revision: rank[4].registration.revision, action: 'withdraw' });
+  await sql(`update public.pdd_registrations set contact=null where registration_code='${rank[3].registration.registrationCode}';`);
+  await rpc('pdd_batch_register', batch('QRORDER0007', 'lost', capB, 'fictional_same_side'));
+  const eligible = await rpc('pdd_query', fuzzyQuery('QRORDER0000'));
+  assert.deepEqual(eligible.candidates.map(item => item.code), rank.slice(0, 3).reverse().map(item => item.record.code));
+  assert.equal(eligible.contact, null); assert.equal(eligible.note, null);
+  assert.equal((await rpc('pdd_query', fuzzyQuery('QRORDER0007'))).result, 'duplicate');
+  assert.equal((await rpc('pdd_query', fuzzyQuery('QRORDER0006'))).result, 'closed');
+  const beforeExactFuzzy = await rpc('pdd_home_stats', {});
+  const exactFuzzy = await rpc('pdd_query', fuzzyQuery(fuzzyNumber));
+  assert.equal(exactFuzzy.result, 'matched'); assert.equal(exactFuzzy.contact.value, 'fictional_fuzzy_holder'); assert.equal(exactFuzzy.note, 'Private fuzzy holder note'); assert.deepEqual(exactFuzzy.candidates, []);
+  assert.equal(exactFuzzy.record.code, fuzzyRegistration.record.code);
+  assert.deepEqual(await rpc('pdd_home_stats', {}), { ...beforeExactFuzzy, matchedParcels: beforeExactFuzzy.matchedParcels + 1 });
+  const helperPermissions = JSON.parse(await sql("select jsonb_agg(jsonb_build_object('anon',has_function_privilege('anon',p.oid,'EXECUTE'),'authenticated',has_function_privilege('authenticated',p.oid,'EXECUTE')))::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname like 'pdd_%';"));
+  assert(helperPermissions.every(item => !item.anon && !item.authenticated));
+  console.log('Real PostgreSQL fuzzy strict boundary, unknown/edit distance, safe candidate ordering/eligibility, concurrent logs, exact priority and match-count isolation passed.');
 
   // Authenticate in one connection, block it on the number lock in another,
   // revoke its capability with cleanup, then let the authenticated request resume.

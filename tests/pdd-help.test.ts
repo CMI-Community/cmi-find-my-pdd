@@ -35,4 +35,14 @@ describe('PDD404 help page', () => {
     expect(html).toContain('不会自动发送微信或短信');
     expect(html).not.toContain('本站不保存任何个人信息');
   });
+  it('separates masked fuzzy clues and incomplete queries from exact matching and formal registration', () => {
+    const html = help();
+    expect(html).toContain('至少保留6位清楚的字母或数字');
+    expect(html).toContain('每个符号只代表一位');
+    expect(html).toContain('字符相似度超过70%、低于100%');
+    expect(html).toContain('不显示对方联系方式或备注');
+    expect(html).toContain('请截图保存本页，联系 CMI 小助手');
+    expect(html).toContain('仍要登记这个完整单号');
+    expect(html).toContain('先核对完整后再查询和登记');
+  });
 });
