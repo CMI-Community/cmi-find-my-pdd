@@ -1,6 +1,7 @@
 import { request, ApiFailure } from './api';
 import type { Community } from '../shared/contracts';
-import type { PddQueryInput, PddQueryResult, PddContact, PddQueryContactResult, PddBatchInput, PddBatchResult, PddRegistration, PddPublicRecord, PddAdminList, PddAdminDetail, PddAdminAction, PddQueryLogPage } from '../shared/waybill';
+import type { PddQueryInput, PddQueryResult, PddContact, PddQueryContactResult, PddBatchInput, PddBatchResult, PddRegistration, PddPublicRecord, PddAdminList, PddAdminDetail, PddAdminAction, PddQueryLogPage, PddHomeStats } from '../shared/waybill';
+import type { PddFeedbackInput, PddFeedbackResult, PddFeedback, PddFeedbackStatus, PddFeedbackList } from '../shared/feedback';
 
 async function pddRequest<T>(path: string, options: Parameters<typeof request>[1] = {}): Promise<T> {
   try { return await request<T>(path, options); }
@@ -9,9 +10,27 @@ async function pddRequest<T>(path: string, options: Parameters<typeof request>[1
     throw error;
   }
 }
+function homeStatsResponse(value: PddHomeStats): PddHomeStats {
+  if (!value || [value.lostRegistered, value.receivedRegistered, value.matchedParcels].some(count => !Number.isSafeInteger(count) || count < 0)) throw new ApiFailure('统计返回异常，请稍后重试。', 'INVALID_RESPONSE');
+  return { lostRegistered: value.lostRegistered, receivedRegistered: value.receivedRegistered, matchedParcels: value.matchedParcels };
+}
+export function safeQueryResponse(value: PddQueryResult): PddQueryResult {
+  if (value.result !== 'possible') return value;
+  if (!Array.isArray(value.candidates) || !value.candidates.length || value.candidates.length > 5) throw new ApiFailure('疑似线索返回异常，请重新查询。', 'INVALID_RESPONSE');
+  const candidates = value.candidates.map(item => {
+    if (!item || typeof item.code !== 'string' || !item.code || typeof item.tail !== 'string' || !/^[A-Z0-9]{4}$/.test(item.tail) || !Number.isFinite(item.similarity) || item.similarity <= 70 || item.similarity >= 100 || typeof item.registeredAt !== 'string' || !Number.isFinite(Date.parse(item.registeredAt))) throw new ApiFailure('疑似线索返回异常，请重新查询。', 'INVALID_RESPONSE');
+    return { code: item.code, tail: item.tail, similarity: item.similarity, registeredAt: item.registeredAt };
+  });
+  // Fuzzy clues never carry direct contacts, notes, full numbers or capabilities.
+  return { queryId: value.queryId, result: 'possible', queriedAt: value.queriedAt, candidates, record: null, registeredAt: null, contact: null, note: null };
+}
 export const pddApi = {
   community: () => pddRequest<Community>('/v1/community'),
-  query: (input: PddQueryInput, capability: string) => pddRequest<PddQueryResult>('/v1/waybill-queries', { method: 'POST', body: input, cap: capability, key: input.queryId }),
+  stats: async () => homeStatsResponse(await pddRequest<PddHomeStats>('/v1/waybill-stats')),
+  submitFeedback: (input: PddFeedbackInput, idempotencyKey: string) => pddRequest<PddFeedbackResult>('/v1/feedback', { method: 'POST', body: input, key: idempotencyKey }),
+  adminFeedbackList: (token: string, offset = 0, status?: PddFeedbackStatus) => pddRequest<PddFeedbackList>('/v1/admin/feedback?offset=' + offset + (status ? '&status=' + encodeURIComponent(status) : ''), { token }),
+  adminFeedbackUpdate: (id: string, status: PddFeedbackStatus, token: string) => pddRequest<PddFeedback>('/v1/admin/feedback/' + encodeURIComponent(id), { method: 'PATCH', body: { status }, token }),
+  query: async (input: PddQueryInput, capability: string) => safeQueryResponse(await pddRequest<PddQueryResult>('/v1/waybill-queries', { method: 'POST', body: { ...input, allowPossible: true }, cap: capability, key: input.queryId })),
   queryContact: (queryId: string, contact: PddContact, capability: string) => pddRequest<PddQueryContactResult>('/v1/waybill-queries/' + encodeURIComponent(queryId) + '/contact', { method: 'POST', body: { contact }, cap: capability, key: queryId + ':contact' }),
   batch: (input: PddBatchInput, batchId: string, capability: string) => pddRequest<PddBatchResult>('/v1/waybill-batches', { method: 'POST', body: input, cap: capability, key: batchId }),
   publicRecord: (code: string) => pddRequest<PddPublicRecord>('/v1/waybills/' + encodeURIComponent(code)),

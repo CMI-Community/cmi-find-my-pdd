@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 // @ts-expect-error Native operational ESM is intentionally outside TS compilation.
-import { TABLES, FORMAT, migrationManifest, readEncryptedSnapshot, rowsHash, sanitizeRow, sha256, snapshotChunks, writeEncryptedChunks } from '../scripts/backup-scoped.mjs';
+import { TABLES, FORMAT, FEEDBACK_MIGRATION, migrationManifest, readEncryptedSnapshot, rowsHash, sanitizeRow, sha256, snapshotChunks, tablesForMigrations, writeEncryptedChunks } from '../scripts/backup-scoped.mjs';
 // @ts-expect-error Native operational ESM is intentionally outside TS compilation.
 import { BOOTSTRAP_SQL, restoreAndCompare, validateSnapshot, verifiedMigrations, verifyScopedRestore } from '../scripts/verify-scoped-restore.mjs';
 
@@ -41,7 +41,7 @@ beforeAll(async () => {
     insert into public.audit_events(actor_id,action,record_id) values('${actor}','synthetic','${records[0]}');
     insert into public.site_settings(key,value) values('runtime','{"OCR_ENABLED":"false","APP_ENVIRONMENT":"test"}');
   `);
-  const batch = { request_id: id(), mode: 'received', contact: { kind: 'wechat', value: 'fictional_holder' }, capability_hash: 'a'.repeat(64), body_hash: 'synthetic-batch', items: [{ request_id: id(), number: '001234560001', source: 'barcode' }] };
+  const batch = { request_id: id(), mode: 'received', note: 'Synthetic holder description', contact: { kind: 'wechat', value: 'fictional_holder' }, capability_hash: 'a'.repeat(64), body_hash: 'synthetic-batch', items: [{ request_id: id(), number: '001234560001', source: 'barcode' }] };
   const registered = (await source.query<{ value: { items: { record: { code: string } }[] } }>('select public.pdd_batch_register($1::jsonb) value', [JSON.stringify(batch)])).rows[0].value;
   const query = { query_id: id(), number: '001234560001', mode: 'lost', source: 'manual', capability_hash: 'b'.repeat(64), body_hash: 'synthetic-query' };
   await source.query('select public.pdd_query($1::jsonb)', [JSON.stringify(query)]);
@@ -50,6 +50,11 @@ beforeAll(async () => {
   await source.query('select public.pdd_admin_action($1::jsonb)', [JSON.stringify({ public_code: registered.items[0].record.code, revision: beforeClaim, action: 'claim', actor_id: actor, notes: 'Synthetic verification.' })]);
   const revision = (await source.query<{ revision: number }>('select revision from public.pdd_waybills')).rows[0].revision;
   await source.query('select public.pdd_admin_action($1::jsonb)', [JSON.stringify({ public_code: registered.items[0].record.code, revision, action: 'return', actor_id: actor, notes: 'Synthetic handover.' })]);
+  await source.query('select public.pdd_batch_register($1::jsonb)', [JSON.stringify({ ...batch, request_id: id(), mode: 'lost', note: 'Synthetic owner description', body_hash: 'synthetic-owner-batch', items: [{ request_id: id(), number: '001234560002', source: 'manual' }] })]);
+  const feedback = { request_id: id(), body_hash: 'synthetic-feedback', message: 'Synthetic private camera feedback', contact: { kind: 'wechat', value: 'fictional_feedback_contact' } };
+  const receipt = (await source.query<{ value: { feedbackId: string } }>('select public.pdd_feedback_submit($1::jsonb) value', [JSON.stringify(feedback)])).rows[0].value;
+  await source.query('select public.pdd_feedback_submit($1::jsonb)', [JSON.stringify(feedback)]);
+  await source.query('select public.pdd_admin_feedback_update($1::jsonb)', [JSON.stringify({ feedback_id: receipt.feedbackId, status: 'reviewed', actor_id: actor })]);
   const tables = [];
   for (const name of tableNames) {
     const rows = (await source.query<{ value: Row }>(`select to_jsonb(row) value from public.${name} row`)).rows.map(row => row.value);
@@ -60,14 +65,14 @@ beforeAll(async () => {
 }, 30_000);
 afterAll(async () => { await source?.close(); });
 
-function mockClient(changed = false, runtimeChanged = false) {
+function mockClient(changed = false, runtimeChanged = false, data = fixture) {
   const calls = new Map<string, number>();
   return {
     calls,
     from(name: string) {
       const request = { select: () => request, order: () => request, range: async () => {
         calls.set(name, (calls.get(name) || 0) + 1);
-        const rows = fixture.tables.find(table => table.name === name)!.rows;
+        const rows = data.tables.find(table => table.name === name)!.rows;
         if (runtimeChanged && name === 'site_settings') return { data: rows.map(row => row.key === 'runtime' ? { ...row, value: { ...(row.value as Row), WORKER_SECRET: calls.get(name) === 1 ? 'synthetic-first' : 'synthetic-second' } } : row), error: null };
         return { data: changed && name === 'pdd_waybills' && calls.get(name) === 2 ? [] : rows, error: null };
       } }; return request;
@@ -89,8 +94,8 @@ describe('scoped encrypted fallback and restore', () => {
       expect(sealed.includes(Buffer.from('fictional_owner'))).toBe(false);
       expect((await stat(file)).mode & 0o777).toBe(0o600);
       const opened = await readEncryptedSnapshot(file, password);
-      expect(validateSnapshot(opened).size).toBe(20);
-      expect(client.calls.size).toBe(20);
+      expect(validateSnapshot(opened).size).toBe(21);
+      expect(client.calls.size).toBe(21);
       expect([...client.calls.values()].every(count => count === 2)).toBe(true);
       expect(opened.authMetadata).toBeUndefined();
       await expect(writeFixture(file)).rejects.toThrow();
@@ -131,8 +136,38 @@ describe('scoped encrypted fallback and restore', () => {
         return last ? String(Object.values(last)[0]) : '';
       };
       const result = await restoreAndCompare(fixture, sql);
-      expect(result).toMatchObject({ tables: 20, storageObjects: 1, auditActorPlaceholders: 1 });
+      expect(result).toMatchObject({ tables: 21, storageObjects: 1, auditActorPlaceholders: 1 });
+      expect(JSON.parse(await sql("select public.pdd_home_stats('{}'::jsonb)::text"))).toEqual({ lostRegistered: 2, receivedRegistered: 1, matchedParcels: 1 });
+      expect((await database.query<{ note: string | null }>('select note from public.pdd_registrations order by note nulls first')).rows.map(row => row.note)).toEqual([null, 'Synthetic holder description', 'Synthetic owner description']);
+      expect((await database.query<{ message: string; contact: unknown; status: string }>('select message,contact,status from public.pdd_feedback')).rows).toEqual([{ message: 'Synthetic private camera feedback', contact: { kind: 'wechat', value: 'fictional_feedback_contact' }, status: 'reviewed' }]);
     } finally { await database.close(); }
+  }, 30_000);
+  it('restores an encrypted pre-feedback 20-table snapshot using its original migration manifest', async () => {
+    const migrations = fixture.migrations.filter(entry => entry.version < FEEDBACK_MIGRATION);
+    const legacy = new PGlite({ extensions: { pgcrypto } }), restored = new PGlite({ extensions: { pgcrypto } });
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdd404-legacy-scoped-test-'));
+    try {
+      await legacy.exec(BOOTSTRAP_SQL);
+      for (const statement of await verifiedMigrations({ migrations })) await legacy.exec(statement);
+      await legacy.query('select public.pdd_batch_register($1::jsonb)', [JSON.stringify({ request_id: randomUUID(), mode: 'received', contact: { kind: 'wechat', value: 'fictional_legacy_holder' }, capability_hash: 'a'.repeat(64), body_hash: 'legacy-batch', items: [{ request_id: randomUUID(), number: 'LEGACY0012345', source: 'manual' }] })]);
+      const tables: Snapshot['tables'] = [];
+      for (const table of tablesForMigrations(migrations)) {
+        const rows = (await legacy.query<{ value: Row }>(`select to_jsonb(row) value from public.${table.name} row`)).rows.map(row => row.value);
+        tables.push({ name: table.name, rows, rowCount: rows.length, sha256: rowsHash(rows) });
+      }
+      const old: Snapshot = { format: FORMAT, project, migrations, tables, storage: [] };
+      const file = path.join(directory, 'legacy.cmibak');
+      const client = mockClient(false, false, old);
+      await writeEncryptedChunks(file, password, snapshotChunks(client, { project, migrations }));
+      const opened = await readEncryptedSnapshot(file, password);
+      expect(validateSnapshot(opened).size).toBe(20); expect(client.calls.has('pdd_feedback')).toBe(false);
+      const sql = async (statement: string) => { const result = await restored.exec(statement); const row = result.at(-1)?.rows[0]; return row ? String(Object.values(row)[0]) : ''; };
+      expect(await restoreAndCompare(opened, sql)).toMatchObject({ tables: 20, auditActorPlaceholders: 0 });
+      expect((await restored.query<{ contact: unknown }>('select contact from public.pdd_registrations')).rows).toEqual([{ contact: { kind: 'wechat', value: 'fictional_legacy_holder' } }]);
+      expect(await sql("select count(*) from information_schema.tables where table_schema='public' and table_name='pdd_feedback'")).toBe('0');
+      // The same 20 tables are incomplete if the header claims the new schema.
+      expect(() => validateSnapshot({ ...opened, migrations: fixture.migrations })).toThrow('Incomplete');
+    } finally { await legacy.close(); await restored.close(); await rm(directory, { recursive: true, force: true }); }
   }, 30_000);
   it('rejects incomplete cross-table references with the actual FK constraint', async () => {
     const broken = structuredClone(fixture);
@@ -154,7 +189,7 @@ describe('scoped encrypted fallback and restore', () => {
     try {
       const file = path.join(directory, 'snapshot.cmibak');
       await writeFixture(file);
-      expect(await verifyScopedRestore(file, password)).toMatchObject({ tables: 20, storageObjects: 1, auditActorPlaceholders: 1 });
+      expect(await verifyScopedRestore(file, password)).toMatchObject({ tables: 21, storageObjects: 1, auditActorPlaceholders: 1 });
     } finally { await rm(directory, { recursive: true, force: true }); }
   }, 30_000);
 });

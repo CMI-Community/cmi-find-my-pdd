@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { projectGuard, required } from './ops.mjs';
 
 export const FORMAT = 'pdd404-scoped-row-snapshot-v1';
+export const FEEDBACK_MIGRATION = '20261006135344';
 export const TABLES = Object.freeze([
   ['scans', ['id']], ['images', ['id']], ['records', ['id']], ['evidence', ['id']],
   ['jobs', ['id']], ['matches', ['id']], ['followups', ['id']], ['handovers', ['id']],
@@ -16,7 +17,15 @@ export const TABLES = Object.freeze([
   ['site_settings', ['key']], ['audit_events', ['id']], ['pdd_waybills', ['id']],
   ['pdd_registrations', ['id']], ['pdd_query_events', ['id']],
   ['pdd_write_requests', ['scope', 'key']], ['pdd_audit_events', ['id']], ['pdd_handovers', ['waybill_id']],
+  ['pdd_feedback', ['id']],
 ].map(([name, order]) => Object.freeze({ name, order: Object.freeze(order) })));
+// Older encrypted snapshots must reconstruct their original schema. A snapshot
+// declaring the feedback migration must include that table, even when empty.
+export function tablesForMigrations(migrations) {
+  if (!Array.isArray(migrations) || !migrations.length) throw new Error('Invalid scoped migration manifest.');
+  const hasFeedback = migrations.some(entry => entry?.version === FEEDBACK_MIGRATION);
+  return hasFeedback ? TABLES : TABLES.filter(table => table.name !== 'pdd_feedback');
+}
 export const BUCKETS = Object.freeze(['parcel-originals', 'parcel-public', 'community-assets']);
 export const RUNTIME_KEYS = Object.freeze(['APP_ENVIRONMENT', 'APP_PUBLIC_URL', 'ALLOWED_ORIGINS', 'ADMIN_USER_IDS', 'APP_SHA', 'OCR_ENABLED']);
 const MAGIC = Buffer.from('CMIBAK01');
@@ -74,6 +83,7 @@ async function* storageObjects(client, bucket, prefix = '', depth = 0) {
 // Returns chunks of JSON without accumulating the full snapshot. Table hashes
 // are rechecked before this generator completes and the encrypted file commits.
 export async function* snapshotChunks(client, metadata, summary = {}) {
+  const tables = tablesForMigrations(metadata.migrations);
   const header = {
     format: FORMAT, ...metadata, startedAt: new Date().toISOString(),
     schemaSource: 'repository-migrations',
@@ -87,9 +97,9 @@ export async function* snapshotChunks(client, metadata, summary = {}) {
   };
   yield JSON.stringify(header).slice(0, -1) + ',"tables":[';
   const hashes = new Map();
-  summary.tableRows = {}; summary.storageObjects = 0;
-  for (let index = 0; index < TABLES.length; index++) {
-    const table = TABLES[index], normalized = [], consistency = [];
+  summary.tableRows = {}; summary.storageObjects = 0; summary.tables = tables.length;
+  for (let index = 0; index < tables.length; index++) {
+    const table = tables[index], normalized = [], consistency = [];
     if (index) yield ',';
     yield `{"name":${JSON.stringify(table.name)},"rows":[`;
     let count = 0;
@@ -113,7 +123,7 @@ export async function* snapshotChunks(client, metadata, summary = {}) {
   }
   summary.storageObjects = files;
   // A bounded second complete read rejects a changing dataset. No hidden retry.
-  for (const table of TABLES) {
+  for (const table of tables) {
     const normalized = [];
     for await (const page of tablePages(client, table)) for (const row of page) normalized.push(canonical(row));
     const first = hashes.get(table.name);
@@ -170,7 +180,7 @@ export async function backupScoped(destination) {
     const retained = (await readdir('backups')).filter(name => name.startsWith(prefix) && name.endsWith('.cmibak')).sort().reverse();
     for (const name of retained.slice(7)) await rm(path.join('backups', name));
   }
-  console.log(`Encrypted scoped snapshot created: ${path.basename(output)}; 20 tables, ${summary.storageObjects} storage objects. Two row reads matched. Offline restore verification is still required.`);
+  console.log(`Encrypted scoped snapshot created: ${path.basename(output)}; ${summary.tables} tables, ${summary.storageObjects} storage objects. Two row reads matched. Offline restore verification is still required.`);
   return { output, ...summary };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
