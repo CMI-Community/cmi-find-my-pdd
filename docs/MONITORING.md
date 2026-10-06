@@ -36,7 +36,7 @@ node --env-file=.private/cloud.env --env-file=.private/monitor.env scripts/monit
 
 脚本的耗时是单次探测，CPU是采样间平均；均不冒充业务查询p95。业务日志记录安全的固定路由、响应状态、耗时、数据库调用次数/累计耗时，成功采样10%，错误及慢调用全部记录。请求体、完整路径/参数、单号、联系、JWT和凭证不进入诊断日志。使用Supabase日志平台查看实际请求错误率及延迟分布。
 
-Codex线程心跳每五分钟运行该脚本，只在新增/升级告警、恢复、监控故障或需操作时通知；按维护者要求同样发送到其已连接Gmail账户 `me`。相同未变化告警不重复发邮件。Codex本地调度依赖当前主机/应用可运行。另有GitHub Actions `PDD404 service monitor` 五分钟定时云检查，不需要本机开着；检查失败以失败运行呈现，原生Actions邮件取决于账户通知设置，不能把它当作已验证邮件送达。GitHub schedule可能排队或延迟。Vercel原生付费Alerts/Observability Plus目前不购买。平台基本流量与日志控制台已存在，新增应用日志覆盖Supabase后端。
+Codex线程心跳每五分钟运行该脚本，只在新增/升级告警、恢复、监控故障或需操作时通知；按维护者要求同样发送到其已连接Gmail账户 `me`。相同未变化告警不重复发邮件。Codex本地调度依赖当前主机/应用可运行。另有GitHub Actions `PDD404 service monitor` 五分钟定时云检查，不需要本机开着；检查失败以失败运行呈现。已只读核实当前GitHub账户的Actions Email与Failed workflows only开启，发送到GitHub默认通知邮箱；该邮箱与已连接Gmail可能不同。配置已验证，实际原生失败邮件收件未验证，不冒称送达。GitHub schedule可能排队或延迟。Vercel原生付费Alerts/Observability Plus目前不购买。平台基本流量与日志控制台已存在，新增应用日志覆盖Supabase后端。
 
 云工作流仅在`main`运行，用官方`actions/cache/restore@v4`和`actions/cache/save@v4`跨运行保留`/tmp/pdd404-monitor-state.json`。每次保存使用唯一运行ID/重试次数键，下一次用前缀恢复最新状态；即使本次监控因告警退出1，也保存新状态。因此在主机关闭时，云端也能比较CPU计数、连续延迟/内存和死锁变化；数据库增长预测在保存的基线跨至少一天后才具备数据。缓存只含明确白名单的数值资源、日期、公开发布SHA及固定告警枚举，不含凭据、单号、联系、SQL或Exporter标签；缓存不是私密存储，能读取仓库缓存的人可以看到这些资源汇总。[GitHub缓存的可见性与键匹配](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)
 

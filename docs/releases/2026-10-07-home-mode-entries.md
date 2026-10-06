@@ -1,6 +1,6 @@
 # 首页双模式入口调整（2026-10-07，曼谷）
 
-状态：已完成实现与本机验证，尚未合并或部署。本记录不代表生产验收，不创建运行时发布标签。
+状态：[PR #33](https://github.com/CMI-Community/cmi-find-my-pdd/pull/33)已合入main；页面改动随统计修复的运行源码`6bc97521e92bff7f905c35daefefc16fbe0457ea`与部署`dpl_GAEfX9pNs9y4kLaBCEFBFc8eFRFZ`上线。真实公开首页/帮助页读取与统计验收见[同期监控发布记录](2026-10-07-analytics-monitoring.md)。以下合成业务反馈及响应布局仍是本机验证；本次线上只读验收没有提交登记或重新执行真实摄像头测试。不创建运行时发布标签。
 
 基线：`fc6354b`；分支：`codex/pdd404-home-mode-ux`。目标产品为独立 PDD404。
 
