@@ -5,7 +5,7 @@ import type { CameraDescription } from '../src/pdd-camera';
 
 // Importing the UI must never create a real authentication client in tests.
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => null }));
-import { createScannerCameraController, defaultPreviewMirror, initialScannerFocusDistance, observedScannerFocus, refreshScannerDevices, ScannerCameraControls, ScannerReadControls, ScannerDevicePicker, scannerFailureCanEnumerate, ScannerPreview, scannerFocusOptions } from '../src/PddApp';
+import { createScannerCameraController, defaultPreviewMirror, initialScannerFocusDistance, observedScannerFocus, refreshScannerDevices, ScannerCameraControls, ScannerReadControls, ScannerDevicePicker, scannerFailureCanEnumerate, scannerReaderErrorMessage, ScannerPreview, scannerFocusOptions } from '../src/PddApp';
 
 function description(values: Partial<CameraDescription> = {}): CameraDescription { return { focusModes: [], ...values }; }
 function stream() {
@@ -22,6 +22,18 @@ function controlsHtml(camera: CameraDescription, values: Record<string, unknown>
 }
 
 describe('scanner preview and useful camera controls', () => {
+  it('distinguishes reader loading failure from hardware, permissions and cancellation without exposing internal errors', () => {
+    const failure = new Error('synthetic internal fetch URL and compilation stack');
+    failure.name = 'BarcodeReaderUnavailableError';
+    const message = scannerReaderErrorMessage(failure);
+    expect(message).toContain('识别组件未能加载');
+    expect(message).toContain('刷新页面重试');
+    expect(message).toContain('手动输入单号');
+    expect(message).not.toContain('synthetic');
+    expect(message).not.toContain('摄像头权限');
+    expect(scannerFailureCanEnumerate(failure)).toBe(false);
+    for (const name of ['NotAllowedError', 'NotReadableError', 'AbortError']) expect(scannerReaderErrorMessage(new DOMException('synthetic', name))).toBeNull();
+  });
   it('keeps one actual photo action in both modes and disables it until ready or while decoding', () => {
     const props = { mode: 'photo' as const, ready: true, busy: false, onMode() {}, onCapture() {}, onClose() {} };
     const ready = renderToStaticMarkup(createElement(ScannerReadControls, props));
@@ -50,12 +62,13 @@ describe('scanner preview and useful camera controls', () => {
   });
   it('renders mirror state on the video only, without introducing another camera or media source', () => {
     const videoRef = { current: null };
-    const mirrored = renderToStaticMarkup(createElement(ScannerPreview, { videoRef, mirrored: true, onDimensions() {} }));
-    const regular = renderToStaticMarkup(createElement(ScannerPreview, { videoRef, mirrored: false, onDimensions() {} }));
+    const mirrored = renderToStaticMarkup(createElement(ScannerPreview, { videoRef, mirrored: true }));
+    const regular = renderToStaticMarkup(createElement(ScannerPreview, { videoRef, mirrored: false }));
     expect(mirrored).toContain('data-preview-mirrored="true"');
     expect(regular).toContain('data-preview-mirrored="false"');
     expect(mirrored).toMatch(/^<video\b[^>]*><\/video>$/);
     expect(mirrored).not.toContain('src=');
+    expect(mirrored).toContain('aria-label="摄像头中央取景画面"');
   });
   it('does not invent autofocus or a usable slider from missing/constant capabilities', () => {
     expect(scannerFocusOptions(description())).toEqual({ automatic: null, manual: false });

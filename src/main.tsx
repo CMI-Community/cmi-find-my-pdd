@@ -1,7 +1,11 @@
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import PddApp from './PddApp';
+import { preloadBarcodeReader } from './pdd-barcode-reader';
 import './pdd.css';
+// Warm the local decoder on page open without blocking the page or asking for camera access.
+// The scanner reports a failed load when opened; manual queries stay available.
+void preloadBarcodeReader().catch(() => undefined);
 if (!document.querySelector('link[rel="icon"]')) {
     const icon = document.createElement('link');
     icon.rel = 'icon';
