@@ -20,8 +20,8 @@
 
 ## 接口状态与发布边界
 
-本次运行代码只变更帮助页与样式；Supabase专属生产项目仍为 `fogncjjsnakbhfdbfvdi`，API20、worker20均ACTIVE，API bundle仍为 `9c6009a146510834ae2bc7d9f42b657370ed89466812aa7271e6e06a17bb9de7`。实际health返回 `version=0.2.0`、`environment=production`、`ready=true`。
+本次运行代码只变更帮助页与样式；Supabase专属生产项目为 `fogncjjsnakbhfdbfvdi`。通过现有已登录管理会话，于15:33:22 UTC保存公开版本标识APP_SHA；随后实际读取API21、worker21均ACTIVE，API bundle仍为 `9c6009a146510834ae2bc7d9f42b657370ed89466812aa7271e6e06a17bb9de7`，worker bundle仍为 `f78d9c64fbc0fe9b8a0e8e1b0fb9cb998ae114b31b9d21ba1781ee3cb25ca232`。配置保存后平台版本递增，函数代码包未变。
 
-尝试同步公开APP_SHA时，Supabase CLI返回Unauthorized；已登录Chrome管理页的自动化连接也未成功。本次未写入新Edge secret或数据库runtime，接口与数据库版本标识仍为 `be64248a1b144429e9c43b89af66af4ef9a3a264`。前端与接口的版本均为0.2.0，但SHA分别记录，不能声称接口版本标识已同步或后端已重新部署。此项元数据维护仍待有效管理授权；正式帮助页及既有接口可用性已实际核对。
+数据库runtime的APP_SHA于15:34:15.224924 UTC同步到 `2fff31974d324aae4d01506e30a41adb9084e126`；同一事务锁定runtime行、校验原版本及production环境，并写入 `pdd404_runtime_version` 审计，只包含旧/新SHA、部署ID及发布范围。15:36:29.908 UTC再次读取正式health，确认 `version=0.2.0`、`sha=2fff31974d324aae4d01506e30a41adb9084e126`、`environment=production`、`ok=true`、`ready=true`；前端、接口及数据库版本标识一致，OCR仍关闭。
 
 本次没有数据库迁移、用户数据清理或接口源码更改。此前正式登记、备份与恢复记录继续适用；帮助页排版验收不证明物理相机的扫码效果，也不证明实际包裹交还。没有创建运行标签；后续发布记录文档提交不是新运行部署。
