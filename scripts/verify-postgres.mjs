@@ -19,7 +19,7 @@ const root = await mkdtemp(path.join(tmpdir(), 'pdd404-pg-check-'));
 const data = path.join(root, 'data'), socket = path.join(root, 'socket');
 await mkdir(socket);
 const port = 56000 + Math.floor(Math.random() * 8000);
-const env = { ...process.env, PGHOST: socket, PGPORT: String(port), PGUSER: userInfo().username, PGDATABASE: 'postgres', PGCONNECT_TIMEOUT: '5' };
+const env = { PATH: process.env.PATH, LANG: 'C', LC_ALL: 'C', PGHOST: socket, PGPORT: String(port), PGUSER: userInfo().username, PGDATABASE: 'postgres', PGCONNECT_TIMEOUT: '5' };
 const capA = 'a'.repeat(64), capB = 'b'.repeat(64);
 const quote = value => "'" + JSON.stringify(value).replaceAll("'", "''") + "'::jsonb";
 const invoke = (name, payload) => `select public.${name}(${quote(payload)})::text;`;
@@ -37,7 +37,7 @@ async function bootstrap(database, roles = false) {
     create schema net; create function net.http_post(url text,headers jsonb,body jsonb,timeout_milliseconds integer) returns bigint language sql as 'select 1::bigint';
     create schema cron; create function cron.schedule(job_name text,schedule text,command text) returns bigint language sql as 'select 1::bigint';`, database);
 }
-const batch = (number, mode, capability, person, requestId = randomUUID()) => ({ request_id: requestId, mode, contact: { kind: 'wechat', value: person },
+const batch = (number, mode, capability, person, requestId = randomUUID(), note) => ({ request_id: requestId, mode, note, contact: { kind: 'wechat', value: person },
   items: [{ request_id: randomUUID(), number, source: 'manual' }], capability_hash: capability, body_hash: randomBytes(32).toString('hex') });
 function transactionSession() {
   const child = spawn(path.join(bin, 'psql'), ['-X', '-A', '-t', '-q', '--set', 'ON_ERROR_STOP=1'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -60,14 +60,35 @@ function transactionSession() {
 }
 try {
   await run(path.join(bin, 'initdb'), ['-D', data, '--auth=trust', '--no-locale', '--encoding=UTF8'], { env, maxBuffer: 1024 * 1024 });
-  await run(path.join(bin, 'pg_ctl'), ['-D', data, '-l', path.join(root, 'postgres.log'), '-o', `-F -k ${socket} -h 127.0.0.1 -p ${port}`, '-w', 'start'], { env });
+  await run(path.join(bin, 'pg_ctl'), ['-D', data, '-l', path.join(root, 'postgres.log'), '-o', `-F -k ${socket} -h '' -p ${port}`, '-w', 'start'], { env });
   running = true;
   await bootstrap('postgres', true);
   const directory = new URL('../supabase/migrations/', import.meta.url);
+  let backfillChecked = false;
   for (const name of (await readdir(directory)).filter(n => /^\d+_.+\.sql$/.test(n)).sort()) {
+    const upgrade = name === '20261006135344_home_stats_notes_feedback.sql';
+    if (upgrade) {
+      // A pre-upgrade pair is insufficient evidence. Only a retained successful
+      // exact-query event may be backfilled into the lifetime match statistic.
+      await rpc('pdd_batch_register', batch('BFL990000001', 'lost', capA, 'fictional_backfill_owner'));
+      await rpc('pdd_batch_register', batch('BFL990000001', 'received', capB, 'fictional_backfill_holder'));
+      await rpc('pdd_batch_register', batch('BFL990000002', 'received', capB, 'fictional_backfill_holder'));
+      const evidence = { query_id: randomUUID(), number: 'BFL990000002', mode: 'lost', source: 'manual', capability_hash: capA, body_hash: 'backfill-query' };
+      assert.equal((await rpc('pdd_query', evidence)).result, 'matched');
+      await rpc('pdd_query', evidence);
+    }
     const migration = (await readFile(new URL(name, directory), 'utf8')).replace(/^create extension if not exists pg_net.*$/m, '').replace(/^create extension if not exists pg_cron.*$/m, '');
     await sql(migration);
+    if (upgrade) {
+      assert.deepEqual(await rpc('pdd_home_stats', {}), { lostRegistered: 1, receivedRegistered: 2, matchedParcels: 1 });
+      assert.equal(await sql("select matched_at is null from public.pdd_waybills where number='BFL990000001';"), 't');
+      assert.equal(await sql("select matched_at is not null from public.pdd_waybills where number='BFL990000002';"), 't');
+      await sql('truncate public.pdd_waybills,public.pdd_registrations,public.pdd_query_events,public.pdd_write_requests,public.pdd_audit_events,public.pdd_handovers cascade;');
+      backfillChecked = true;
+      console.log('Additive migration backfill passed: successful query evidence counted once; coexisting sides alone did not fabricate a match.');
+    }
   }
+  assert(backfillChecked, 'The statistics/notes/feedback upgrade migration was not exercised.');
   await sql(await readFile(new URL('../tests/db.sql', import.meta.url), 'utf8'));
   assert.equal((await rpc('runtime_config', {})).OCR_ENABLED, 'false');
   console.log('Legacy real PostgreSQL transaction regression and server-only OCR default passed.');
@@ -79,8 +100,8 @@ try {
   assert.equal(await sql('select count(*) from public.pdd_query_events;'), '1');
 
   // Independent connections contend while one transaction keeps the number lock.
-  const sameA = batch('SF990000006001', 'lost', capA, 'fictional_owner');
-  const sameB = batch('SF990000006001', 'lost', capB, 'fictional_other');
+  const sameA = batch('SF990000006001', 'lost', capA, 'fictional_owner', randomUUID(), 'Original synthetic owner note');
+  const sameB = batch('SF990000006001', 'lost', capB, 'fictional_other', randomUUID(), 'Contending replacement note');
   const held = sql(`begin; ${invoke('pdd_batch_register', sameA)} select pg_sleep(0.35); commit;`);
   await new Promise(resolve => setTimeout(resolve, 70));
   const [heldOutput, contender] = await Promise.all([held, rpc('pdd_batch_register', sameB)]);
@@ -88,6 +109,7 @@ try {
   assert.equal(owner.items[0].result, 'registered');
   assert.equal(contender.items[0].result, 'duplicate');
   assert.equal(contender.items[0].registration, null);
+  assert.equal(await sql("select note from public.pdd_registrations r join public.pdd_waybills w on w.id=r.waybill_id where w.number='SF990000006001';"), 'Original synthetic owner note');
   assert.equal(await sql("select count(*) from public.pdd_waybills where number='SF990000006001';"), '1');
   assert.equal(await sql("select count(*) from public.pdd_registrations where visibility='active';"), '1');
   const replay = await rpc('pdd_batch_register', sameA);
@@ -96,12 +118,14 @@ try {
   const receivedQuery = { query_id: randomUUID(), number: 'SF990000006001', mode: 'received', source: 'barcode', capability_hash: capB, body_hash: 'received-query' };
   const hit = await rpc('pdd_query', receivedQuery);
   assert.equal(hit.result, 'matched'); assert.equal(hit.contact.value, 'fictional_owner');
+  assert.equal(hit.note, 'Original synthetic owner note');
   const saved = await rpc('pdd_query_contact', { query_id: receivedQuery.query_id, capability_hash: capB, contact: { kind: 'wechat', value: 'fictional_holder' }, idempotency_key: 'contact-once', body_hash: 'holder-contact' });
   assert(saved.registration);
+  assert.equal(saved.registration.note, null);
   const lostHit = await rpc('pdd_query', { ...receivedQuery, query_id: randomUUID(), mode: 'lost', capability_hash: capA, body_hash: 'lost-hit' });
   assert.equal(lostHit.result, 'matched'); assert.equal(lostHit.contact.value, 'fictional_holder');
   const publicRecord = await rpc('pdd_public', { public_code: lostHit.record.code });
-  assert(!JSON.stringify(publicRecord).includes('fictional_')); assert(!('number' in publicRecord));
+  assert(!JSON.stringify(publicRecord).includes('fictional_')); assert(!('number' in publicRecord)); assert(!('note' in publicRecord));
   await assert.rejects(() => rpc('pdd_manage', { registration_code: saved.registration.registrationCode, capability_hash: capA }), /FORBIDDEN/);
   await assert.rejects(() => sql("set role anon; select * from public.pdd_registrations;"), /permission denied/);
   await assert.rejects(() => sql("set role authenticated; select public.pdd_query('{}');"), /permission denied/);
@@ -130,6 +154,64 @@ try {
   await rpc('pdd_cleanup', {});
   assert.equal(await sql("select count(*) from public.pdd_query_events where number='000990000001';"), '0');
   console.log('Real PostgreSQL concurrent registration, exact contacts, RLS, log retention and actual-return tests passed.');
+
+  // Independent successful-query transactions (including the same query id)
+  // must mark one lifetime match and write only one idempotent query event.
+  const concurrentNumber = 'SF990000006006';
+  const concurrentRegistration = (await rpc('pdd_batch_register', batch(concurrentNumber, 'received', capA, 'fictional_concurrent_holder', randomUUID(), 'Concurrent holder note'))).items[0].registration;
+  const beforeConcurrent = await rpc('pdd_home_stats', {});
+  const simultaneous = { query_id: randomUUID(), number: concurrentNumber, mode: 'lost', source: 'barcode', capability_hash: capB, body_hash: 'concurrent-query' };
+  const results = await Promise.all(Array.from({ length: 8 }, () => rpc('pdd_query', simultaneous)));
+  assert(results.every(result => result.result === 'matched' && result.note === 'Concurrent holder note'));
+  assert.equal(await sql(`select count(*) from public.pdd_query_events where number='${concurrentNumber}';`), '1');
+  await Promise.all(Array.from({ length: 4 }, () => rpc('pdd_query', { ...simultaneous, query_id: randomUUID() })));
+  const afterConcurrent = await rpc('pdd_home_stats', {});
+  assert.deepEqual(afterConcurrent, { ...beforeConcurrent, matchedParcels: beforeConcurrent.matchedParcels + 1 });
+  assert.equal(await sql(`select count(*) from public.pdd_query_events where number='${concurrentNumber}';`), '5');
+  await rpc('pdd_manage_update', { registration_code: concurrentRegistration.registrationCode, capability_hash: capA, revision: concurrentRegistration.revision, action: 'withdraw' });
+  assert.equal((await rpc('pdd_query', simultaneous)).result, 'not_found');
+  await rpc('pdd_batch_register', batch(concurrentNumber, 'received', capB, 'fictional_replacement_holder', randomUUID(), 'Replacement holder note'));
+  assert.deepEqual(await rpc('pdd_home_stats', {}), afterConcurrent);
+  await sql(`update public.pdd_waybills set resolution='resolved',closed_at=now()-interval '31 days' where number='${concurrentNumber}'; update public.pdd_registrations set closed_at=now()-interval '31 days' where waybill_id=(select id from public.pdd_waybills where number='${concurrentNumber}');`);
+  await rpc('pdd_cleanup', {});
+  assert.equal(await sql(`select count(*) from public.pdd_registrations where waybill_id=(select id from public.pdd_waybills where number='${concurrentNumber}') and (note is not null or contact is not null or capability_hash<>'');`), '0');
+  assert.deepEqual(await rpc('pdd_home_stats', {}), afterConcurrent);
+  // A transaction that never commits contributes no registrations or matches.
+  await sql(`begin; ${invoke('pdd_batch_register', batch('ROLLBACK99001', 'lost', capA, 'fictional_rollback_owner', randomUUID(), 'Rollback note'))} rollback;`);
+  assert.deepEqual(await rpc('pdd_home_stats', {}), afterConcurrent);
+
+  const noteBatch = { ...batch('SF990000006001', 'lost', capB, 'fictional_note_owner', randomUUID(), 'Shared new registration note'), items: ['SF990000006001', 'SF990000006007', 'SF990000006008'].map(number => ({ request_id: randomUUID(), number, source: 'manual' })) };
+  const notes = await rpc('pdd_batch_register', noteBatch);
+  assert.equal(notes.items[0].registration, null);
+  assert(notes.items.slice(1).every(item => item.registration.note === 'Shared new registration note'));
+  assert.equal(await sql("select note from public.pdd_registrations r join public.pdd_waybills w on w.id=r.waybill_id where w.number='SF990000006001' and mode='lost';"), 'Original synthetic owner note');
+  const statsBeforeBatchReplay = await rpc('pdd_home_stats', {});
+  const oppositeNotes = await rpc('pdd_batch_register', batch('SF990000006007', 'received', capB, 'fictional_note_holder', randomUUID(), 'Opposite holder note'));
+  assert.equal(oppositeNotes.items[0].note, 'Shared new registration note');
+  const newReplay = await rpc('pdd_batch_register', noteBatch);
+  assert.equal(newReplay.items[1].note, 'Opposite holder note'); assert.equal(newReplay.items[1].result, 'matched');
+  const afterBatchReplay = await rpc('pdd_home_stats', {});
+  assert.deepEqual(afterBatchReplay, { ...statsBeforeBatchReplay, receivedRegistered: statsBeforeBatchReplay.receivedRegistered + 1, matchedParcels: statsBeforeBatchReplay.matchedParcels + 1 });
+  await rpc('pdd_batch_register', noteBatch);
+  assert.deepEqual(await rpc('pdd_home_stats', {}), afterBatchReplay);
+  console.log('Real PostgreSQL lifetime counts, concurrent exact matches, batch notes/replays, rollback and retention passed.');
+
+  const feedbackInput = { request_id: randomUUID(), body_hash: 'synthetic-feedback-body', message: 'Synthetic private feedback description', contact: { kind: 'wechat', value: 'fictional_feedback_contact' } };
+  const feedbackReceipts = await Promise.all(Array.from({ length: 6 }, () => rpc('pdd_feedback_submit', feedbackInput)));
+  assert(feedbackReceipts.every(receipt => JSON.stringify(receipt) === JSON.stringify(feedbackReceipts[0])));
+  assert.deepEqual(Object.keys(feedbackReceipts[0]).sort(), ['feedbackId', 'submitted', 'submittedAt']);
+  assert.equal(await sql('select count(*) from public.pdd_feedback;'), '1');
+  const feedbackId = feedbackReceipts[0].feedbackId;
+  await assert.rejects(() => rpc('pdd_feedback_submit', { ...feedbackInput, body_hash: 'changed-feedback-body' }), /IDEMPOTENCY_CONFLICT/);
+  await rpc('pdd_admin_feedback_update', { feedback_id: feedbackId, status: 'reviewed', actor_id: actor });
+  await rpc('pdd_admin_feedback_update', { feedback_id: feedbackId, status: 'reviewed', actor_id: actor });
+  assert.equal(await sql("select count(*) from public.audit_events where action='feedback_status';"), '1');
+  const feedbackAudit = JSON.parse(await sql("select jsonb_agg(payload)::text from public.audit_events where action='feedback_status';"));
+  assert(!JSON.stringify(feedbackAudit).includes('fictional_')); assert(!JSON.stringify(feedbackAudit).includes('description'));
+  await assert.rejects(() => sql("set role authenticated; select public.pdd_admin_feedback_list('{}');"), /permission denied/);
+  await assert.rejects(() => sql('set role anon; select * from public.pdd_feedback;'), /permission denied/);
+  assert.deepEqual(await rpc('pdd_home_stats', {}), afterBatchReplay);
+  console.log('Real PostgreSQL concurrent feedback idempotency, private receipt, audited states and browser denial passed.');
 
   // Authenticate in one connection, block it on the number lock in another,
   // revoke its capability with cleanup, then let the authenticated request resume.
@@ -176,8 +258,14 @@ try {
   await run(path.join(bin, 'pg_restore'), ['--no-owner', '--exit-on-error', '--clean', '--if-exists', '--dbname', 'pdd404_restore_check', reopened], { env, maxBuffer: 2 * 1024 * 1024 });
   assert.equal(await sql('select count(*) from public.pdd_handovers;', 'pdd404_restore_check'), '1');
   assert.equal((await rpc('pdd_public', { public_code: code }, 'pdd404_restore_check')).resolution, 'resolved');
+  assert.deepEqual(await rpc('pdd_home_stats', {}, 'pdd404_restore_check'), await rpc('pdd_home_stats', {}));
+  for (const table of ['pdd_waybills', 'pdd_registrations', 'pdd_feedback']) {
+    const statement = `select coalesce(jsonb_agg(to_jsonb(r) order by r.id),'[]'::jsonb)::text from public.${table} r;`;
+    assert.deepEqual(JSON.parse(await sql(statement, 'pdd404_restore_check')), JSON.parse(await sql(statement)));
+  }
   await assert.rejects(() => sql("set role anon; select * from public.pdd_registrations;", 'pdd404_restore_check'), /permission denied/);
-  console.log('Encrypted dump/decrypt and independent database restore passed; restored RLS remains closed.');
+  await assert.rejects(() => sql('set role authenticated; select * from public.pdd_feedback;', 'pdd404_restore_check'), /permission denied/);
+  console.log('Encrypted dump/decrypt and independent database restore passed, including lifetime stats, notes and feedback; restored RLS remains closed.');
 } finally {
   if (running) await run(path.join(bin, 'pg_ctl'), ['-D', data, '-m', 'fast', '-w', 'stop'], { env }).catch(() => undefined);
   await rm(root, { recursive: true, force: true });

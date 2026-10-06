@@ -3,6 +3,7 @@ import type { Resolution, Visibility } from './contracts.ts';
 export type PddMode = 'lost' | 'received';
 export type PddSource = 'manual' | 'barcode';
 export interface PddContact { kind: 'wechat' | 'phone'; value: string }
+export interface PddHomeStats { lostRegistered: number; receivedRegistered: number; matchedParcels: number }
 export type PddResult = 'matched' | 'duplicate' | 'not_found' | 'closed';
 export interface PddPublicRecord {
   code: string; tail: string; resolution: Resolution; visibility: Visibility;
@@ -11,22 +12,22 @@ export interface PddPublicRecord {
 }
 export interface PddRegistration {
   registrationCode: string; number: string; mode: PddMode; source: PddSource;
-  contact: PddContact | null; revision: number; visibility: 'active' | 'withdrawn';
+  contact: PddContact | null; note: string | null; revision: number; visibility: 'active' | 'withdrawn';
   createdAt: string; updatedAt: string; record: PddPublicRecord;
 }
 export interface PddQueryInput { queryId: string; number: string; mode: PddMode; source: PddSource }
 /** The exact-number lookup is the sole intentional direct-contact projection. */
 export interface PddQueryResult {
   queryId: string; result: PddResult; queriedAt: string;
-  record: PddPublicRecord | null; registeredAt: string | null; contact: PddContact | null;
+  record: PddPublicRecord | null; registeredAt: string | null; contact: PddContact | null; note: string | null;
 }
 export interface PddQueryContactResult { saved: true; registration: PddRegistration | null }
 export interface PddBatchItem { requestId: string; number: string; source: PddSource }
-export interface PddBatchInput { mode: PddMode; contact: PddContact; items: PddBatchItem[] }
+export interface PddBatchInput { mode: PddMode; contact: PddContact; note?: string | null; items: PddBatchItem[] }
 export interface PddBatchResultItem {
   requestId: string; number: string; result: 'registered' | 'matched' | 'duplicate' | 'closed';
   record: PddPublicRecord; registration: PddRegistration | null;
-  contact: PddContact | null; registeredAt: string | null;
+  contact: PddContact | null; note: string | null; registeredAt: string | null;
 }
 export interface PddBatchResult { submittedAt: string; items: PddBatchResultItem[] }
 export interface PddQueryLog {
@@ -62,4 +63,13 @@ export function validatePddContact(input: unknown): PddContact {
   if (raw.kind === 'wechat' && /^[a-zA-Z][-_a-zA-Z0-9]{5,63}$/.test(value)) return { kind: 'wechat', value };
   if (raw.kind === 'phone' && value.length <= 32 && /^\+?[0-9][0-9 ()-]{5,30}[0-9]$/.test(value) && value.replace(/\D/g, '').length >= 7) return { kind: 'phone', value };
   throw new Error('INVALID_CONTACT');
+}
+
+/** Unicode characters, rather than UTF-16 units, are the displayed note limit. */
+export function validatePddNote(input: unknown): string | null {
+  if (input == null) return null;
+  if (typeof input !== 'string') throw new Error('INVALID_NOTE');
+  const value = input.trim();
+  if (Array.from(value).length > 500 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(input)) throw new Error('INVALID_NOTE');
+  return value || null;
 }

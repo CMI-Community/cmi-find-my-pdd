@@ -85,7 +85,7 @@ node --env-file=.private/production.env scripts/backup.mjs
 
 备份包含 public/Auth schema、两个保留的私有图片 bucket 和社区 bucket；新增 `pdd_*` 表随 public schema 自动纳入。打包后使用 scrypt 派生 AES-256-GCM 密钥，保留最近 7 份，临时明文结束或失败后删除。`backups/` 不进入 Git；密文和密码分别保管，密文还应存放到独立可靠位置。兼容归档 manifest 的 product 标识仍为 `cmi-find-my-pdd`，不是部署到旧站。
 
-本轮已有的范围限定备份覆盖迁移前 14 张 public 业务表和 3 个存储 bucket，已加密并完成隔离恢复检查；Auth 仅有部分元数据。它不包含完整原生 public/Auth dump，不构成完整灾难恢复证明。完整 `scripts/backup.mjs` 备份仍需私有 `SUPABASE_DB_URL`，随后重新做全量恢复；具体归档与检查结果写入发布记录，不在公开文档披露资料或密钥。
+范围限定备份在新增反馈迁移后覆盖21张public业务表及3个存储bucket，保留新备注与首次匹配统计字段；旧20表快照按原迁移manifest仍可恢复。脚本拒绝新迁移缺少反馈表的快照，通过两次一致读取及AES-256-GCM验证后，在隔离PostgreSQL核对恢复数据。Auth元数据不含凭据；该快照不包含完整原生public/Auth dump、Vault或角色，不构成完整灾难恢复证明。完整 `scripts/backup.mjs` 备份仍需私有 `SUPABASE_DB_URL`，随后重新做全量恢复；实际生产归档与检查结果写入发布记录，不在公开文档披露资料或密钥。
 
 范围备份命令为 `npm run ops:backup:scoped -- backups/filename.cmibak` 与 `npm run ops:verify:scoped -- backups/filename.cmibak`。它覆盖20张固定业务表和3个存储 bucket，直接写 AES-GCM 密文；运行配置只保留安全字段，不读取 Auth/Vault。两轮完整业务表读取必须一致，变更时失败并要求在安静时段重试；即使两轮一致，也不保证数据库快照隔离或期间存储不变。恢复只用独立本机 PostgreSQL，验证全部约束、RLS、行值和存储哈希。
 

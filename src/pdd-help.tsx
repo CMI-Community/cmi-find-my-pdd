@@ -7,14 +7,14 @@ export function HelpPage() {
     <Link to="/" className="pdd-help-back"><ArrowLeft size={18} aria-hidden="true" />返回查询</Link>
     <header className="pdd-help-heading">
       <h1>如何使用 PDD404</h1>
-      <p>丢了包裹，或多收了别人的包裹？不用注册，凭国内快递单号找到线索。</p>
+      <p>丢了包裹，或错收了别人的包裹？不用注册，凭国内快递单号找到线索。</p>
     </header>
 
     <section className="pdd-help-section">
       <h2><span aria-hidden="true">1</span>先选你的情况</h2>
       <div className="pdd-help-modes">
-        <Link to="/" className="pdd-help-mode"><h3>我丢件了</h3><p>查有没有人多收了你的包裹。</p><span>去查丢件<ArrowRight size={17} aria-hidden="true" /></span></Link>
-        <Link to="/?mode=received" className="pdd-help-mode"><h3>我多收件了</h3><p>查有没有人在寻找这个包裹。</p><span>去查多收件<ArrowRight size={17} aria-hidden="true" /></span></Link>
+        <Link to="/" className="pdd-help-mode"><h3>我丢件了</h3><p>查有没有人错收了你的包裹。</p><span>去查丢件<ArrowRight size={17} aria-hidden="true" /></span></Link>
+        <Link to="/?mode=received" className="pdd-help-mode"><h3>我错收件了</h3><p>查有没有人在寻找这个包裹。</p><span>去查错收件<ArrowRight size={17} aria-hidden="true" /></span></Link>
       </div>
     </section>
 

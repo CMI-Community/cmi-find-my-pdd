@@ -6,7 +6,7 @@ import { access, mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { BUCKETS, FORMAT, RUNTIME_KEYS, TABLES, migrationManifest, readEncryptedSnapshot, rowsHash, safeStorageKey, sha256 } from './backup-scoped.mjs';
+import { BUCKETS, FORMAT, RUNTIME_KEYS, migrationManifest, readEncryptedSnapshot, rowsHash, safeStorageKey, sha256, tablesForMigrations } from './backup-scoped.mjs';
 import { required } from './ops.mjs';
 
 const run = promisify(execFile);
@@ -16,8 +16,10 @@ const quote = value => "'" + JSON.stringify(value).replaceAll("'", "''") + "'::j
 
 export function validateSnapshot(snapshot) {
   if (!snapshot || snapshot.format !== FORMAT || !/^[a-z]{20}$/.test(snapshot.project || '') || snapshot.project === 'osqyplgctlzdlpqmzfud') throw new Error('Invalid independent scoped snapshot.');
-  if (!Array.isArray(snapshot.tables) || snapshot.tables.length !== TABLES.length || !Array.isArray(snapshot.storage) || !Array.isArray(snapshot.migrations) || !snapshot.migrations.length) throw new Error('Incomplete scoped snapshot.');
-  const names = new Set(TABLES.map(table => table.name)), tables = new Map();
+  if (!Array.isArray(snapshot.tables) || !Array.isArray(snapshot.storage) || !Array.isArray(snapshot.migrations) || !snapshot.migrations.length) throw new Error('Incomplete scoped snapshot.');
+  const definitions = tablesForMigrations(snapshot.migrations);
+  if (snapshot.tables.length !== definitions.length) throw new Error('Incomplete scoped snapshot.');
+  const names = new Set(definitions.map(table => table.name)), tables = new Map();
   for (const table of snapshot.tables) {
     if (!table || !names.has(table.name) || tables.has(table.name) || !Array.isArray(table.rows) || table.rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new Error('Invalid or duplicated scoped table.');
     if (table.rowCount !== undefined && table.rowCount !== table.rows.length) throw new Error(`Invalid row count for ${table.name}.`);
@@ -70,6 +72,7 @@ export const BOOTSTRAP_SQL = `
 // self-references and cross-table FK checks. No constraint is disabled.
 export async function restoreAndCompare(snapshot, sql) {
   const tables = validateSnapshot(snapshot);
+  const definitions = tablesForMigrations(snapshot.migrations);
   const migrations = await verifiedMigrations(snapshot);
   await sql(BOOTSTRAP_SQL);
   for (const migration of migrations) await sql(migration);
@@ -80,9 +83,9 @@ export async function restoreAndCompare(snapshot, sql) {
       actorIds.add(row.actor_id);
     }
   }
-  const statements = ['begin;', `truncate ${TABLES.map(table => `public.${table.name}`).join(',')} cascade;`];
+  const statements = ['begin;', `truncate ${definitions.map(table => `public.${table.name}`).join(',')} cascade;`];
   if (actorIds.size) statements.push(`insert into auth.users(id) select value::uuid from jsonb_array_elements_text(${quote([...actorIds])});`);
-  for (const table of TABLES) {
+  for (const table of definitions) {
     const rows = tables.get(table.name);
     if (!rows.length) continue;
     const columns = JSON.parse(await sql(`select jsonb_agg(column_name)::text from information_schema.columns where table_schema='public' and table_name='${table.name}';`));
@@ -91,7 +94,7 @@ export async function restoreAndCompare(snapshot, sql) {
   }
   statements.push('commit;');
   await sql(statements.join('\n'));
-  for (const table of TABLES) {
+  for (const table of definitions) {
     const expected = JSON.parse(await sql(`select coalesce(jsonb_agg(to_jsonb(row)),'[]'::jsonb)::text from jsonb_populate_recordset(null::public.${table.name},${quote(tables.get(table.name))}) row;`));
     const actual = JSON.parse(await sql(`select coalesce(jsonb_agg(to_jsonb(row)),'[]'::jsonb)::text from public.${table.name} row;`));
     if (rowsHash(expected) !== rowsHash(actual)) throw new Error(`Restored rows differ for ${table.name}.`);
@@ -103,7 +106,7 @@ export async function restoreAndCompare(snapshot, sql) {
   if (Number(await sql('select count(*) from auth.users;')) !== actorIds.size) throw new Error('Audit actor placeholders were not restored.');
   // Storage bytes have authenticated size/hash verification in memory. There is
   // no Supabase endpoint or disk extraction; actual bucket restore is separate.
-  return { tables: TABLES.length, rows: [...tables.values()].reduce((sum, rows) => sum + rows.length, 0), storageObjects: snapshot.storage.length, auditActorPlaceholders: actorIds.size };
+  return { tables: definitions.length, rows: [...tables.values()].reduce((sum, rows) => sum + rows.length, 0), storageObjects: snapshot.storage.length, auditActorPlaceholders: actorIds.size };
 }
 
 async function postgresBin() {

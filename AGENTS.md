@@ -24,6 +24,12 @@ the implementation contract. Record genuine deployment state in docs/releases/.
   reservation. Do not loosen daily limits or retry indefinitely.
 - No fabricated community QR, contacts, recognition output, progress or counters.
   Missing configuration is a visible service state.
+- Only exact opposite-side waybill matches may disclose self-submitted contact
+  and registration note. Public/share DTOs never return either. Homepage counts
+  derive from formal registrations and unique successful matching facts;
+  successful matching does not increment actual-return statistics.
+- Community feedback is administrator-only. Public submission returns only its
+  receipt; status changes write audits without message or contact snapshots.
 - Run npm run check and npm run build for changes affecting behavior. Use
   synthetic labels for API/OCR verification. Migrations require real transactional
   tests and a restore check; never reset production to fix a migration.

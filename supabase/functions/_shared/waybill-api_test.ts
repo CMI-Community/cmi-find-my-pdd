@@ -1,5 +1,6 @@
-import { pddRoute, pddPublic, pddQuery, type PddRouteContext } from './waybill-api.ts';
+import { pddRoute, pddPublic, pddQuery, pddBatchItem, pddHomeStats, type PddRouteContext } from './waybill-api.ts';
 import { ApiError } from './http.ts';
+import { canonicalJson, sha256 } from './security.ts';
 
 function assert(value: unknown, message = 'assertion failed'): asserts value { if (!value) throw new Error(message); }
 async function rejects(run: () => Promise<unknown>, code: string) {
@@ -24,19 +25,21 @@ Deno.test('exact lookup returns supplied opposite contact with a strict projecti
     assert(payload.capability_hash.length === 64 && payload.capability_hash !== cap);
     called = true;
     return { queryId: id, result: 'matched', queriedAt: '2026-10-06T09:00:00Z', record: { ...record, number: 'SF990000006001', capability_hash: cap },
-      registeredAt: '2026-10-06T08:00:00Z', contact: { kind: 'wechat', value: 'fictional_holder' }, address: 'synthetic secret address', capability: cap };
+      registeredAt: '2026-10-06T08:00:00Z', contact: { kind: 'wechat', value: 'fictional_holder' }, note: 'Synthetic blue box', address: 'synthetic secret address', capability: cap };
   }));
   assert(called && response?.headers.get('Cache-Control') === 'no-store');
   const value = (await response!.json()).data;
   assert(value.contact.value === 'fictional_holder');
+  assert(value.note === 'Synthetic blue box');
   assert(!('address' in value) && !('capability' in value) && !('number' in value.record) && !('capability_hash' in value.record));
 });
 
 Deno.test('duplicate and public-code projections never return contacts or management fields', () => {
-  const input = { ...record, contact: { kind: 'wechat', value: 'fictional_person' }, number: 'SF990000006001', capability_hash: cap, privateLink: '#key=secret' };
+  const input = { ...record, contact: { kind: 'wechat', value: 'fictional_person' }, note: 'Synthetic private note', number: 'SF990000006001', capability_hash: cap, privateLink: '#key=secret' };
   const pub = pddPublic(input);
-  const repeated = pddQuery({ queryId: id, result: 'duplicate', queriedAt: 'now', record: input, registeredAt: 'now', contact: input.contact });
-  assert(repeated.contact === null && !('contact' in pub) && !('number' in pub) && !('privateLink' in pub));
+  const repeated = pddQuery({ queryId: id, result: 'duplicate', queriedAt: 'now', record: input, registeredAt: 'now', contact: input.contact, note: input.note });
+  const item = pddBatchItem({ requestId: id, number: input.number, result: 'duplicate', record: input, registration: null, contact: input.contact, note: input.note, registeredAt: 'now' });
+  assert(repeated.contact === null && repeated.note === null && item.note === null && !('note' in pub) && !('contact' in pub) && !('number' in pub) && !('privateLink' in pub));
 });
 
 Deno.test('lookup refuses short capability, alternate body fields and partial identifiers', async () => {
@@ -56,4 +59,28 @@ Deno.test('paused registrations preserve misses as queries rather than false suc
 
 Deno.test('admin queries require administrator verification before DB access', async () => {
   await rejects(() => pddRoute(new Request('https://pdd404.app/v1/admin/waybill-queries'), ['admin', 'waybill-queries'], {}, ctx(async () => { throw new Error('must not query DB'); })), 'FORBIDDEN');
+});
+
+Deno.test('home statistics allowlist is anonymous, genuine, and separate from registration availability', async () => {
+  const result = await pddRoute(new Request('https://pdd404.app/v1/waybill-stats'), ['waybill-stats'], {}, ctx(async (name, payload) => {
+    assert(name === 'pdd_home_stats' && Object.keys(payload).length === 0);
+    return { lostRegistered: 0, receivedRegistered: 7, matchedParcels: 2, contacts: ['private'], handoverCount: 3 };
+  }, false));
+  const value = (await result!.json()).data;
+  assert(JSON.stringify(value) === JSON.stringify({ lostRegistered: 0, receivedRegistered: 7, matchedParcels: 2 }));
+  for (const count of [-1, 1.5, '4', null, Number.MAX_SAFE_INTEGER + 1]) {
+    await rejects(async () => pddHomeStats({ lostRegistered: count, receivedRegistered: 0, matchedParcels: 0 }), 'SERVICE_UNAVAILABLE');
+  }
+});
+
+Deno.test('old batch body hashes are unchanged and optional notes remain normalized outside the hash', async () => {
+  const original = { mode: 'lost', contact: { kind: 'wechat', value: 'fictional_person' }, items: [{ requestId: id, number: 'SF990000006001', source: 'manual' }] };
+  for (const input of [original, { ...original, note: '  Synthetic note  ' }]) {
+    await pddRoute(req('waybill-batches', input), ['waybill-batches'], {}, ctx(async (name, payload) => {
+      assert(name === 'pdd_batch_register' && payload.body_hash === await sha256(canonicalJson(input)));
+      if ('note' in input) assert(payload.note === 'Synthetic note'); else assert(!('note' in payload));
+      return { submittedAt: 'now', items: [] };
+    }));
+  }
+  await rejects(() => pddRoute(req('waybill-batches', { ...original, note: 'x'.repeat(501) }), ['waybill-batches'], {}, ctx(async () => { throw new Error('must not call database'); })), 'INVALID_NOTE');
 });
