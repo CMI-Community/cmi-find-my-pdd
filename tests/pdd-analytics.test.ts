@@ -1,8 +1,28 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { analyticsDwellBucket, analyticsOptedOut, analyticsPage, analyticsPayload, browserAnalyticsAllowed, createAnalyticsRecorder, createVisibleDwell, sanitizedAnalyticsUrl, setAnalyticsRuntime, type AnalyticsEvent, type AnalyticsMetadata } from '../src/pdd-analytics';
+import { analyticsDwellBucket, analyticsFeatureEnabled, analyticsOptedOut, analyticsPage, analyticsPayload, browserAnalyticsAllowed, createAnalyticsRecorder, createVisibleDwell, sanitizedAnalyticsUrl, setAnalyticsRuntime, type AnalyticsEvent, type AnalyticsMetadata } from '../src/pdd-analytics';
 afterEach(() => { vi.unstubAllGlobals(); setAnalyticsRuntime(false, false, true); });
 
 describe('PDD404 anonymous analytics boundaries', () => {
+  it('keeps omitted flags enabled only on the exact public production hosts', () => {
+    for (const hostname of ['pdd404.app', 'www.pdd404.app']) {
+      expect(analyticsFeatureEnabled(undefined, true, hostname)).toBe(true);
+      expect(analyticsFeatureEnabled('', true, hostname)).toBe(true);
+      expect(analyticsFeatureEnabled(undefined, false, hostname)).toBe(false);
+    }
+    for (const hostname of ['localhost', '127.0.0.1', 'pdd404-preview.vercel.app', 'pdd404.app.example.com', 'other.example', '']) {
+      expect(analyticsFeatureEnabled(undefined, true, hostname)).toBe(false);
+      expect(analyticsFeatureEnabled(undefined, false, hostname)).toBe(false);
+    }
+  });
+
+  it('honors explicit disabling on production and requires explicit true elsewhere', () => {
+    for (const production of [true, false]) for (const hostname of ['pdd404.app', 'www.pdd404.app', 'localhost', 'preview.vercel.app']) {
+      expect(analyticsFeatureEnabled('false', production, hostname)).toBe(false);
+      expect(analyticsFeatureEnabled('true', production, hostname)).toBe(true);
+      expect(analyticsFeatureEnabled('unexpected', production, hostname)).toBe(false);
+    }
+  });
+
   it('uses an explicit static page allowlist and strips every query and fragment', () => {
     const origin = 'https://pdd404.app';
     expect(sanitizedAnalyticsUrl(origin + '/?mode=received&number=SYNTHETIC001#capability=secret', origin)).toBe(origin + '/');

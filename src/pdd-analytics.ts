@@ -21,6 +21,14 @@ export function analyticsOptedOut(preferences: { doNotTrack?: string | null; glo
   return preferences.doNotTrack === '1' || preferences.doNotTrack === 'yes' || preferences.globalPrivacyControl === true;
 }
 
+// Static deployments may omit the optional build flags. Keep the authorized
+// public production site enabled while preventing preview/dev traffic mixing.
+export function analyticsFeatureEnabled(flag: string | undefined, productionBuild: boolean, hostname: string) {
+  if (flag === 'true') return true;
+  if (flag !== undefined && flag !== '') return false;
+  return productionBuild && (hostname === 'pdd404.app' || hostname === 'www.pdd404.app');
+}
+
 export function sanitizedAnalyticsUrl(value: string, origin: string) {
   try {
     const url = new URL(value, origin), page = analyticsPage(url.pathname);

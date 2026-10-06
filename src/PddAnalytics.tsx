@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Analytics, type BeforeSendEvent } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
-import { analyticsOptedOut, analyticsPage, browserAnalyticsAllowed, createVisibleDwell, sanitizedAnalyticsUrl, setAnalyticsRuntime, trackPddPageView, trackVisibleDwell } from './pdd-analytics';
+import { analyticsFeatureEnabled, analyticsOptedOut, analyticsPage, browserAnalyticsAllowed, createVisibleDwell, sanitizedAnalyticsUrl, setAnalyticsRuntime, trackPddPageView, trackVisibleDwell } from './pdd-analytics';
 import { flushTelemetry, setFirstPartyTelemetryEnabled } from './pdd-telemetry';
 
 function filterEvent<T extends { url: string; route?: string }>(event: T): T | null {
@@ -18,10 +18,11 @@ export function PddAnalytics({ blocked = false }: { blocked?: boolean }) {
   const location = useLocation(), page = analyticsPage(location.pathname);
   const optedOut = typeof navigator !== 'undefined' && analyticsOptedOut(navigator as Navigator & { globalPrivacyControl?: boolean });
   const production = import.meta.env.PROD;
-  const webEnabled = production && import.meta.env.VITE_WEB_ANALYTICS_ENABLED === 'true';
-  const speedEnabled = production && import.meta.env.VITE_SPEED_INSIGHTS_ENABLED === 'true';
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+  const webEnabled = analyticsFeatureEnabled(import.meta.env.VITE_WEB_ANALYTICS_ENABLED, production, hostname);
+  const speedEnabled = analyticsFeatureEnabled(import.meta.env.VITE_SPEED_INSIGHTS_ENABLED, production, hostname);
   const vercelCustom = webEnabled && import.meta.env.VITE_ANALYTICS_CUSTOM_EVENTS === 'true';
-  const firstParty = production && import.meta.env.VITE_FIRST_PARTY_ANALYTICS_ENABLED === 'true';
+  const firstParty = analyticsFeatureEnabled(import.meta.env.VITE_FIRST_PARTY_ANALYTICS_ENABLED, production, hostname);
   const customEvents = firstParty || vercelCustom;
   setFirstPartyTelemetryEnabled(firstParty);
   setAnalyticsRuntime(webEnabled || speedEnabled || firstParty, customEvents, blocked || optedOut, firstParty, vercelCustom);
