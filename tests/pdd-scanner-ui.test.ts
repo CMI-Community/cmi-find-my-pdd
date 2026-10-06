@@ -22,20 +22,23 @@ function controlsHtml(camera: CameraDescription, values: Record<string, unknown>
 }
 
 describe('scanner preview and useful camera controls', () => {
-  it('makes photo capture a separate user action and disables capture until ready or while decoding', () => {
-    const props = { mode: 'photo' as const, ready: true, busy: false, onMode() {}, onCapture() {} };
+  it('keeps one actual photo action in both modes and disables it until ready or while decoding', () => {
+    const props = { mode: 'photo' as const, ready: true, busy: false, onMode() {}, onCapture() {}, onClose() {} };
     const ready = renderToStaticMarkup(createElement(ScannerReadControls, props));
-    expect(ready).toContain('拍照并识别条形码');
-    expect(ready).toContain('实时扫码');
+    expect(ready).toContain('拍照识别');
+    expect(ready.match(/>拍照识别<\/button>/g)).toHaveLength(1);
+    expect(ready).toContain('开启自动扫码');
+    expect(ready).toContain('关闭并手动输入');
     expect(ready.match(/<button[^>]*class="[^"]*pdd-capture-button[^>]*>/)?.[0]).not.toContain('disabled');
     const preparing = renderToStaticMarkup(createElement(ScannerReadControls, { ...props, ready: false }));
     expect(preparing.match(/<button[^>]*class="[^"]*pdd-capture-button[^>]*>/)?.[0]).toContain('disabled');
     const decoding = renderToStaticMarkup(createElement(ScannerReadControls, { ...props, busy: true }));
-    expect(decoding).toContain('正在识别这张照片');
+    expect(decoding).toContain('已拍照，正在识别');
     expect(decoding.match(/<button[^>]*class="[^"]*pdd-capture-button[^>]*>/)?.[0]).toContain('disabled');
     const realtime = renderToStaticMarkup(createElement(ScannerReadControls, { ...props, mode: 'realtime' }));
-    expect(realtime).not.toContain('pdd-capture-button');
-    expect(realtime).not.toContain('正在识别这张照片');
+    expect(realtime).toContain('pdd-capture-button');
+    expect(realtime).toContain('停止自动扫码');
+    expect(realtime).not.toContain('已拍照，正在识别');
   });
   it('follows observed front/rear settings and uses distinct desktop/mobile fallback', () => {
     expect(defaultPreviewMirror(description({ facingMode: 'user' }), false)).toBe(true);

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode, type RefObject } from 'react';
+import { flushSync } from 'react-dom';
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { createClient, type AuthChangeEvent, type Session } from '@supabase/supabase-js';
 import { ArrowLeft, ArrowRight, Camera, Check, CheckCircle2, Copy, FlipHorizontal, Heart, LoaderCircle, RefreshCw, ScanLine, ShieldCheck, Trash2, X } from 'lucide-react';
@@ -46,7 +47,7 @@ function QrPicture({ url, alt, missing, group = false }: { url: string | null | 
   const crop = group && !!url && url.split('?')[0].endsWith('/community-assets/group/8e25a7055606253f93cfe2c8.jpg');
   return url && !failed ? <div className={'pdd-qr-picture' + (crop ? ' pdd-qr-group-crop' : '')}><img src={url} alt={alt} onError={() => setFailed(true)} /></div> : <div className="pdd-qr-missing">{failed ? '二维码暂时无法读取' : missing}<br />{failed ? '请联系小助手' : '尚未配置'}</div>;
 }
-function Dialog({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+function Dialog({ title, children, onClose, className = '' }: { title: string; children: ReactNode; onClose: () => void; className?: string }) {
   const id = useId(), element = useRef<HTMLElement>(null), closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
@@ -67,7 +68,7 @@ function Dialog({ title, children, onClose }: { title: string; children: ReactNo
     dialog.addEventListener('keydown', keydown);
     return () => { dialog.removeEventListener('keydown', keydown); document.body.style.overflow = previousOverflow; previous?.focus(); };
   }, []);
-  return <div className="pdd-overlay" onClick={onClose}><section className="pdd-dialog" role="dialog" aria-modal="true" aria-labelledby={id} tabIndex={-1} ref={element} onClick={event => event.stopPropagation()}><button className="pdd-icon pdd-close" onClick={onClose} aria-label="关闭"><X /></button><h2 id={id}>{title}</h2>{children}</section></div>;
+  return <div className="pdd-overlay" onClick={onClose}><section className={'pdd-dialog ' + className} role="dialog" aria-modal="true" aria-labelledby={id} tabIndex={-1} ref={element} onClick={event => event.stopPropagation()}><button className="pdd-icon pdd-close" onClick={onClose} aria-label="关闭"><X /></button><h2 id={id}>{title}</h2>{children}</section></div>;
 }
 function CommunityCodes({ compact = false }: { compact?: boolean }) {
   const { community, communityError } = useContext(PddContext);
@@ -147,8 +148,8 @@ export function ScannerCameraControls(props: ScannerCameraControlsProps) {
     <ErrorNote>{props.focusError}</ErrorNote>
   </div>;
 }
-export function ScannerReadControls({ mode, ready, busy, onMode, onCapture }: { mode: BarcodeScanMode; ready: boolean; busy: boolean; onMode: (mode: BarcodeScanMode) => void; onCapture: () => void }) {
-  return <div className="pdd-scan-read-controls"><div className="pdd-scan-modes" role="group" aria-label="条形码识别方式"><button type="button" aria-pressed={mode === 'photo'} disabled={busy} onClick={() => onMode('photo')}><Camera size={18} />拍照识别</button><button type="button" aria-pressed={mode === 'realtime'} disabled={busy} onClick={() => onMode('realtime')}><ScanLine size={18} />实时扫码</button></div>{mode === 'photo' && <button type="button" className="pdd-button pdd-primary pdd-full pdd-capture-button" disabled={!ready || busy} onClick={onCapture}>{busy ? <LoaderCircle size={20} className="pdd-spin" /> : <Camera size={20} />}{busy ? '正在识别这张照片…' : '拍照并识别条形码'}</button>}</div>;
+export function ScannerReadControls({ mode, ready, busy, onMode, onCapture, onClose }: { mode: BarcodeScanMode; ready: boolean; busy: boolean; onMode: (mode: BarcodeScanMode) => void; onCapture: () => void; onClose: () => void }) {
+  return <div className="pdd-scan-read-controls"><button type="button" className="pdd-button pdd-primary pdd-full pdd-capture-button" disabled={!ready || busy} onClick={onCapture}>{busy ? <LoaderCircle size={20} className="pdd-spin" /> : <Camera size={20} />}{busy ? '已拍照，正在识别…' : '拍照识别'}</button><div className="pdd-scan-secondary-actions"><button type="button" className="pdd-button pdd-secondary" aria-pressed={mode === 'realtime'} disabled={!ready || busy} onClick={() => onMode(mode === 'photo' ? 'realtime' : 'photo')}><ScanLine size={18} />{mode === 'photo' ? '开启自动扫码' : '停止自动扫码'}</button><button type="button" className="pdd-button pdd-secondary" onClick={onClose}>关闭并手动输入</button></div></div>;
 }
 function Scanner({ onDecoded, onClose }: { onDecoded: (number: string) => void; onClose: () => void }) {
   const video = useRef<HTMLVideoElement>(null), controller = useRef<ReturnType<typeof createScannerCameraController> | null>(null), streamRef = useRef<MediaStream | null>(null);
@@ -164,21 +165,28 @@ function Scanner({ onDecoded, onClose }: { onDecoded: (number: string) => void; 
   const stopCurrent = () => { clearFocusTimer(); focusSequence.current++; captureSequence.current++; streamRef.current = null; scannerRef.current = null; captureBusy.current = false; controller.current?.stop(); };
   const close = () => { cameraSequence.current++; stopCurrent(); onCloseRef.current(); };
   const changeCamera = (deviceId?: string) => { cameraSequence.current++; stopCurrent(); setPhotoBusy(false); setPhotoNotice(''); setPhase('switching'); setError(''); setRequest(value => ({ deviceId, revision: value.revision + 1 })); };
-  const changeReadMode = (mode: BarcodeScanMode) => { scanModeRef.current = mode; captureSequence.current++; scannerRef.current?.setMode(mode); captureBusy.current = false; setScanMode(mode); setPhotoBusy(false); setPhotoNotice(''); setError(''); };
+  const changeReadMode = (mode: BarcodeScanMode) => { if (mode === scanModeRef.current) return; scanModeRef.current = mode; captureSequence.current++; scannerRef.current?.setMode(mode); captureBusy.current = false; setScanMode(mode); setPhotoBusy(false); setPhotoNotice(''); setError(''); };
   const capturePhoto = async () => {
     const controls = scannerRef.current, stream = streamRef.current, revision = cameraSequence.current;
-    if (!controls || !stream || phase !== 'scanning' || captureBusy.current) return;
+    if (captureBusy.current) return;
+    if (!controls || !stream || phase !== 'scanning') { setPhotoNotice('相机还在准备，请稍等后再拍。'); return; }
+    changeReadMode('photo');
     const attempt = ++captureSequence.current;
-    captureBusy.current = true; setPhotoBusy(true); setPhotoNotice(''); setError('');
+    captureBusy.current = true;
+    // Commit feedback before freezing/decoding pixels. The camera's real frame
+    // is captured synchronously by capture(), then the preview pauses visibly.
+    flushSync(() => { setPhotoBusy(true); setPhotoNotice(''); setError(''); });
     try {
-      const result = await controls.capture();
+      const pending = controls.capture();
+      video.current?.pause();
+      const result = await pending;
       if (scannerRef.current !== controls || streamRef.current !== stream || revision !== cameraSequence.current || attempt !== captureSequence.current) return;
-      if (result.result === 'not_found') setPhotoNotice('这张照片没有识别到国内条形码。请让整个条码和两端白边清楚、避开反光，再拍一张；也可手动输入单号。');
+      if (result.result === 'not_found') setPhotoNotice('这张照片未识别到条形码。请让黑白线条清楚后再拍，或手动输入单号。');
     } catch (exception) {
       if (scannerRef.current !== controls || streamRef.current !== stream || revision !== cameraSequence.current || attempt !== captureSequence.current) return;
       if (!(exception instanceof Error && exception.name === 'AbortError')) setError('这次拍照识别没有完成。请等画面清楚后重新拍照；也可手动输入单号。');
     } finally {
-      if (scannerRef.current === controls && streamRef.current === stream && revision === cameraSequence.current && attempt === captureSequence.current) { captureBusy.current = false; setPhotoBusy(false); }
+      if (scannerRef.current === controls && streamRef.current === stream && revision === cameraSequence.current && attempt === captureSequence.current) { captureBusy.current = false; setPhotoBusy(false); void video.current?.play().catch(() => { if (scannerRef.current === controls && streamRef.current === stream && revision === cameraSequence.current && attempt === captureSequence.current) setError('相机画面未恢复。请关闭后重新扫码，或手动输入单号。'); }); }
     }
   };
   const updateVideoAspect = () => { const element = video.current; if (element?.videoWidth && element.videoHeight) setVideoAspect(`${element.videoWidth} / ${element.videoHeight}`); };
@@ -255,26 +263,29 @@ function Scanner({ onDecoded, onClose }: { onDecoded: (number: string) => void; 
     })();
     return () => { active = false; document.removeEventListener('visibilitychange', hidden); stop(); };
   }, [request]);
-  const status = phase === 'permission' ? '正在申请摄像头权限…' : phase === 'switching' ? '正在切换摄像头…' : phase === 'opening' ? '相机已开启，正在准备识别…' : photoBusy ? '正在本机识别刚拍下的画面…' : scanMode === 'photo' ? '画面清楚后，点击拍照识别' : '正在扫描国内运输条形码';
+  const status = phase === 'permission' ? '正在申请摄像头权限…' : phase === 'switching' ? '正在切换摄像头…' : phase === 'opening' ? '相机已开启，正在准备识别…' : photoBusy ? '已拍下画面，正在本机识别…' : scanMode === 'photo' ? '对准完整条码，点击下方“拍照识别”。' : '正在自动扫描；也可以直接拍照识别。';
   const guidance = helpStage === 0 ? '把整个条码和两端白边放入框内，慢慢调整距离，让黑白线条清晰。稳住片刻，避开反光。' : helpStage === 1 ? '还没识别到？先把面单移远，直到黑白线条清楚，不要继续靠近。清晰后稳住片刻。' : '仍在扫描。请调整光线、避开反光；电脑画面仍模糊时，用手机扫码更方便。';
-  return <Dialog title="扫描国内快递单号" onClose={close}>
+  return <Dialog title="扫描国内快递单号" onClose={close} className="pdd-scanner-dialog">
     <div className="pdd-scanner-view">
-      <p className="pdd-scanner-intro">找到面单上的国内运输条形码。拍照识别会固定当前画面，无需一直保持同一姿势。</p>
-      <div className="pdd-scanner" data-phase={phase} style={{ aspectRatio: videoAspect }}>
+      <div className="pdd-scanner-scroll">
+      <p className="pdd-scanner-intro">对准国内运输条形码，保留两端白边。</p>
+      <div className="pdd-scanner" data-phase={phase} style={{ aspectRatio: videoAspect, maxWidth: `calc(30dvh * ${Number(videoAspect.split('/')[0]) / Number(videoAspect.split('/')[1])})` }}>
         <ScannerPreview videoRef={video} mirrored={mirrored} onDimensions={updateVideoAspect} />
         {phase === 'scanning' ? <><div className="pdd-scan-frame" aria-hidden="true"><span /><span /><span /><span /></div><div className="pdd-scan-caption" aria-hidden="true"><ScanLine size={19} />整个条码放入框内</div></> : <div className="pdd-camera-stage" aria-hidden="true">{phase === 'error' ? <Camera size={32} /> : <LoaderCircle size={30} className="pdd-spin" />}<strong>{phase === 'error' ? '摄像头已关闭' : status}</strong>{phase === 'permission' && <span>请在浏览器提示中选择“允许”。</span>}{(phase === 'opening' || phase === 'switching') && <span>准备好后可以拍照，也可以切换实时扫码。</span>}</div>}
+        {photoBusy && <div className="pdd-photo-feedback" aria-hidden="true"><LoaderCircle size={26} className="pdd-spin" /><strong>已拍照 · 正在识别</strong></div>}
       </div>
-      {phase !== 'error' && <div className="pdd-camera-status" role="status" aria-live="polite" aria-atomic="true">{phase === 'scanning' && !photoBusy ? <Camera size={20} /> : <LoaderCircle size={20} className="pdd-spin" />}<span>{status}</span></div>}
-      <ScannerReadControls mode={scanMode} ready={phase === 'scanning'} busy={photoBusy} onMode={changeReadMode} onCapture={() => void capturePhoto()} />
-      {photoNotice && <p className="pdd-scan-help" role="status" aria-live="polite">{photoNotice}</p>}
-      {phase === 'scanning' && !photoNotice && <p className="pdd-scan-help" role="status" aria-live="polite" aria-atomic="true">{scanMode === 'photo' ? '把完整条码和两端白边放入画面，让黑白线条清楚后拍照。未识别到时可重新拍照，或切换实时扫码。' : guidance}</p>}
+      {scanMode === 'realtime' && phase === 'scanning' && helpStage > 0 && <p className="pdd-scan-help">{guidance}</p>}
+      <details className="pdd-camera-settings"><summary>画面模糊或反向？展开相机设置</summary>
       {camera && <ScannerCameraControls camera={camera} devices={devices} selectedDevice={phase === 'scanning' ? camera.deviceId || request.deviceId || '' : request.deviceId || camera.deviceId || ''} mirrored={mirrored} manualFocus={manualFocus} focusValue={focusValue} focusBusy={focusBusy} focusMessage={focusMessage} focusError={focusError} disabled={phase !== 'scanning'} onCamera={changeCamera} onMirror={() => setMirrored(value => !value)} onFocusMode={chooseFocusMode} onDistance={changeFocusDistance} />}
       {!camera && phase === 'error' && devices.length > 1 && <div className="pdd-camera-controls pdd-camera-recovery-controls"><p className="pdd-camera-distance-hint">也可以选择其他摄像头再试。</p><ScannerDevicePicker devices={devices} selectedDevice={request.deviceId || ''} onCamera={changeCamera} /></div>}
-      <ErrorNote>{error}</ErrorNote>
-      {phase === 'error' && <button className="pdd-button pdd-secondary pdd-full pdd-camera-retry" onClick={() => changeCamera(request.deviceId)}>重新开启相机</button>}
-      <p className="pdd-scanner-next">识别成功会自动关闭相机；核对单号后，再手动点击“查询”。</p>
-      <p className="pdd-scanner-privacy"><ShieldCheck size={17} />画面仅在当前设备识别，不会上传。</p>
-      <button className="pdd-button pdd-secondary pdd-full" onClick={close}>关闭并手动输入</button>
+      </details>
+      <p className="pdd-scanner-privacy"><ShieldCheck size={17} />仅本机识别；成功后核对单号，再点击查询。</p>
+      </div>
+      <div className="pdd-scanner-actions">
+        <div className={'pdd-camera-status' + (error || photoNotice ? ' pdd-capture-notice' : '')} role="status" aria-live="polite" aria-atomic="true">{photoBusy || phase === 'permission' || phase === 'opening' || phase === 'switching' ? <LoaderCircle size={20} className="pdd-spin" /> : <Camera size={20} />}<span>{error || photoNotice || status}</span></div>
+        {phase === 'error' && <button className="pdd-button pdd-secondary pdd-full pdd-camera-retry" onClick={() => changeCamera(request.deviceId)}>重新开启相机</button>}
+        <ScannerReadControls mode={scanMode} ready={phase === 'scanning'} busy={photoBusy} onMode={changeReadMode} onCapture={() => void capturePhoto()} onClose={close} />
+      </div>
     </div>
   </Dialog>;
 }

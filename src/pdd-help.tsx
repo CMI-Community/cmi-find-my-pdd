@@ -30,7 +30,7 @@ export function HelpPage() {
       <ol className="pdd-help-camera-steps">
         <li>点击“扫码”，允许网站使用相机。</li>
         <li>将整个运输条形码和两端白边放入框内，让黑白线条清楚。</li>
-        <li>选择“拍照识别”或“实时扫码”。拍照没识别到，可重新拍；画面模糊时先移远，电脑仍模糊可用手机。</li>
+        <li>点击底部“拍照识别”，看到“已拍照，正在识别”后等结果。也可点“开启自动扫码”。没识别到可再拍；画面模糊时先移远，电脑仍模糊可用手机。</li>
         <li><strong>核对填入的单号，再手动点击“查询”。</strong></li>
       </ol>
       <p className="pdd-help-local"><ShieldCheck size={19} aria-hidden="true" />相机画面和拍照图片只在本机识别，不会上传。</p>
