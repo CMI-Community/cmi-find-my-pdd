@@ -2,6 +2,46 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+const ALERT_CODES = new Set(['DATABASE_UNAVAILABLE', 'CONFIGURATION_UNAVAILABLE', 'REGISTRATION_NOT_READY', 'CONNECTIONS_CRITICAL', 'CONNECTIONS_HIGH', 'DATABASE_QUOTA_UNCONFIGURED', 'DATABASE_SIZE_CRITICAL', 'DATABASE_SIZE_HIGH', 'LONG_TRANSACTION', 'LOCK_WAIT', 'IDLE_TRANSACTION', 'DATABASE_SLOW', 'TELEMETRY_MONITOR_UNAVAILABLE', 'TELEMETRY_BUDGET_HIGH', 'TELEMETRY_BUDGET_CRITICAL', 'TELEMETRY_BUDGET_EXHAUSTED', 'WEBSITE_UNAVAILABLE', 'SERVICE_UNAVAILABLE', 'WEBSITE_SLOW', 'SERVICE_SLOW', 'RESOURCE_METRICS_UNAVAILABLE', 'CPU_CRITICAL', 'CPU_HIGH', 'MEMORY_CRITICAL', 'MEMORY_HIGH', 'NEW_DEADLOCK', 'DATABASE_LIMIT_WITHIN_7_DAYS', 'MONITOR_BASELINE_UNAVAILABLE', 'MONITOR_CACHE_RESTORE_FAILED']);
+const DB_COUNTERS = ['databaseBytes', 'connections', 'maxConnections', 'reservedConnections', 'activeConnections', 'waitingConnections', 'idleInTransactionConnections', 'longestTransactionSeconds', 'transactionsCommitted', 'transactionsRolledBack', 'deadlocks', 'tempBytes', 'connectionUtilization'];
+const METRIC_COUNTERS = ['cpuTotal', 'cpuIdle', 'memoryTotal', 'memoryAvailable', 'load1', 'cpus'];
+const numeric = value => Number.isFinite(value) && value >= 0 ? value : null;
+const codes = values => Array.isArray(values) ? values.filter(value => ALERT_CODES.has(value)) : [];
+
+/** GitHub caches can be read from PRs. Persist only this explicit safe allowlist. */
+export function safeMonitorState(report) {
+  if (!report || typeof report.checkedAt !== 'string' || !Number.isFinite(Date.parse(report.checkedAt)) || !report.website || !report.resources) throw new Error('Invalid monitoring state.');
+  let system = null;
+  if (report.system) {
+    let database = null;
+    if (report.system.database) {
+      database = Object.fromEntries(DB_COUNTERS.map(key => [key, numeric(report.system.database[key])]));
+      database.databaseSizeLimitBytes = numeric(report.system.database.databaseSizeLimitBytes);
+      database.statsResetAt = Number.isFinite(Date.parse(report.system.database.statsResetAt)) ? new Date(report.system.database.statsResetAt).toISOString() : null;
+    }
+    system = { ok: report.system.ok === true, ready: report.system.ready === true,
+      sha: /^[a-f0-9]{40}$/i.test(report.system.sha ?? '') ? report.system.sha : 'unknown',
+      durationMs: numeric(report.system.durationMs), database, warnings: codes(report.system.warnings) };
+  }
+  const baseline = report.growthBaseline;
+  return { stateVersion: 1, checkedAt: new Date(report.checkedAt).toISOString(), durationMs: numeric(report.durationMs),
+    website: { ok: report.website.ok === true, status: numeric(report.website.status), durationMs: numeric(report.website.durationMs) },
+    system, metricsState: report.metricsState === 'available' ? 'available' : 'unavailable',
+    metrics: report.metrics ? Object.fromEntries(METRIC_COUNTERS.map(key => [key, numeric(report.metrics[key])])) : null,
+    resources: { cpuUtilization: numeric(report.resources.cpuUtilization), memoryUtilization: numeric(report.resources.memoryUtilization), load1: numeric(report.resources.load1) },
+    growthBaseline: baseline && numeric(baseline.at) !== null && numeric(baseline.bytes) !== null ? { at: baseline.at, bytes: baseline.bytes } : null,
+    alerts: codes(report.alerts), changed: report.changed === true, recovered: report.recovered === true,
+  };
+}
+
+export function previousMonitorState(value, now = Date.now()) {
+  try {
+    const state = safeMonitorState(value), age = now - Date.parse(state.checkedAt);
+    // A delayed/lost scheduler must not look like consecutive healthy samples.
+    return age >= 0 && age <= 30 * 60_000 ? state : null;
+  } catch { return null; }
+}
+
 // Only numeric aggregate series are retained; exporter labels can contain SQL.
 export function parseMetrics(source) {
   const result = { cpuTotal: 0, cpuIdle: 0, memoryTotal: null, memoryAvailable: null, load1: null, cpus: null };
@@ -23,8 +63,12 @@ export function parseMetrics(source) {
 
 export function resources(metrics, previous) {
   if (!metrics) return { cpuUtilization: null, memoryUtilization: null, load1: null };
-  const total = previous ? metrics.cpuTotal - previous.cpuTotal : 0;
-  const idle = previous ? metrics.cpuIdle - previous.cpuIdle : 0;
+  const cpuCountersPresent = previous && ['cpuTotal', 'cpuIdle'].every(key =>
+    Number.isFinite(metrics[key]) && metrics[key] >= 0 && Number.isFinite(previous[key]) && previous[key] >= 0)
+    && metrics.cpuTotal > 0 && previous.cpuTotal > 0
+    && metrics.cpuIdle <= metrics.cpuTotal && previous.cpuIdle <= previous.cpuTotal;
+  const total = cpuCountersPresent ? metrics.cpuTotal - previous.cpuTotal : 0;
+  const idle = cpuCountersPresent ? metrics.cpuIdle - previous.cpuIdle : 0;
   return {
     cpuUtilization: total > 0 && idle >= 0 && idle <= total ? 1 - idle / total : null,
     memoryUtilization: Number.isFinite(metrics.memoryTotal) && metrics.memoryTotal > 0
@@ -48,7 +92,7 @@ export function evaluate(report, previous) {
   else if (r.memoryUtilization >= .8 && before?.memoryUtilization >= .8) alerts.push('MEMORY_HIGH');
   const db = report.system?.database, old = previous?.system?.database;
   if (db && old && report.system?.database?.statsResetAt === previous.system?.database?.statsResetAt && db.deadlocks > old.deadlocks) alerts.push('NEW_DEADLOCK');
-  // A rolling baseline spans at least one day; brief measurement noise is not
+  // A saved baseline spans at least one day; brief measurement noise is not
   // extrapolated into a promise about remaining quota.
   const baseline = previous?.growthBaseline;
   if (db?.databaseSizeLimitBytes && baseline && Date.parse(report.checkedAt) - baseline.at >= 86400000) {
@@ -90,6 +134,9 @@ export async function collect(env, previous = null, fetcher = fetch) {
     growthBaseline: previous?.growthBaseline ?? (system?.database ? { at: Date.now(), bytes: system.database.databaseBytes } : null),
   };
   report.alerts = evaluate(report, previous);
+  if (env.MONITOR_REQUIRE_BASELINE === 'true' && (!previous || report.resources.cpuUtilization === null)) report.alerts.push('MONITOR_BASELINE_UNAVAILABLE');
+  if (env.MONITOR_CACHE_RESTORE_FAILED === 'true') report.alerts.push('MONITOR_CACHE_RESTORE_FAILED');
+  report.alerts = [...new Set(report.alerts)].sort();
   const old = previous?.alerts ?? [];
   report.changed = report.alerts.some(code => !old.includes(code)) || old.some(code => !report.alerts.includes(code));
   report.recovered = old.length > 0 && report.alerts.length === 0;
@@ -99,10 +146,12 @@ export async function collect(env, previous = null, fetcher = fetch) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const stateFile = resolve(process.env.MONITOR_STATE_FILE ?? '.private/monitor-state.json');
   let previous = null;
-  try { previous = JSON.parse(await readFile(stateFile, 'utf8')); } catch { /* first run */ }
+  try {
+    if (process.env.MONITOR_CACHE_RESTORE_FAILED !== 'true') previous = previousMonitorState(JSON.parse(await readFile(stateFile, 'utf8')));
+  } catch { /* unavailable baseline, not a healthy CPU/growth sample */ }
   const report = await collect(process.env, previous);
   await mkdir(dirname(stateFile), { recursive: true, mode: 0o700 });
-  await writeFile(stateFile, JSON.stringify(report), { mode: 0o600 });
+  await writeFile(stateFile, JSON.stringify(safeMonitorState(report)), { mode: 0o600 });
   // Credentials, metrics label sets, SQL, input and contact values never print.
   console.log(JSON.stringify({ checkedAt: report.checkedAt, changed: report.changed, recovered: report.recovered, alerts: report.alerts, website: report.website, system: report.system, resources: report.resources, metricsState: report.metricsState }));
   if (report.alerts.length) process.exitCode = 1;
