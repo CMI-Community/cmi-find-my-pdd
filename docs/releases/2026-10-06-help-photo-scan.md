@@ -1,6 +1,6 @@
 # 帮助、拍照识别与简化首页
 
-日期：2026-10-06，Asia/Bangkok。修改已通过PR及CI合入main，并部署到正式域名；实际接口与管理员读取已核对。新版拍照识别的物理设备验收仍待用户反馈，尚未创建运行标签。
+日期：2026-10-06，Asia/Bangkok。修改已通过PR及CI合入main，并部署到正式域名；实际接口与管理员读取已核对。用户反馈后的固定操作栏修复也已上线，当前运行源码为 `359730089bbab3f3f13b591db6b2559235794418`。该修复的物理设备验收仍待用户反馈，尚未创建运行标签。
 
 ## 行为
 
@@ -20,13 +20,13 @@
 
 ## 生产部署与核对
 
-- [PR #13](https://github.com/CMI-Community/cmi-find-my-pdd/pull/13)（帮助、拍照与简化界面）及[PR #14](https://github.com/CMI-Community/cmi-find-my-pdd/pull/14)（帮助页重复文案）已合入main；各自精确提交的[CI #13](https://github.com/CMI-Community/cmi-find-my-pdd/actions/runs/37461670199)、[CI #14](https://github.com/CMI-Community/cmi-find-my-pdd/actions/runs/37462563686)均为success。最终实际运行源码SHA为 `64bd09178ff5393174849a61ed327cc4b2b3289f`。
+- [PR #13](https://github.com/CMI-Community/cmi-find-my-pdd/pull/13)（帮助、拍照与简化界面）及[PR #14](https://github.com/CMI-Community/cmi-find-my-pdd/pull/14)（帮助页重复文案）已合入main；各自精确提交的[CI #13](https://github.com/CMI-Community/cmi-find-my-pdd/actions/runs/37461670199)、[CI #14](https://github.com/CMI-Community/cmi-find-my-pdd/actions/runs/37462563686)均为success。该轮实际运行源码SHA为 `64bd09178ff5393174849a61ed327cc4b2b3289f`，已由下文的按钮修复版本取代。
 - 曼谷19:24创建独立PDD404 Vercel生产部署 `dpl_6FvcGRLSxHxQJ5wiwMPMozJaXmW7`，状态READY；部署地址 `pdd404-2yc4sm2gg-guanchao71-gmailcoms-projects.vercel.app`。主域、www已指向此部署，默认部署地址原有访问保护保持。
 - [正式主域](https://pdd404.app/)严格TLS与HTTP200通过，HTML `pdd404-build`为上述源码SHA，加载 `assets/index-CNTjXhmt.js`；[www](https://www.pdd404.app/)仍308跳转到主域。构建仅上传公开静态产物，服务角色凭据未进入产物。
 - Edge APP_SHA于12:24:31 UTC（曼谷19:24:31）保存，公开版本摘要SHA256为 `1445752686f32d9c51730f0d9a1180fdc88e28238d4075aab0f6bb916638be6a`。API v13、worker v14均ACTIVE，代码部署包校验值与上一版相同；数据库只同步APP_SHA，并在同一受保护事务写版本审计。
 - 曼谷19:25:20，10项实际生产接口合成smoke全部通过：运行身份与就绪、查询及重试单次日志、双向直接联系方式与对侧优先、公开投影及错误管理凭证、提交时新增匹配、错收先登记、服务器时间戳、匿名数据库拒绝、旧OCR创建关闭、精确CORS。仅清理本次随机生成的合成资料，用户既有登记、回执与本机草稿保留。
 - 实际正式网页核对：顶部打开使用说明，首页两句标语均不存在，包裹图标数为0；公众号和微信群素材均加载，两个二维码框均144×144，已知群图启用安全裁切。管理员既有会话刷新后仍可读取工作台及查询日志，未修改密码、联系人或处理状态。
-- 本机公开页面截图更新在忽略的 `output/pdd404-photo-release-home.png` 与 `output/pdd404-photo-release-help.png`；不提交截图、管理员数据或联系方式。后续文档提交只更新发布记录，不产生新运行部署；生产运行SHA仍为上述源码SHA。
+- 本机公开页面截图更新在忽略的 `output/pdd404-photo-release-home.png` 与 `output/pdd404-photo-release-help.png`；不提交截图、管理员数据或联系方式。文档提交只更新发布记录，不产生新运行部署；各次生产运行SHA按实际源码部署记录。
 
 ## 待验收与范围
 
@@ -42,4 +42,14 @@
 - 唯一“拍照识别”主按钮实际采集画面；“开启/停止自动扫码”只控制连续识别。从自动模式拍照会回到拍照模式。拍摄前同步提交反馈，拍下后冻结预览、显示“已拍照，正在识别”；未识别与错误显示在按钮上方，失败后恢复取景。
 - 本机合成相机验证：360×640与360×480主拍照和关闭按钮完整可见，展开设置仍不遮挡；720×1280竖屏视频展示为81×144，比例一致，未滚动即可拍照。自动模式直接拍照只申请过1次相机，未识别反馈可见并恢复播放。
 - 实际ZXing读取合成 `PDD404TEST000001` 后填号、所有媒体轨道ended，没有自动查询。识别过程中关闭也停止所有轨道，未回填新的号码。
-- 修复软件检查通过138项Vitest、17项Edge及构建；帮助说明同步实际按钮名称。本段记录本机结果，修复的生产源码与部署事实在发布后补记，不把合成验收作为物理镜头验收。
+- 修复软件检查通过138项Vitest、17项Edge及构建；帮助说明同步实际按钮名称。本段仅记录本机结果，修复的生产源码与部署事实见下节；不把合成验收作为物理镜头验收。
+
+## 固定操作栏修复生产部署
+
+- [PR #16](https://github.com/CMI-Community/cmi-find-my-pdd/pull/16)合入main，精确审查提交 `36aae85a86f72b7f1726b25070d381d285354b64` 的[必需CI](https://github.com/CMI-Community/cmi-find-my-pdd/actions/runs/37464615751)为success。实际构建并部署的main源码SHA为 `359730089bbab3f3f13b591db6b2559235794418`；部署后的文档合并SHA不是运行源码。
+- 曼谷19:39创建独立生产部署 `dpl_9yqEPiyWP3MHNQ8MvrM9q3g9fEcr`，状态READY；地址 `pdd404-jfd47hffd-guanchao71-gmailcoms-projects.vercel.app`。正式主域和www已指向该版本，默认部署地址访问保护保持。
+- 严格TLS与HTTP200通过，正式HTML运行标识与该源码一致，主脚本为 `assets/index-A8epS7fO.js`、样式为 `assets/index-7IUwWUpl.css`。www仍308至主域。公开静态构建已扫描，不含服务角色凭据。
+- APP_SHA于12:39:58 UTC（曼谷19:39:58）保存，公开版本摘要SHA256为 `ee28b53606318d46052da8af6e468c494533402848faf419546d4c9f0b1bf7ea`；API v14、worker v15均ACTIVE，代码包校验值未变。数据库版本元数据与审计在受保护事务中同步，未改登记开关或社区配置。
+- 曼谷19:40:53，最终源码身份、登记、双向直接联系、重试日志、提交重查、管理凭证及CORS等10项真实接口合成检查再次通过；仅清理本次随机合成资料。正式网页帮助已显示底部按钮与即时反馈说明，真实社区二维码完整加载；管理员刷新后仍能读取查询日志。
+- 固定底栏及相机冻结的本机截图保存于忽略的 `output/scanner/fixed-actions-360.png`，不作为真机成功证据。已请用户刷新正式站复测。此前64bd版本的失败报告保留；当前3597300版本的物理条码效果尚待回复，未创建运行标签。
+- 本次没有数据库迁移、正式用户数据清理、修改密码或实际交还操作。加密业务范围备份继续沿用，原生完整灾备的凭据与验证边界没有改变。
