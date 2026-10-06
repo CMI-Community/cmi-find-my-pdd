@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   monitor:
-    if: vars.ENABLE_SERVICE_MONITOR == 'true'
+    if: vars.ENABLE_SERVICE_MONITOR == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 3
     env:
@@ -19,10 +19,70 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_PRODUCTION_SERVICE_ROLE_KEY }}
       MONITOR_SECRET: ${{ secrets.PDD404_MONITOR_SECRET }}
       MONITOR_STATE_FILE: /tmp/pdd404-monitor-state.json
+      MONITOR_REQUIRE_BASELINE: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Restore the latest safe main-branch monitor baseline
+        id: restore_state
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: /tmp/pdd404-monitor-state.json
+          key: ${{ runner.os }}-pdd404-monitor-v1-main-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-pdd404-monitor-v1-main-
+      - name: Mark this probe's start time
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          appendFileSync(process.env.GITHUB_ENV, 'MONITOR_RUN_STARTED_AT=' + Date.now() + '\n');
+          NODE
       - name: Check live website, service, database and memory
+        id: monitor
+        env:
+          MONITOR_CACHE_RESTORE_FAILED: ${{ steps.restore_state.outcome == 'failure' && 'true' || 'false' }}
         run: node scripts/monitor.mjs
+      - name: Validate and sanitize the fresh state even when alerts fired
+        id: prepare_state
+        if: always() && steps.monitor.outcome != 'skipped'
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile, appendFile } from 'node:fs/promises';
+          import { safeMonitorState } from './scripts/monitor.mjs';
+          const file = process.env.MONITOR_STATE_FILE;
+          const report = safeMonitorState(JSON.parse(await readFile(file, 'utf8')));
+          const timestamp = Date.parse(report.checkedAt), started = Number(process.env.MONITOR_RUN_STARTED_AT);
+          if (!Number.isFinite(started) || timestamp < started || timestamp > Date.now() + 60_000) throw new Error('Fresh monitor state unavailable; cache will not be advanced.');
+          await writeFile(file, JSON.stringify(report), { mode: 0o600 });
+          await appendFile(process.env.GITHUB_OUTPUT, 'cacheable=true\n');
+          NODE
+      - name: Save the new safe baseline even when the monitor exited with alerts
+        id: save_state
+        if: always() && steps.prepare_state.outputs.cacheable == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/pdd404-monitor-state.json
+          key: ${{ runner.os }}-pdd404-monitor-v1-main-${{ github.run_id }}-${{ github.run_attempt }}
+      # save@v4 can report upload failures as warnings while exiting successfully.
+      # Verify the unique key explicitly; losing history cannot be reported green.
+      - name: Verify that this run's exact baseline was persisted
+        id: verify_state
+        if: always() && steps.prepare_state.outputs.cacheable == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/pdd404-monitor-state.json
+          key: ${{ runner.os }}-pdd404-monitor-v1-main-${{ github.run_id }}-${{ github.run_attempt }}
+          lookup-only: true
+          fail-on-cache-miss: true
+      - name: Fail visibly if the cache service skipped persistence
+        if: always() && steps.prepare_state.outputs.cacheable == 'true'
+        env:
+          CACHE_VERIFIED: ${{ steps.verify_state.outputs.cache-hit }}
+        run: |
+          if [ "$CACHE_VERIFIED" != "true" ]; then
+            echo "::error::MONITOR_STATE_PERSISTENCE_FAILED: CPU and growth history was not preserved."
+            exit 1
+          fi
