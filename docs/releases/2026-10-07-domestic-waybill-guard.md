@@ -1,6 +1,6 @@
 # 集运单号登记拦截补全
 
-日期：2026-10-07，Asia/Bangkok。此提交是已验证的修复源码，生产发布尚未执行。
+日期：2026-10-07，Asia/Bangkok。修复已部署到独立 PDD404 生产项目，01:00 完成线上验收。
 
 原有 JTTH 提醒只在首页查询前执行，服务器、数据库和待提交批次仍只校验号码字符格式。旧页面、旧队列或直接请求能绕过页面提醒。生产日志确认用户反馈的查询与登记发生在本日00:40；不在仓库保存真实号码或联系人。
 
@@ -9,6 +9,22 @@
 - 历史误登记仍可凭原私密凭证查看、修改联系方式和撤回，撤回仍写审计。不自动删除或撤回生产登记。
 - 混合批次整体拒绝；拒绝不新增登记、查询日志、匹配事实或业务计数。
 
-验证：原基线209项Vitest、29项Deno通过；集成PR #31后的 `RUN_SCOPED_POSTGRES_TEST=true npm run check`（227项Vitest及全部Deno）、`npm run build`、`git diff --check`均通过。隔离真实PostgreSQL验证迁移前后的历史记录与函数OID/所有者/ACL一致，覆盖两种模式、手动/扫码、大小写与空白、疑似标记、混合批次及历史联系补填/幂等重放；修改联系方式、撤回审计与加密备份恢复通过。此前沙箱不允许PostgreSQL共享内存，已在本机临时隔离数据库重跑通过。
+验证：集成 PR #31 后的 `RUN_SCOPED_POSTGRES_TEST=true npm run check`（227 项 Vitest、44 项 Deno）、`npm run build`、`git diff --check`均通过。隔离真实 PostgreSQL 验证迁移前后的历史记录与函数 OID/所有者/ACL 一致，覆盖两种模式、手动/扫码、大小写与空白、疑似标记、混合批次及历史联系补填/幂等重放；修改联系方式、撤回审计与加密备份恢复通过。此前沙箱不允许 PostgreSQL 共享内存，已在本机临时隔离数据库重跑通过。
 
-部署目标仅为独立PDD404项目：Vercel `prj_2ZsOkEmm84ZwOKOgtR5ZGYq8vwcp` / `pdd404.app`；Supabase `fogncjjsnakbhfdbfvdi`。修复已更新到PR #31合并后的main，保留新加入的访问统计与容量监控功能；真实PostgreSQL恢复检查同时覆盖监控与此次拦截。
+部署目标仅为独立 PDD404 项目：Vercel `prj_2ZsOkEmm84ZwOKOgtR5ZGYq8vwcp` / `pdd404.app`；Supabase `fogncjjsnakbhfdbfvdi`。保留 PR #31 的访问统计与容量监控功能；真实 PostgreSQL 恢复检查同时覆盖监控与此次拦截。
+
+## 生产版本与部署状态
+
+- 修复 [PR #32](https://github.com/CMI-Community/cmi-find-my-pdd/pull/32)，合并运行版本 `90a23bce538518e85311fa7bd8db3572f822c714`。PR 检查及 main 检查均通过（GitHub Actions runs `37506975181`、`37507407414`、`37507252437`）。
+- Supabase 平台应用迁移后生成真实版本 `20261006175537`。仓库将原文件 `20261006174952_domestic_waybill_guard.sql` 重命名为 `20261006175537_domestic_waybill_guard.sql`，SQL 内容不变，与真实历史对齐；未改写生产迁移历史。迁移只调整校验函数，未删除或撤回历史登记。
+- API function ACTIVE，版本 `26`，bundle SHA-256 `92d2d90f684b117a91b3d32fda7173d1189564b05ce2a3ec91338cdc55299340`。Worker 未重新打包，配置保存后版本 `25`，保留监控版本 bundle `5434f789bc1a1f42b14d3fa21fef97049f782e4b3884c2d9374be973b25c8ccc`。
+- Edge `APP_SHA` 已通过 Supabase 标准 Secrets 界面更新为上述运行版本。数据库 `site_settings.runtime.APP_SHA` 备用值仍为 `fc6354b38b9774c898b9d3b89166adb5bd886818`；运行代码优先使用 Edge 环境变量，健康接口已返回新版本。自动审批拒绝直接用 SQL 同步备用配置及改写迁移历史，相关 SQL 均未执行；不影响拦截功能。
+- Vercel production deployment `dpl_24nTLXmF2SY9MBsjqBb3LpCz86Gx` READY，于 `2026-10-06T17:59:00.769Z`（曼谷 00:59）就绪，绑定 `pdd404.app` 与 `www.pdd404.app`。部署元数据及首页构建版本均为上述运行版本；6 个线上静态文件逐一与本地构建校验，大小和 SHA-1 一致。
+
+## 线上验收
+
+验收时间 `2026-10-06T18:00:41.546Z`（曼谷 2026-10-07 01:00）。只用合成号码和虚构联系字段：4 个完整/疑似查询与 2 个含集运单号的混合登记批次全部返回 HTTP `422`、`NON_DOMESTIC_WAYBILL`、`retryable=false`。两种模式、手动/扫码来源、大小写与空白均覆盖；验收前后生产中的合成登记数与查询日志数均为 0。三个校验/补填函数的 OID、所有者、ACL 和安全配置与迁移前一致。
+
+正式页面两种模式均显示集运单号提醒；返回修改后保留输入并将焦点回到单号框。健康接口返回 `ok=true`、`ready=true` 与上述运行版本，`www` 的 `/help` 正确重定向到主域名 `/help`。历史误登记未自动处理。
+
+本次补记发布状态及迁移文件编号的提交不构成新的运行部署。
