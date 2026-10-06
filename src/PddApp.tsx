@@ -1,13 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode, type RefObject } from 'react';
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { createClient, type AuthChangeEvent, type Session } from '@supabase/supabase-js';
-import { ArrowLeft, ArrowRight, Camera, Check, CheckCircle2, Copy, Heart, LoaderCircle, Package, RefreshCw, ScanLine, ShieldCheck, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera, Check, CheckCircle2, Copy, FlipHorizontal, Heart, LoaderCircle, Package, RefreshCw, ScanLine, ShieldCheck, Trash2, X } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Community } from '../shared/contracts';
 import { validatePddContact, type PddAdminAction, type PddAdminDetail, type PddAdminList, type PddBatchResult, type PddContact, type PddPublicRecord, type PddQueryLogPage, type PddQueryResult, type PddRegistration } from '../shared/waybill';
 import { pddApi } from './pdd-api';
 import { makeCapability } from './photos';
-import { createCameraSession, startBarcodeScanner, type CameraSession } from './pdd-camera';
+import { cameraConstraintsForDevice, createCameraSession, describeCamera, setCameraFocus, startBarcodeScanner, type CameraDescription, type CameraFocusMode, type CameraSession } from './pdd-camera';
 import { addQueueEntry, newPendingBatch, newQueueEntry, normalizeWaybillInput, privateWaybillUrl, readWaybillDrafts, saveWaybillDrafts, settleQueue, waybillInputError, type LocalReceipt, type NumberSource, type WaybillDraftState, type WaybillMode } from './waybill-drafts';
 
 const modeLabel = { lost: '我丢件了', received: '我多收件了' };
@@ -76,67 +76,173 @@ function ContactFields({ contact, onChange, disabled = false }: { contact: PddCo
 }
 function checkedContact(contact: PddContact) { try { return validatePddContact(contact); } catch { throw new Error(contact.kind === 'wechat' ? '请填写有效的微信号（字母开头，至少6位），不要填写昵称。' : '请填写有效的电话号码，可包含国家区号、空格或连字符。'); } }
 
+export function defaultPreviewMirror(camera: Pick<CameraDescription, 'facingMode'>, mobile: boolean) {
+  if (camera.facingMode === 'user') return true;
+  if (camera.facingMode === 'environment') return false;
+  return !mobile;
+}
+export function scannerFocusOptions(camera: CameraDescription) {
+  const automatic: CameraFocusMode | null = camera.focusModes.includes('continuous') ? 'continuous' : camera.focusModes.includes('single-shot') ? 'single-shot' : null;
+  const range = camera.focusDistance;
+  const manual = camera.focusModes.includes('manual') && !!range && Number.isFinite(range.min) && Number.isFinite(range.max) && range.min < range.max;
+  return { automatic, manual };
+}
+export function initialScannerFocusDistance(camera: CameraDescription) {
+  const range = camera.focusDistance;
+  if (!range || !Number.isFinite(range.min) || !Number.isFinite(range.max) || range.min >= range.max) return 0;
+  const value = Number.isFinite(range.current) ? Math.min(range.max, Math.max(range.min, range.current!)) : (range.min + range.max) / 2;
+  if (!range.step || !Number.isFinite(range.step) || range.step <= 0) return value;
+  const last = Math.floor((range.max - range.min) / range.step + 1e-8), chosen = Math.min(last, Math.max(0, Math.round((value - range.min) / range.step)));
+  return Number((range.min + chosen * range.step).toPrecision(12));
+}
+export function observedScannerFocus(camera: CameraDescription, requested: CameraFocusMode) {
+  return { confirmed: camera.focusMode === requested, manual: camera.focusMode === 'manual' && scannerFocusOptions(camera).manual };
+}
+/** Switching/closing always invalidates the previous session before opening another. */
+export function createScannerCameraController(getUserMedia: (constraints: MediaStreamConstraints) => Promise<MediaStream>) {
+  let current: CameraSession | null = null;
+  return {
+    open(deviceId?: string) { const previous = current; current = null; previous?.stop(); const next = createCameraSession(getUserMedia, cameraConstraintsForDevice(deviceId)); current = next; return next; },
+    isCurrent(session: CameraSession) { return current === session; },
+    stop() { const previous = current; current = null; previous?.stop(); },
+  };
+}
+export function ScannerPreview({ videoRef, mirrored, onDimensions }: { videoRef: RefObject<HTMLVideoElement | null>; mirrored: boolean; onDimensions: () => void }) {
+  // CSS changes only the preview; the decoder still receives the original video.
+  return <video ref={videoRef} autoPlay playsInline muted data-preview-mirrored={mirrored ? 'true' : 'false'} aria-label="摄像头实时画面" onLoadedMetadata={onDimensions} onResize={onDimensions} />;
+}
+type ScannerDevice = { deviceId: string; label: string };
+export function scannerFailureCanEnumerate(exception: unknown) {
+  const name = exception instanceof Error || exception instanceof DOMException ? exception.name : '';
+  return !['NotAllowedError', 'SecurityError', 'AbortError'].includes(name);
+}
+export async function refreshScannerDevices(mediaDevices: Pick<MediaDevices, 'enumerateDevices'>, isCurrent: () => boolean, onDevices: (devices: ScannerDevice[]) => void) {
+  try {
+    const values = await mediaDevices.enumerateDevices();
+    if (!isCurrent()) return;
+    const available = values.filter(device => device.kind === 'videoinput' && device.deviceId);
+    onDevices(available.filter((device, index) => available.findIndex(other => other.deviceId === device.deviceId) === index).map(device => ({ deviceId: device.deviceId, label: device.label })));
+  } catch { /* Enumeration failure must not hide the preview or startup error. */ }
+}
+export function ScannerDevicePicker({ devices, selectedDevice, onCamera }: { devices: ScannerDevice[]; selectedDevice: string; onCamera: (deviceId: string) => void }) {
+  const id = useId();
+  if (devices.length < 2) return null;
+  return <label htmlFor={id}>选择摄像头<select id={id} className="pdd-camera-device" value={selectedDevice} onChange={event => onCamera(event.target.value)}>{!devices.some(device => device.deviceId === selectedDevice) && <option value="">请选择摄像头</option>}{devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || '摄像头 ' + (index + 1)}</option>)}</select></label>;
+}
+type ScannerCameraControlsProps = {
+  camera: CameraDescription; devices: ScannerDevice[]; selectedDevice: string; mirrored: boolean; manualFocus: boolean; focusValue: number; focusBusy: boolean; focusMessage: string; focusError: string; disabled: boolean;
+  onCamera: (deviceId: string) => void; onMirror: () => void; onFocusMode: (mode: CameraFocusMode) => void; onDistance: (distance: number) => void;
+};
+export function ScannerCameraControls(props: ScannerCameraControlsProps) {
+  const id = useId(), { automatic, manual } = scannerFocusOptions(props.camera), range = props.camera.focusDistance;
+  return <div className="pdd-camera-controls">
+    <div className="pdd-camera-tools"><button className="pdd-button pdd-secondary pdd-mirror-toggle" type="button" aria-pressed={props.mirrored} onClick={props.onMirror}><FlipHorizontal size={18} />左右翻转画面</button><span>方向不顺手？点此调整。</span></div>
+    <ScannerDevicePicker devices={props.devices} selectedDevice={props.selectedDevice} onCamera={props.onCamera} />
+    {automatic || manual ? <fieldset className="pdd-focus-controls"><legend>画面模糊？调整对焦</legend><div className="pdd-focus-buttons">{automatic && <button type="button" className="pdd-button pdd-secondary pdd-focus-auto" aria-pressed={!props.manualFocus && props.camera.focusMode === automatic} disabled={props.disabled} onClick={() => props.onFocusMode(automatic)}>自动对焦</button>}{manual && <button type="button" className="pdd-button pdd-secondary pdd-focus-manual" aria-pressed={props.manualFocus} disabled={props.disabled} onClick={() => props.onFocusMode('manual')}>手动对焦</button>}</div>{manual && props.manualFocus && range && <label htmlFor={id + '-focus'} className="pdd-focus-slider-label">慢慢拖动，直到黑白线条清楚<input id={id + '-focus'} type="range" className="pdd-focus-distance" min={range.min} max={range.max} step={range.step || 'any'} value={props.focusValue} onChange={event => props.onDistance(Number(event.target.value))} disabled={props.disabled} /></label>}<p className="pdd-camera-distance-hint">先把面单移远，直到黑白线条清楚，再稳住片刻。电脑仍模糊时，用手机扫码更方便。</p></fieldset> : <p className="pdd-camera-distance-hint">当前摄像头暂不支持在网页中调焦。请把面单移远，直到黑白线条清楚；不要继续靠近。电脑仍模糊时，用手机扫码更方便。</p>}
+    {(props.focusBusy || props.focusMessage) && <p className="pdd-focus-message" role="status" aria-live="polite">{props.focusBusy ? '正在调整对焦，扫码仍在继续…' : props.focusMessage}</p>}
+    <ErrorNote>{props.focusError}</ErrorNote>
+  </div>;
+}
 function Scanner({ onDecoded, onClose }: { onDecoded: (number: string) => void; onClose: () => void }) {
-  const video = useRef<HTMLVideoElement>(null), sessionRef = useRef<CameraSession | null>(null);
-  const [error, setError] = useState(''), [phase, setPhase] = useState<'permission' | 'opening' | 'scanning' | 'error'>('permission');
-  const [helpStage, setHelpStage] = useState(0), [videoAspect, setVideoAspect] = useState('4 / 3');
-  const onDecodedRef = useRef(onDecoded), onCloseRef = useRef(onClose);
+  const video = useRef<HTMLVideoElement>(null), controller = useRef<ReturnType<typeof createScannerCameraController> | null>(null), streamRef = useRef<MediaStream | null>(null);
+  const [request, setRequest] = useState<{ deviceId?: string; revision: number }>({ revision: 0 });
+  const [error, setError] = useState(''), [phase, setPhase] = useState<'permission' | 'opening' | 'switching' | 'scanning' | 'error'>('permission');
+  const [helpStage, setHelpStage] = useState(0), [videoAspect, setVideoAspect] = useState('4 / 3'), [devices, setDevices] = useState<ScannerDevice[]>([]), [camera, setCamera] = useState<CameraDescription | null>(null), [mirrored, setMirrored] = useState(false);
+  const [manualFocus, setManualFocus] = useState(false), [focusValue, setFocusValue] = useState(0), [focusBusy, setFocusBusy] = useState(false), [focusError, setFocusError] = useState(''), [focusMessage, setFocusMessage] = useState('');
+  const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null), focusSequence = useRef(0), cameraSequence = useRef(0), onDecodedRef = useRef(onDecoded), onCloseRef = useRef(onClose);
   onDecodedRef.current = onDecoded; onCloseRef.current = onClose;
-  const close = () => { sessionRef.current?.stop(); onCloseRef.current(); };
+  const clearFocusTimer = () => { if (focusTimer.current) clearTimeout(focusTimer.current); focusTimer.current = null; };
+  const stopCurrent = () => { clearFocusTimer(); focusSequence.current++; streamRef.current = null; controller.current?.stop(); };
+  const close = () => { cameraSequence.current++; stopCurrent(); onCloseRef.current(); };
+  const changeCamera = (deviceId?: string) => { cameraSequence.current++; stopCurrent(); setPhase('switching'); setError(''); setRequest(value => ({ deviceId, revision: value.revision + 1 })); };
   const updateVideoAspect = () => { const element = video.current; if (element?.videoWidth && element.videoHeight) setVideoAspect(`${element.videoWidth} / ${element.videoHeight}`); };
+  const adjustFocus = async (mode: CameraFocusMode, distance?: number) => {
+    const stream = streamRef.current;
+    if (!stream) return;
+    const current = ++focusSequence.current;
+    setFocusBusy(true); setFocusError(''); setFocusMessage('');
+    try {
+      const description = await setCameraFocus(stream, mode, distance);
+      if (streamRef.current !== stream || current !== focusSequence.current) return;
+      const observed = observedScannerFocus(description, mode);
+      setCamera(description); setManualFocus(observed.manual);
+      if (description.focusDistance?.current !== undefined) setFocusValue(initialScannerFocusDistance(description));
+      setFocusMessage(observed.confirmed ? mode === 'manual' ? '相机已确认手动对焦。慢慢拖动，直到黑白线条清楚。' : '相机已确认自动对焦。请看画面是否清楚，清楚后稳住片刻。' : description.focusMode ? '相机没有切换到所选对焦方式。请看画面是否清楚，或调整面单距离。' : '已请求调整对焦，相机暂未确认当前方式。请看画面是否清楚，或调整面单距离。');
+    } catch (exception) {
+      if (streamRef.current !== stream || current !== focusSequence.current) return;
+      if (!(exception instanceof Error && exception.name === 'AbortError')) setFocusError('对焦调整没有成功，扫码仍在继续。请调整面单距离，或换一台摄像头。');
+    } finally { if (streamRef.current === stream && current === focusSequence.current) setFocusBusy(false); }
+  };
+  const chooseFocusMode = (mode: CameraFocusMode) => { clearFocusTimer(); const range = camera?.focusDistance; void adjustFocus(mode, mode === 'manual' && range ? focusValue : undefined); };
+  const changeFocusDistance = (distance: number) => {
+    setFocusValue(distance); setFocusMessage(''); focusSequence.current++; clearFocusTimer();
+    // Coalesce dragging without restarting the stream or pausing barcode reads.
+    focusTimer.current = setTimeout(() => { focusTimer.current = null; void adjustFocus('manual', distance); }, 150);
+  };
   useEffect(() => {
     setHelpStage(0);
     if (phase !== 'scanning') return;
-    const distanceHelp = window.setTimeout(() => setHelpStage(1), 4000);
-    const lightHelp = window.setTimeout(() => setHelpStage(2), 10000);
+    const distanceHelp = window.setTimeout(() => setHelpStage(1), 4000), lightHelp = window.setTimeout(() => setHelpStage(2), 10000);
     return () => { window.clearTimeout(distanceHelp); window.clearTimeout(lightHelp); };
   }, [phase]);
   useEffect(() => {
-    let active = true, decoded = false;
-    const stop = () => sessionRef.current?.stop();
-    const hidden = () => { if (document.hidden) { stop(); onCloseRef.current(); } };
+    let active = true, decoded = false, session: CameraSession | null = null;
+    const currentRequest = ++cameraSequence.current, activeRequest = () => active && currentRequest === cameraSequence.current;
+    const ownsSession = () => activeRequest() && !!session && !!controller.current?.isCurrent(session);
+    const stop = () => { session?.stop(); if (session && controller.current?.isCurrent(session)) stopCurrent(); };
+    const hidden = () => { if (document.hidden && ownsSession()) { stop(); onCloseRef.current(); } };
     document.addEventListener('visibilitychange', hidden);
+    setFocusBusy(false); setFocusError(''); setFocusMessage(''); setManualFocus(false);
     void (async () => {
       try {
-        if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器无法使用摄像头，请用 Safari 或其他浏览器打开，也可以直接输入单号。');
-        // Request permission immediately when this view mounts after the scan click.
-        const session = createCameraSession(constraints => navigator.mediaDevices.getUserMedia(constraints));
-        sessionRef.current = session;
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器无法使用摄像头。');
+        if (!controller.current) controller.current = createScannerCameraController(constraints => navigator.mediaDevices.getUserMedia(constraints));
+        // First open immediately requests permission; enumeration waits until grant.
+        session = controller.current.open(request.deviceId);
         const stream = await session.ready;
-        if (!active) { stop(); return; }
-        setPhase('opening');
+        if (!ownsSession()) { stop(); return; }
+        streamRef.current = stream;
+        const description = describeCamera(stream), range = description.focusDistance;
+        setCamera(description); setManualFocus(description.focusMode === 'manual' && scannerFocusOptions(description).manual && range?.current !== undefined);
+        setFocusValue(initialScannerFocusDistance(description));
+        const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent));
+        setMirrored(defaultPreviewMirror(description, mobile)); setPhase('opening');
+        if (typeof navigator.mediaDevices.enumerateDevices === 'function') void refreshScannerDevices(navigator.mediaDevices, ownsSession, setDevices);
         const controls = startBarcodeScanner(stream, video.current!, text => {
-          if (!active || decoded) return;
+          if (!ownsSession() || decoded) return;
           const number = normalizeWaybillInput(text);
           if (waybillInputError(number)) return;
           decoded = true; stop(); onDecodedRef.current(number);
         }, text => !waybillInputError(normalizeWaybillInput(text)));
-        // Synchronous controls can stop video/import work even before ready.
         session.attachDecoder(controls);
         await controls.ready;
-        if (!active || decoded) stop(); else setPhase('scanning');
+        if (!ownsSession() || decoded) stop(); else setPhase('scanning');
       } catch (exception) {
-        stop();
-        if (!active || decoded) return;
+        const current = ownsSession(); stop();
+        if (!activeRequest() || decoded || (!current && session)) return;
         const name = exception instanceof DOMException || exception instanceof Error ? exception.name : '';
-        setError(name === 'NotAllowedError' || name === 'SecurityError' ? '摄像头权限未开启。请在浏览器或系统设置中允许本网站使用相机，再重新扫码；也可手动输入单号。' : name === 'NotFoundError' ? '没有找到可用摄像头。请确认设备已连接摄像头，或直接输入单号。' : name === 'NotReadableError' ? '摄像头被占用或暂时无法启动。请关闭其他使用相机的应用，再重新扫码；也可手动输入单号。' : !navigator.mediaDevices?.getUserMedia ? '当前浏览器无法使用摄像头。请用 Safari 或其他浏览器打开，也可以直接输入单号。' : '相机未能启动。请关闭后重新扫码；仍无法使用时可直接输入单号。');
+        setError(name === 'NotAllowedError' || name === 'SecurityError' ? '摄像头权限未开启。请在浏览器或系统设置中允许本网站使用相机，再重新扫码；也可手动输入单号。' : name === 'NotFoundError' || name === 'OverconstrainedError' ? '没有找到这台摄像头。请重新选择其他摄像头，或直接输入单号。' : name === 'NotReadableError' ? '摄像头被占用或暂时无法启动。请关闭其他使用相机的应用，再重新扫码；也可手动输入单号。' : !navigator.mediaDevices?.getUserMedia ? '当前浏览器无法使用摄像头。请用 Safari 或其他浏览器打开，也可以直接输入单号。' : '相机未能启动。请重新开启相机；仍无法使用时可直接输入单号。');
         setPhase('error');
+        if (scannerFailureCanEnumerate(exception) && typeof navigator.mediaDevices?.enumerateDevices === 'function') void refreshScannerDevices(navigator.mediaDevices, activeRequest, setDevices);
       }
     })();
     return () => { active = false; document.removeEventListener('visibilitychange', hidden); stop(); };
-  }, []);
-  const status = phase === 'permission' ? '正在申请摄像头权限…' : phase === 'opening' ? '权限已开启，正在准备识别…' : '正在扫描国内运输条形码';
-  const guidance = helpStage === 0 ? '把整个条码和两端白边放入框内，再慢慢前后移动，直到黑白线条清晰。稳住片刻，避开反光。' : helpStage === 1 ? '还没识别到？慢慢调整距离，让条码占框的大部分，两端白边都要留在画面里。清晰后稳住片刻。' : '仍在扫描。请调整光线、避开反光，确认黑白条纹清楚；也可以关闭后直接输入单号。';
+  }, [request]);
+  const status = phase === 'permission' ? '正在申请摄像头权限…' : phase === 'switching' ? '正在切换摄像头…' : phase === 'opening' ? '相机已开启，正在准备识别…' : '正在扫描国内运输条形码';
+  const guidance = helpStage === 0 ? '把整个条码和两端白边放入框内，慢慢调整距离，让黑白线条清晰。稳住片刻，避开反光。' : helpStage === 1 ? '还没识别到？先把面单移远，直到黑白线条清楚，不要继续靠近。清晰后稳住片刻。' : '仍在扫描。请调整光线、避开反光；电脑画面仍模糊时，用手机扫码更方便。';
   return <Dialog title="扫描国内快递单号" onClose={close}>
     <div className="pdd-scanner-view">
       <p className="pdd-scanner-intro">找到面单上的国内运输条形码，横向放入框内。</p>
       <div className="pdd-scanner" data-phase={phase} style={{ aspectRatio: videoAspect }}>
-        <video ref={video} autoPlay playsInline muted aria-label="摄像头实时画面" onLoadedMetadata={updateVideoAspect} onResize={updateVideoAspect} />
-        {phase === 'scanning' ? <><div className="pdd-scan-frame" aria-hidden="true"><span /><span /><span /><span /></div><div className="pdd-scan-caption" aria-hidden="true"><ScanLine size={19} />整个条码放入框内</div></> : <div className="pdd-camera-stage" aria-hidden="true">{phase === 'error' ? <Camera size={32} /> : <LoaderCircle size={30} className="pdd-spin" />}<strong>{phase === 'error' ? '摄像头已关闭' : status}</strong>{phase === 'permission' && <span>请在浏览器提示中选择“允许”。</span>}{phase === 'opening' && <span>准备好后会自动扫描。</span>}</div>}
+        <ScannerPreview videoRef={video} mirrored={mirrored} onDimensions={updateVideoAspect} />
+        {phase === 'scanning' ? <><div className="pdd-scan-frame" aria-hidden="true"><span /><span /><span /><span /></div><div className="pdd-scan-caption" aria-hidden="true"><ScanLine size={19} />整个条码放入框内</div></> : <div className="pdd-camera-stage" aria-hidden="true">{phase === 'error' ? <Camera size={32} /> : <LoaderCircle size={30} className="pdd-spin" />}<strong>{phase === 'error' ? '摄像头已关闭' : status}</strong>{phase === 'permission' && <span>请在浏览器提示中选择“允许”。</span>}{(phase === 'opening' || phase === 'switching') && <span>准备好后会自动扫描。</span>}</div>}
       </div>
       {phase !== 'error' && <div className="pdd-camera-status" role="status" aria-live="polite" aria-atomic="true">{phase === 'scanning' ? <ScanLine size={20} /> : <LoaderCircle size={20} className="pdd-spin" />}<span>{status}</span></div>}
       {phase === 'scanning' && <p className="pdd-scan-help" role="status" aria-live="polite" aria-atomic="true">{guidance}</p>}
+      {camera && <ScannerCameraControls camera={camera} devices={devices} selectedDevice={phase === 'scanning' ? camera.deviceId || request.deviceId || '' : request.deviceId || camera.deviceId || ''} mirrored={mirrored} manualFocus={manualFocus} focusValue={focusValue} focusBusy={focusBusy} focusMessage={focusMessage} focusError={focusError} disabled={phase !== 'scanning'} onCamera={changeCamera} onMirror={() => setMirrored(value => !value)} onFocusMode={chooseFocusMode} onDistance={changeFocusDistance} />}
+      {!camera && phase === 'error' && devices.length > 1 && <div className="pdd-camera-controls pdd-camera-recovery-controls"><p className="pdd-camera-distance-hint">也可以选择其他摄像头再试。</p><ScannerDevicePicker devices={devices} selectedDevice={request.deviceId || ''} onCamera={changeCamera} /></div>}
       <ErrorNote>{error}</ErrorNote>
+      {phase === 'error' && <button className="pdd-button pdd-secondary pdd-full pdd-camera-retry" onClick={() => changeCamera(request.deviceId)}>重新开启相机</button>}
       <p className="pdd-scanner-next">识别成功会自动关闭相机；核对单号后，再手动点击“查询”。</p>
       <p className="pdd-scanner-privacy"><ShieldCheck size={17} />画面仅在当前设备识别，不会上传。</p>
       <button className="pdd-button pdd-secondary pdd-full" onClick={close}>关闭并手动输入</button>
