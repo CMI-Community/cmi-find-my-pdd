@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { projectGuard, required } from './ops.mjs';
 
 export const FORMAT = 'pdd404-scoped-row-snapshot-v1';
-export const FEEDBACK_MIGRATION = '20261006135344';
+export const FEEDBACK_MIGRATION = '20261006141735';
 export const TABLES = Object.freeze([
   ['scans', ['id']], ['images', ['id']], ['records', ['id']], ['evidence', ['id']],
   ['jobs', ['id']], ['matches', ['id']], ['followups', ['id']], ['handovers', ['id']],

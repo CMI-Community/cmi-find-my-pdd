@@ -130,3 +130,4 @@
 .pdd-possible-clues p{font-size:16px;line-height:1.6;margin:6px 0}
 .pdd-possible-clues code{display:block;color:#352a40;font-size:16px}
 .pdd-possible-next{padding:13px 15px;border-radius:9px;background:#f2ecf7;color:#544060}
+.pdd-admin-clue-lookup{padding:20px;margin-bottom:20px;background:#f8f5fb;border:1px solid var(--pdd-line);border-radius:12px}.pdd-admin-clue-lookup>label{display:block;font-size:16px;font-weight:600}.pdd-admin-clue-lookup>p{font-size:16px;color:var(--pdd-muted);line-height:1.7;margin:9px 0 14px}.pdd-admin-clue-lookup>div{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.pdd-admin-clue-lookup input{flex:1;min-width:180px;width:100%;min-height:49px;padding:11px 13px;font-size:16px;border:1px solid #d8ccdf;border-radius:9px;background:#fff}.pdd-admin-clue-lookup .pdd-button{font-size:16px}@media(max-width:560px){.pdd-admin-clue-lookup input{flex-basis:100%}.pdd-admin-clue-lookup .pdd-button{flex:1}}

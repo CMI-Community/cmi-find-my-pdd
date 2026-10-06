@@ -25,10 +25,13 @@ const quote = value => "'" + JSON.stringify(value).replaceAll("'", "''") + "'::j
 const invoke = (name, payload) => `select public.${name}(${quote(payload)})::text;`;
 let running = false;
 async function sql(statement, database = 'postgres', extraEnvironment = {}) {
-  const { stdout } = await run(path.join(bin, 'psql'), ['-X', '-A', '-t', '-q', '--set', 'ON_ERROR_STOP=1', '--dbname', database, '--command', statement], { env: { ...env, ...extraEnvironment }, maxBuffer: 4 * 1024 * 1024 });
+  const { stdout } = await run(path.join(bin, 'psql'), ['-X', '-A', '-t', '-q', '--set', 'ON_ERROR_STOP=1', '--set', 'VERBOSITY=verbose', '--dbname', database, '--command', statement], { env: { ...env, ...extraEnvironment }, maxBuffer: 4 * 1024 * 1024 });
   return stdout.trim();
 }
 async function rpc(name, payload, database) { return JSON.parse(await sql(invoke(name, payload), database)); }
+async function businessError(operation, message) {
+  await assert.rejects(operation, error => { assert.match(error.stderr ?? '', new RegExp(`ERROR:\\s+P0001:\\s+${message}\\b`)); return true; });
+}
 async function bootstrap(database, roles = false) {
   await sql(`${roles ? 'create role anon; create role authenticated; create role service_role bypassrls;' : ''}
     create schema extensions; create extension pgcrypto with schema extensions;
@@ -40,7 +43,7 @@ async function bootstrap(database, roles = false) {
 const batch = (number, mode, capability, person, requestId = randomUUID(), note) => ({ request_id: requestId, mode, note, contact: { kind: 'wechat', value: person },
   items: [{ request_id: randomUUID(), number, source: 'manual' }], capability_hash: capability, body_hash: randomBytes(32).toString('hex') });
 function transactionSession() {
-  const child = spawn(path.join(bin, 'psql'), ['-X', '-A', '-t', '-q', '--set', 'ON_ERROR_STOP=1'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(path.join(bin, 'psql'), ['-X', '-A', '-t', '-q', '--set', 'ON_ERROR_STOP=1', '--set', 'VERBOSITY=verbose'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   let output = '', errors = '', ended = false;
   child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
   child.stdout.on('data', chunk => { output += chunk; });
@@ -56,6 +59,7 @@ function transactionSession() {
       }
     },
     async close() { if (!ended) child.stdin.end('rollback;\n\\q\n'); await completion; },
+    async expectFailure(code) { const exit = await completion; assert.notEqual(exit, 0); assert.match(errors, new RegExp(`ERROR:\\s+${code}:`)); },
   };
 }
 try {
@@ -65,8 +69,14 @@ try {
   await bootstrap('postgres', true);
   const directory = new URL('../supabase/migrations/', import.meta.url);
   let backfillChecked = false;
+  let businessMetadataChecked = false;
+  const businessMetadataSQL = `select jsonb_agg(jsonb_build_object('name',p.proname,'oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig,'arguments',p.proargtypes::text) order by p.proname)::text
+    from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('pdd_query','pdd_query_contact','pdd_batch_register','pdd_manage_update','pdd_admin_action','pdd_feedback_submit') and p.proargtypes='3802'::oidvector;`;
   for (const name of (await readdir(directory)).filter(n => /^\d+_.+\.sql$/.test(n)).sort()) {
-    const upgrade = name === '20261006135344_home_stats_notes_feedback.sql';
+    const upgrade = name === '20261006141735_home_stats_notes_feedback.sql';
+    const businessUpgrade = name.endsWith('_pdd_business_conflict_errors.sql');
+    const beforeBusinessMetadata = businessUpgrade ? JSON.parse(await sql(businessMetadataSQL)) : null;
+    if (businessUpgrade) assert.equal(beforeBusinessMetadata.length, 6);
     if (upgrade) {
       // A pre-upgrade pair is insufficient evidence. Only a retained successful
       // exact-query event may be backfilled into the lifetime match statistic.
@@ -79,6 +89,11 @@ try {
     }
     const migration = (await readFile(new URL(name, directory), 'utf8')).replace(/^create extension if not exists pg_net.*$/m, '').replace(/^create extension if not exists pg_cron.*$/m, '');
     await sql(migration);
+    if (businessUpgrade) {
+      assert.deepEqual(JSON.parse(await sql(businessMetadataSQL)), beforeBusinessMetadata);
+      businessMetadataChecked = true;
+      console.log('Business error migration preserved all six RPC OIDs, ownership, ACLs and security settings.');
+    }
     if (upgrade) {
       assert.deepEqual(await rpc('pdd_home_stats', {}), { lostRegistered: 1, receivedRegistered: 2, matchedParcels: 1 });
       assert.equal(await sql("select matched_at is null from public.pdd_waybills where number='BFL990000001';"), 't');
@@ -89,6 +104,7 @@ try {
     }
   }
   assert(backfillChecked, 'The statistics/notes/feedback upgrade migration was not exercised.');
+  assert(businessMetadataChecked, 'The business conflict migration metadata was not exercised.');
   await sql(await readFile(new URL('../tests/db.sql', import.meta.url), 'utf8'));
   assert.equal((await rpc('runtime_config', {})).OCR_ENABLED, 'false');
   console.log('Legacy real PostgreSQL transaction regression and server-only OCR default passed.');
@@ -309,6 +325,40 @@ try {
     if (waiting) await waiting;
   }
 
+  // Business guards must be distinguishable from real engine serialization.
+  // PostgREST may retry actual 40001, while P0001 guards can return promptly.
+  const managedOwner = await rpc('pdd_manage', { registration_code: owner.items[0].registration.registrationCode, capability_hash: capA });
+  await businessError(() => rpc('pdd_manage_update', { registration_code: managedOwner.registrationCode, capability_hash: capA, revision: managedOwner.revision + 1, action: 'contact', contact: { kind: 'wechat', value: 'fictional_rejected_contact' } }), 'VERSION_CONFLICT');
+  await businessError(() => rpc('pdd_query', { ...receivedQuery, body_hash: 'changed-query' }), 'IDEMPOTENCY_CONFLICT');
+  await businessError(() => rpc('pdd_batch_register', { ...sameA, body_hash: 'changed-batch' }), 'IDEMPOTENCY_CONFLICT');
+  const reusedItem = { ...batch('ROLLBACKITEM990', 'lost', capA, 'fictional_reused_item'), items: [{ ...sameA.items[0], number: 'ROLLBACKITEM990' }] };
+  await businessError(() => rpc('pdd_batch_register', reusedItem), 'IDEMPOTENCY_CONFLICT');
+  assert.equal(await sql("select count(*) from public.pdd_waybills where number='ROLLBACKITEM990';"), '0');
+  await businessError(() => rpc('pdd_query_contact', { query_id: receivedQuery.query_id, capability_hash: capB, contact: { kind: 'wechat', value: 'fictional_holder' }, idempotency_key: 'contact-once', body_hash: 'changed-contact' }), 'IDEMPOTENCY_CONFLICT');
+  await businessError(() => rpc('pdd_query_contact', { query_id: receivedQuery.query_id, capability_hash: capB, contact: { kind: 'wechat', value: 'fictional_holder' }, idempotency_key: 'second-contact-key', body_hash: 'holder-contact' }), 'IDEMPOTENCY_CONFLICT');
+  await businessError(() => rpc('pdd_query_contact', { query_id: completePossible.queryId, capability_hash: capB, contact: { kind: 'wechat', value: 'fictional_fuzzy_owner' }, idempotency_key: 'possible-business-error', body_hash: 'possible-business-error' }), 'VERSION_CONFLICT');
+  const latest = await rpc('pdd_admin_detail', { public_code: managedOwner.record.code });
+  await businessError(() => rpc('pdd_admin_action', { public_code: managedOwner.record.code, revision: latest.record.revision + 1, action: 'verify', actor_id: actor }), 'VERSION_CONFLICT');
+  await businessError(() => rpc('pdd_admin_action', { public_code: managedOwner.record.code, revision: latest.record.revision, action: 'return', actor_id: actor }), 'INVALID_ADMIN_STATE');
+  const lostOnly = await rpc('pdd_admin_detail', { public_code: notes.items[2].record.code });
+  await businessError(() => rpc('pdd_admin_action', { public_code: lostOnly.record.code, revision: lostOnly.record.revision, action: 'claim', actor_id: actor }), 'NEEDS_RECEIVED');
+  const resolvedReceived = await rpc('pdd_manage', { registration_code: receivedOnly.items[0].registration.registrationCode, capability_hash: capB });
+  await businessError(() => rpc('pdd_manage_update', { registration_code: resolvedReceived.registrationCode, capability_hash: capB, revision: resolvedReceived.revision, action: 'withdraw' }), 'OWNERSHIP_LOCKED');
+  await businessError(() => rpc('pdd_feedback_submit', { ...feedbackInput, body_hash: 'changed-feedback-business-error' }), 'IDEMPOTENCY_CONFLICT');
+  const beforeEngineConflict = await rpc('pdd_home_stats', {});
+  const serializable = transactionSession();
+  try {
+    serializable.send(`begin isolation level serializable; select revision from public.pdd_registrations where registration_code='${managedOwner.registrationCode}';\n\\echo PDD_SERIALIZABLE_READ`);
+    await serializable.marker('PDD_SERIALIZABLE_READ');
+    const current = await rpc('pdd_manage_update', { registration_code: managedOwner.registrationCode, capability_hash: capA, revision: managedOwner.revision, action: 'contact', contact: { kind: 'wechat', value: 'fictional_serialized_owner' } });
+    serializable.send(`${invoke('pdd_manage_update', { registration_code: managedOwner.registrationCode, capability_hash: capA, revision: managedOwner.revision, action: 'contact', contact: { kind: 'wechat', value: 'fictional_stale_serialized_owner' } })}\n\\q`);
+    await serializable.expectFailure('40001');
+    assert.deepEqual(await rpc('pdd_manage', { registration_code: managedOwner.registrationCode, capability_hash: capA }), current);
+    assert.equal(current.note, 'Original synthetic owner note');
+    assert.deepEqual(await rpc('pdd_home_stats', {}), beforeEngineConflict);
+    console.log('Real PostgreSQL business guards returned P0001 with original messages/rollback, while an actual two-session SERIALIZABLE RPC conflict retained 40001.');
+  } finally { await serializable.close(); }
+
   const dumped = path.join(root, 'database.dump'), sealed = path.join(root, 'database.cmibak'), reopened = path.join(root, 'restored.dump');
   await run(path.join(bin, 'pg_dump'), ['--format=custom', '--no-owner', '--schema=public', '--schema=auth', '--file', dumped, '--dbname', 'postgres'], { env });
   const password = randomBytes(32).toString('base64url');
@@ -325,6 +375,8 @@ try {
   }
   await assert.rejects(() => sql("set role anon; select * from public.pdd_registrations;", 'pdd404_restore_check'), /permission denied/);
   await assert.rejects(() => sql('set role authenticated; select * from public.pdd_feedback;', 'pdd404_restore_check'), /permission denied/);
+  await businessError(() => rpc('pdd_query_contact', { query_id: completePossible.queryId, capability_hash: capB, contact: { kind: 'wechat', value: 'fictional_fuzzy_owner' }, idempotency_key: 'restored-possible-error', body_hash: 'restored-possible-error' }, 'pdd404_restore_check'), 'VERSION_CONFLICT');
+  await businessError(() => rpc('pdd_feedback_submit', { ...feedbackInput, body_hash: 'restored-changed-feedback' }, 'pdd404_restore_check'), 'IDEMPOTENCY_CONFLICT');
   console.log('Encrypted dump/decrypt and independent database restore passed, including lifetime stats, notes and feedback; restored RLS remains closed.');
 } finally {
   if (running) await run(path.join(bin, 'pg_ctl'), ['-D', data, '-m', 'fast', '-w', 'stop'], { env }).catch(() => undefined);
