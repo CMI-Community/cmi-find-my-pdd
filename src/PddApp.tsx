@@ -265,11 +265,12 @@ function Scanner({ onDecoded, onClose }: { onDecoded: (number: string) => void; 
   }, [request]);
   const status = phase === 'permission' ? '正在申请摄像头权限…' : phase === 'switching' ? '正在切换摄像头…' : phase === 'opening' ? '相机已开启，正在准备识别…' : photoBusy ? '已拍下画面，正在本机识别…' : scanMode === 'photo' ? '对准完整条码，点击下方“拍照识别”。' : '正在自动扫描；也可以直接拍照识别。';
   const guidance = helpStage === 0 ? '把整个条码和两端白边放入框内，慢慢调整距离，让黑白线条清晰。稳住片刻，避开反光。' : helpStage === 1 ? '还没识别到？先把面单移远，直到黑白线条清楚，不要继续靠近。清晰后稳住片刻。' : '仍在扫描。请调整光线、避开反光；电脑画面仍模糊时，用手机扫码更方便。';
+  const videoRatio = Number(videoAspect.split('/')[0]) / Number(videoAspect.split('/')[1]);
   return <Dialog title="扫描国内快递单号" onClose={close} className="pdd-scanner-dialog">
     <div className="pdd-scanner-view">
       <div className="pdd-scanner-scroll">
       <p className="pdd-scanner-intro">对准国内运输条形码，保留两端白边。</p>
-      <div className="pdd-scanner" data-phase={phase} style={{ aspectRatio: videoAspect, maxWidth: `calc(30dvh * ${Number(videoAspect.split('/')[0]) / Number(videoAspect.split('/')[1])})` }}>
+      <div className="pdd-scanner" data-phase={phase} data-portrait={videoRatio < 1 ? 'true' : 'false'} style={{ aspectRatio: videoAspect, maxWidth: `calc(30dvh * ${videoRatio})` }}>
         <ScannerPreview videoRef={video} mirrored={mirrored} onDimensions={updateVideoAspect} />
         {phase === 'scanning' ? <><div className="pdd-scan-frame" aria-hidden="true"><span /><span /><span /><span /></div><div className="pdd-scan-caption" aria-hidden="true"><ScanLine size={19} />整个条码放入框内</div></> : <div className="pdd-camera-stage" aria-hidden="true">{phase === 'error' ? <Camera size={32} /> : <LoaderCircle size={30} className="pdd-spin" />}<strong>{phase === 'error' ? '摄像头已关闭' : status}</strong>{phase === 'permission' && <span>请在浏览器提示中选择“允许”。</span>}{(phase === 'opening' || phase === 'switching') && <span>准备好后可以拍照，也可以切换实时扫码。</span>}</div>}
         {photoBusy && <div className="pdd-photo-feedback" aria-hidden="true"><LoaderCircle size={26} className="pdd-spin" /><strong>已拍照 · 正在识别</strong></div>}

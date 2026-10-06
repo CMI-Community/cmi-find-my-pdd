@@ -97,6 +97,7 @@
 .pdd-camera-settings .pdd-camera-controls{margin:0;border:0;border-top:1px solid var(--pdd-line);border-radius:0;background:transparent}
 .pdd-scanner-dialog .pdd-scanner-privacy{margin:10px 0 0;line-height:1.45}
 .pdd-photo-feedback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:10px;color:#fff;background:#211b28b3;font-size:18px;pointer-events:none}
+.pdd-scanner[data-portrait="true"] .pdd-scan-caption,.pdd-scanner[data-portrait="true"] .pdd-photo-feedback strong{display:none}
 .pdd-scanner-actions .pdd-camera-retry{margin:0 0 9px}
 @media(max-width:560px){.pdd-scanner-dialog{height:calc(100dvh - 24px);max-height:calc(100dvh - 24px);border-radius:14px}.pdd-scanner-dialog>h2{font-size:21px;padding:16px 55px 12px 14px}.pdd-scanner-scroll{padding:0 14px 10px}.pdd-scanner-actions{padding:10px 14px calc(12px + env(safe-area-inset-bottom))}.pdd-scan-secondary-actions .pdd-button{font-size:16px}}
-@media(max-height:540px){.pdd-scanner-dialog>h2{padding-top:10px;padding-bottom:9px}.pdd-scanner-actions{padding-top:8px;padding-bottom:8px}.pdd-scanner-actions .pdd-camera-status{margin-bottom:7px}.pdd-scanner-actions .pdd-capture-button{min-height:44px}.pdd-scan-secondary-actions{margin-top:6px}}
+@media(max-height:540px){.pdd-scanner-dialog>h2{padding-top:10px;padding-bottom:9px}.pdd-scanner-actions{padding-top:8px;padding-bottom:calc(8px + env(safe-area-inset-bottom))}.pdd-scanner-actions .pdd-camera-status{margin-bottom:7px}.pdd-scanner-actions .pdd-capture-button{min-height:44px}.pdd-scan-secondary-actions{margin-top:6px}}
