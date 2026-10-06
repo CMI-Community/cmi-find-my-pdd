@@ -44,7 +44,7 @@ describe('barcode camera lifecycle', () => {
     const denied = new DOMException('denied', 'NotAllowedError');
     const request = vi.fn().mockRejectedValue(denied);
     const session = createCameraSession(request);
-    expect(request).toHaveBeenCalledWith({ audio: false, video: { facingMode: { ideal: 'environment' } } });
+    expect(request).toHaveBeenCalledWith({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } } });
     await expect(session.ready).rejects.toBe(denied);
     session.stop();
   });

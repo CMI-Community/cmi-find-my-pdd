@@ -5,3 +5,36 @@
 @media(max-width:560px){.pdd-header{padding:0 22px;height:75px}.pdd-brand{font-size:31px;letter-spacing:-1.8px}.pdd-header-community{font-size:12px;gap:6px}.pdd-header-community span{font-size:8px;letter-spacing:1px}.pdd-header-community svg{width:14px;margin-left:0}.pdd-home{padding:43px 20px 15px}.pdd-heading .pdd-eyebrow{font-size:10px;letter-spacing:1.5px;margin-bottom:19px}.pdd-heading h1{font-size:37px;letter-spacing:-1px}.pdd-heading p{font-size:16px;margin-top:18px}.pdd-package{width:73px;height:73px;margin:29px auto 23px;border-radius:20px}.pdd-package svg{width:42px;height:42px}.pdd-modes{gap:5px;padding:5px;margin-bottom:20px}.pdd-modes button{font-size:17px;min-height:46px;padding:9px 21px}.pdd-search-form{grid-template-columns:minmax(0,1fr) 50px 66px;min-height:62px;border-radius:12px}.pdd-search-form input{padding:12px;font-size:16px}.pdd-search-form input::placeholder{font-size:13px}.pdd-scan-button{min-width:0;gap:2px;padding:5px 1px;flex-direction:column;font-size:10px;justify-content:center}.pdd-scan-button svg{width:20px;height:20px}.pdd-query-button{margin:6px;font-size:15px;border-radius:8px}.pdd-input-guide{font-size:16px;line-height:1.8;margin-top:15px}.pdd-queue{margin-top:28px;padding-top:25px}.pdd-queue-heading h2{font-size:19px}.pdd-queue-heading small{font-size:16px}.pdd-queue li code{font-size:15px}.pdd-queue li button{font-size:12px}.pdd-contact-fields{margin-bottom:21px}.pdd-privacy-hint{font-size:16px}.pdd-how{padding:23px 20px 18px;margin-top:37px}.pdd-how>div p{font-size:16px;gap:12px}.pdd-how>.pdd-small{font-size:16px}.pdd-thanks{font-size:16px}.pdd-footer{margin:25px 20px 0;padding:28px 0 18px;display:flex;flex-direction:column;gap:27px}.pdd-qr-pair{gap:35px}.pdd-qr>img,.pdd-qr-missing{width:116px;height:116px}.pdd-credit{width:100%}.pdd-credit .pdd-community-wordmark{font-size:32px}.pdd-credit>p{margin-top:13px}.pdd-credit nav{margin-top:8px}.pdd-overlay{padding:15px}.pdd-dialog{max-height:calc(100dvh - 30px);padding:28px 21px;border-radius:16px}.pdd-dialog h2{font-size:23px;padding-right:25px;line-height:1.4}.pdd-dialog>.pdd-result-number strong{font-size:19px}.pdd-dialog>p{font-size:16px}.pdd-dialog .pdd-qr>img,.pdd-dialog .pdd-qr-missing{width:102px;height:102px}.pdd-dialog .pdd-qr-pair{gap:20px}.pdd-dialog .pdd-qr>span{font-size:16px}.pdd-dialog .pdd-helper{font-size:16px}.pdd-page{padding:27px 20px 20px}.pdd-page>h1{font-size:29px}.pdd-page>.pdd-eyebrow{font-size:11px}.pdd-page>p{font-size:16px}.pdd-panel{padding:21px;margin:22px 0}.pdd-local-list article{padding:19px}.pdd-local-list code{font-size:17px}.pdd-local-list article>div{gap:4px}.pdd-actions{gap:9px}.pdd-actions>.pdd-button{flex:1;font-size:14px;padding:11px 12px}.pdd-public-card{padding:25px 20px}.pdd-public-card h1{font-size:27px}.pdd-public-card p{font-size:16px}.pdd-admin-header{align-items:flex-start;gap:10px}.pdd-admin-header h1{font-size:26px}.pdd-admin-header .pdd-button{font-size:12px;padding:10px 11px}.pdd-admin-header .pdd-eyebrow{font-size:10px;letter-spacing:1px}.pdd-admin-tabs{gap:12px}.pdd-admin-tabs>button{font-size:13px}.pdd-admin-tabs .pdd-text-link{font-size:12px}.pdd-admin-list article{padding:18px}.pdd-admin-list code{font-size:15px}.pdd-pagination .pdd-button{font-size:13px;padding:10px 14px}.pdd-admin-detail{padding:23px}.pdd-admin-detail h2{font-size:19px}.pdd-admin-detail .pdd-actions .pdd-button{min-width:100%;font-size:14px}.pdd-admin-registration p{font-size:14px}.pdd-checkbox{font-size:14px!important}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 @media print{.pdd-header,.pdd-footer,.pdd-back,.pdd-actions,.pdd-skip{display:none!important}.pdd-page{padding:0}.pdd-public-card{box-shadow:none;break-inside:avoid}}
+/* Scanner guidance stays visible without hiding either end of a wide barcode. */
+.pdd-scanner-view{font-size:16px;line-height:1.65}
+.pdd-scanner-intro{margin:0 0 16px;font-size:16px;color:#54465f}
+.pdd-scanner-view .pdd-scanner{background:#211b28;isolation:isolate}
+.pdd-scanner-view .pdd-scanner video{display:block;object-fit:contain}
+.pdd-scanner-view .pdd-scan-frame{inset:28% 8%;border:1px solid #ffffff90;border-radius:8px;box-shadow:0 0 0 600px #100b1948}
+.pdd-scan-frame>span{position:absolute;width:24px;height:24px;border-color:#fff;border-style:solid;border-width:0;filter:drop-shadow(0 0 1px #1e132a)}
+.pdd-scan-frame>span:nth-child(1){left:-2px;top:-2px;border-top-width:4px;border-left-width:4px;border-top-left-radius:8px}
+.pdd-scan-frame>span:nth-child(2){right:-2px;top:-2px;border-top-width:4px;border-right-width:4px;border-top-right-radius:8px}
+.pdd-scan-frame>span:nth-child(3){right:-2px;bottom:-2px;border-bottom-width:4px;border-right-width:4px;border-bottom-right-radius:8px}
+.pdd-scan-frame>span:nth-child(4){left:-2px;bottom:-2px;border-bottom-width:4px;border-left-width:4px;border-bottom-left-radius:8px}
+.pdd-scan-caption{position:absolute;left:50%;bottom:7%;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:7px;max-width:94%;white-space:nowrap;border-radius:6px;padding:5px 9px;color:white;background:#1e132acf;font-size:16px;line-height:1.5;pointer-events:none}
+.pdd-camera-stage{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;text-align:center;background:#211b28e6;color:white;padding:20px;font-size:16px;line-height:1.65}
+.pdd-camera-stage strong{font-size:16px;font-weight:550}
+.pdd-camera-stage>span{font-size:16px;color:#e3dbe9}
+.pdd-camera-status{display:flex;align-items:center;gap:9px;margin:17px 0 10px;font-size:16px;font-weight:550;color:var(--pdd-purple)}
+.pdd-camera-status svg{flex-shrink:0}
+.pdd-scan-help{margin:12px 0;background:#f7f3fa;border:1px solid #e7ddec;border-radius:10px;padding:13px 15px;font-size:16px;line-height:1.7;color:#54465f}
+.pdd-scanner-next{font-size:16px;line-height:1.7;color:#54465f;margin:17px 0 12px}
+.pdd-scanner-privacy{display:flex;align-items:flex-start;gap:7px;font-size:16px;line-height:1.65;color:#65556f;margin:12px 0 20px}
+.pdd-scanner-privacy svg{flex-shrink:0;margin-top:4px}
+.pdd-scanner-view .pdd-button{font-size:16px}
+@media(max-width:560px){.pdd-scanner-intro{margin-bottom:13px}.pdd-scan-help{padding:12px}.pdd-camera-stage{padding:12px;gap:7px}.pdd-scan-caption{gap:5px;padding:3px 6px;bottom:6%}.pdd-camera-status{margin-top:14px}.pdd-scanner-privacy{margin-bottom:16px}}
+.pdd-auth{max-width:620px}
+.pdd-auth form.pdd-panel>label{font-size:16px}
+.pdd-auth .pdd-panel input{font-size:16px}
+.pdd-auth-account{margin:0 0 22px;font-size:16px;color:var(--pdd-muted)}
+.pdd-auth-account strong{display:block;margin-top:4px;color:#493952;font-weight:550;overflow-wrap:anywhere}
+.pdd-auth-help{font-size:16px;margin:0 0 20px;line-height:1.7}
+.pdd-auth-reset{margin-top:24px;padding-top:19px;border-top:1px solid var(--pdd-line)}
+.pdd-auth-reset p{margin:0 0 14px;font-size:16px;line-height:1.7}
+.pdd-auth .pdd-button{font-size:16px}
+.pdd-recovery-invalid p{font-size:16px;line-height:1.8;margin-top:0}

@@ -1,13 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Link, Navigate, Route, Routes, useParams } from 'react-router-dom';
-import { createClient, type Session } from '@supabase/supabase-js';
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
+import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { createClient, type AuthChangeEvent, type Session } from '@supabase/supabase-js';
 import { ArrowLeft, ArrowRight, Camera, Check, CheckCircle2, Copy, Heart, LoaderCircle, Package, RefreshCw, ScanLine, ShieldCheck, Trash2, X } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Community } from '../shared/contracts';
 import { validatePddContact, type PddAdminAction, type PddAdminDetail, type PddAdminList, type PddBatchResult, type PddContact, type PddPublicRecord, type PddQueryLogPage, type PddQueryResult, type PddRegistration } from '../shared/waybill';
 import { pddApi } from './pdd-api';
 import { makeCapability } from './photos';
-import { createCameraSession, type CameraSession } from './pdd-camera';
+import { createCameraSession, startBarcodeScanner, type CameraSession } from './pdd-camera';
 import { addQueueEntry, newPendingBatch, newQueueEntry, normalizeWaybillInput, privateWaybillUrl, readWaybillDrafts, saveWaybillDrafts, settleQueue, waybillInputError, type LocalReceipt, type NumberSource, type WaybillDraftState, type WaybillMode } from './waybill-drafts';
 
 const modeLabel = { lost: '我丢件了', received: '我多收件了' };
@@ -78,9 +78,19 @@ function checkedContact(contact: PddContact) { try { return validatePddContact(c
 
 function Scanner({ onDecoded, onClose }: { onDecoded: (number: string) => void; onClose: () => void }) {
   const video = useRef<HTMLVideoElement>(null), sessionRef = useRef<CameraSession | null>(null);
-  const [error, setError] = useState(''), [starting, setStarting] = useState(true);
+  const [error, setError] = useState(''), [phase, setPhase] = useState<'permission' | 'opening' | 'scanning' | 'error'>('permission');
+  const [helpStage, setHelpStage] = useState(0), [videoAspect, setVideoAspect] = useState('4 / 3');
   const onDecodedRef = useRef(onDecoded), onCloseRef = useRef(onClose);
   onDecodedRef.current = onDecoded; onCloseRef.current = onClose;
+  const close = () => { sessionRef.current?.stop(); onCloseRef.current(); };
+  const updateVideoAspect = () => { const element = video.current; if (element?.videoWidth && element.videoHeight) setVideoAspect(`${element.videoWidth} / ${element.videoHeight}`); };
+  useEffect(() => {
+    setHelpStage(0);
+    if (phase !== 'scanning') return;
+    const distanceHelp = window.setTimeout(() => setHelpStage(1), 4000);
+    const lightHelp = window.setTimeout(() => setHelpStage(2), 10000);
+    return () => { window.clearTimeout(distanceHelp); window.clearTimeout(lightHelp); };
+  }, [phase]);
   useEffect(() => {
     let active = true, decoded = false;
     const stop = () => sessionRef.current?.stop();
@@ -94,28 +104,44 @@ function Scanner({ onDecoded, onClose }: { onDecoded: (number: string) => void; 
         sessionRef.current = session;
         const stream = await session.ready;
         if (!active) { stop(); return; }
-        const { BrowserMultiFormatOneDReader } = await import('@zxing/browser');
-        if (!active) { stop(); return; }
-        const reader = new BrowserMultiFormatOneDReader();
-        const controls = await reader.decodeFromStream(stream, video.current!, (result, _error, callbackControls) => {
-          if (!active || decoded || !result) return;
-          const number = normalizeWaybillInput(result.getText());
+        setPhase('opening');
+        const controls = startBarcodeScanner(stream, video.current!, text => {
+          if (!active || decoded) return;
+          const number = normalizeWaybillInput(text);
           if (waybillInputError(number)) return;
-          decoded = true; session.attachDecoder(callbackControls); stop(); onDecodedRef.current(number);
-        });
+          decoded = true; stop(); onDecodedRef.current(number);
+        }, text => !waybillInputError(normalizeWaybillInput(text)));
+        // Synchronous controls can stop video/import work even before ready.
         session.attachDecoder(controls);
-        if (!active || decoded) stop(); else setStarting(false);
+        await controls.ready;
+        if (!active || decoded) stop(); else setPhase('scanning');
       } catch (exception) {
         stop();
-        if (!active) return;
-        const name = exception instanceof DOMException ? exception.name : '';
-        setError(name === 'NotAllowedError' ? '摄像头权限未开启。您可以在浏览器设置中允许相机，也可以直接输入单号。' : name === 'NotFoundError' ? '没有找到可用摄像头，请直接输入单号。' : name === 'NotReadableError' ? '摄像头暂时无法使用，请关闭其他使用相机的应用后重试，或直接输入单号。' : errorMessage(exception));
-        setStarting(false);
+        if (!active || decoded) return;
+        const name = exception instanceof DOMException || exception instanceof Error ? exception.name : '';
+        setError(name === 'NotAllowedError' || name === 'SecurityError' ? '摄像头权限未开启。请在浏览器或系统设置中允许本网站使用相机，再重新扫码；也可手动输入单号。' : name === 'NotFoundError' ? '没有找到可用摄像头。请确认设备已连接摄像头，或直接输入单号。' : name === 'NotReadableError' ? '摄像头被占用或暂时无法启动。请关闭其他使用相机的应用，再重新扫码；也可手动输入单号。' : !navigator.mediaDevices?.getUserMedia ? '当前浏览器无法使用摄像头。请用 Safari 或其他浏览器打开，也可以直接输入单号。' : '相机未能启动。请关闭后重新扫码；仍无法使用时可直接输入单号。');
+        setPhase('error');
       }
     })();
     return () => { active = false; document.removeEventListener('visibilitychange', hidden); stop(); };
   }, []);
-  return <Dialog title="扫描国内快递单号" onClose={onClose}><p>将面单上的国内运输条形码放入框中。扫到后请核对号码，再点击查询。</p><div className="pdd-scanner"><video ref={video} autoPlay playsInline muted /><div className="pdd-scan-frame" /></div>{starting && <Busy>正在打开摄像头，请允许相机权限…</Busy>}<ErrorNote>{error}</ErrorNote><p className="pdd-small">画面仅在当前设备识别，不会上传。</p><button className="pdd-button pdd-secondary pdd-full" onClick={onClose}>关闭并手动输入</button></Dialog>;
+  const status = phase === 'permission' ? '正在申请摄像头权限…' : phase === 'opening' ? '权限已开启，正在准备识别…' : '正在扫描国内运输条形码';
+  const guidance = helpStage === 0 ? '把整个条码和两端白边放入框内，再慢慢前后移动，直到黑白线条清晰。稳住片刻，避开反光。' : helpStage === 1 ? '还没识别到？慢慢调整距离，让条码占框的大部分，两端白边都要留在画面里。清晰后稳住片刻。' : '仍在扫描。请调整光线、避开反光，确认黑白条纹清楚；也可以关闭后直接输入单号。';
+  return <Dialog title="扫描国内快递单号" onClose={close}>
+    <div className="pdd-scanner-view">
+      <p className="pdd-scanner-intro">找到面单上的国内运输条形码，横向放入框内。</p>
+      <div className="pdd-scanner" data-phase={phase} style={{ aspectRatio: videoAspect }}>
+        <video ref={video} autoPlay playsInline muted aria-label="摄像头实时画面" onLoadedMetadata={updateVideoAspect} onResize={updateVideoAspect} />
+        {phase === 'scanning' ? <><div className="pdd-scan-frame" aria-hidden="true"><span /><span /><span /><span /></div><div className="pdd-scan-caption" aria-hidden="true"><ScanLine size={19} />整个条码放入框内</div></> : <div className="pdd-camera-stage" aria-hidden="true">{phase === 'error' ? <Camera size={32} /> : <LoaderCircle size={30} className="pdd-spin" />}<strong>{phase === 'error' ? '摄像头已关闭' : status}</strong>{phase === 'permission' && <span>请在浏览器提示中选择“允许”。</span>}{phase === 'opening' && <span>准备好后会自动扫描。</span>}</div>}
+      </div>
+      {phase !== 'error' && <div className="pdd-camera-status" role="status" aria-live="polite" aria-atomic="true">{phase === 'scanning' ? <ScanLine size={20} /> : <LoaderCircle size={20} className="pdd-spin" />}<span>{status}</span></div>}
+      {phase === 'scanning' && <p className="pdd-scan-help" role="status" aria-live="polite" aria-atomic="true">{guidance}</p>}
+      <ErrorNote>{error}</ErrorNote>
+      <p className="pdd-scanner-next">识别成功会自动关闭相机；核对单号后，再手动点击“查询”。</p>
+      <p className="pdd-scanner-privacy"><ShieldCheck size={17} />画面仅在当前设备识别，不会上传。</p>
+      <button className="pdd-button pdd-secondary pdd-full" onClick={close}>关闭并手动输入</button>
+    </div>
+  </Dialog>;
 }
 
 type QueryView = { number: string; mode: WaybillMode; capability: string; response: PddQueryResult };
@@ -192,16 +218,140 @@ function ManagePage() {
   return <div className="pdd-page"><Back /><span className="pdd-eyebrow">PRIVATE · 仅本人管理</span><h1>管理我的登记</h1><ErrorNote>{error}</ErrorNote>{!registration && !error && <Busy />}{registration && <><section className="pdd-panel"><span className="pdd-status">{modeLabel[registration.mode]}</span><h2 className="pdd-selectable">{registration.number}</h2><p>{registration.visibility === 'withdrawn' ? '本人的登记已撤回' : resolutionLabel[registration.record.resolution]}</p><p className="pdd-small">登记于 {dateText(registration.createdAt)}</p><button className="pdd-text-link" disabled={busy} onClick={() => void load(capability).catch(exception => setError(errorMessage(exception)))}><RefreshCw size={16} />刷新进展</button>{registration.record.lostRegistered && registration.record.receivedRegistered && registration.visibility === 'active' && <p className="pdd-notice">已有另一方登记相同单号。请返回首页，用完整单号再次查询联系方式，并核实交还。</p>}</section>{!registration.contact && <p className="pdd-small">联系方式已按保留期清理。</p>}{registration.visibility === 'active' && registration.contact && <form className="pdd-panel" onSubmit={async event => { event.preventDefault(); setError(''); setBusy(true); try { const result = await pddApi.updateContact(registration.registrationCode, registration.revision, checkedContact(contact), capability); setRegistration(result); setContact(result.contact || { kind: 'wechat', value: '' }); setNotice('联系方式已更新。'); } catch (exception) { setError(errorMessage(exception)); } finally { setBusy(false); } }}><h2>修改联系方式</h2><ContactFields contact={contact} onChange={setContact} disabled={busy} /><button className="pdd-button pdd-primary" disabled={busy}>保存修改</button></form>}<div className="pdd-actions"><button className="pdd-button pdd-secondary" onClick={() => void copy(privateWaybillUrl(registration.registrationCode, capability)).then(() => setNotice('私密管理链接已复制，请勿分享到群里。')).catch(exception => setNotice(errorMessage(exception)))}><Copy size={17} />保存私密管理链接</button><Link to={'/p/' + registration.record.code} className="pdd-button pdd-secondary">公开分享页</Link>{registration.visibility === 'active' && <button className="pdd-button pdd-danger" disabled={busy} onClick={async () => { if (!window.confirm('撤回后，这条登记不再参与找货。确定撤回吗？')) return; setBusy(true); setError(''); try { const result = await pddApi.withdraw(registration.registrationCode, registration.revision, capability); setRegistration(result); setNotice('您的登记已撤回。感谢您的参与。'); } catch (exception) { setError(errorMessage(exception)); } finally { setBusy(false); } }}>撤回我的登记</button>}</div>{notice && <p className="pdd-notice" role="status">{notice}</p>}</>}</div>;
 }
 
+type RecoveryEntry = { requested: boolean; invalid: boolean };
+type AdminAuthSnapshot = { session: Session | null; loading: boolean; recovery: 'none' | 'pending' | 'ready' | 'expired' | 'complete'; authIssue: boolean };
+type AuthObserverClient = {
+  getSession: () => Promise<{ data: { session: Session | null }; error: unknown }>;
+  onAuthStateChange: (callback: (event: AuthChangeEvent, session: Session | null) => void) => { data: { subscription: { unsubscribe: () => void } } };
+};
+export function passwordRecoveryEntry(hash: string): RecoveryEntry {
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  const invalid = params.has('error') || params.has('error_code');
+  return { requested: params.get('type') === 'recovery' || invalid, invalid };
+}
+export function needsPasswordRecovery(snapshot: Pick<AdminAuthSnapshot, 'recovery'>) { return ['pending', 'ready', 'expired'].includes(snapshot.recovery); }
+export function newPasswordError(password: string, confirmation: string) {
+  if ([...password].length < 12 || !password.trim()) return '请设置至少12个字符的新密码。';
+  if (password !== confirmation) return '两次输入的密码不一致，请核对后再保存。';
+  return '';
+}
+// Preserve only link intent before the SDK consumes/removes the token fragment.
+export const initialPasswordRecovery = passwordRecoveryEntry(typeof window === 'undefined' ? '' : window.location.hash);
+
+export function createAdminAuthObserver(client: AuthObserverClient | null, entry: RecoveryEntry = { requested: false, invalid: false }) {
+  let active = true, generation = 0, authEventObserved = false, recoveryRequested = entry.requested, recoveryUserId: string | null = null;
+  let confirmationTimer: ReturnType<typeof setTimeout> | null = null;
+  let state: AdminAuthSnapshot = { session: null, loading: !!client && !entry.invalid, recovery: entry.requested ? entry.invalid || !client ? 'expired' : 'pending' : 'none', authIssue: false };
+  const listeners = new Set<() => void>();
+  const usable = (session: Session | null) => !!session?.access_token && !!session.user?.id && (session.expires_at === undefined || session.expires_at > Date.now() / 1000);
+  const update = (next: AdminAuthSnapshot) => { if (!active) return; state = next; listeners.forEach(listener => listener()); };
+  const confirmSession = async () => {
+    if (!client || !active) return;
+    const request = ++generation;
+    try {
+      const result = await client.getSession();
+      if (!active || request !== generation) return;
+      const session = !result.error && usable(result.data.session) ? result.data.session : null;
+      update({ session, loading: false, authIssue: !!result.error, recovery: recoveryRequested ? session && recoveryUserId === session.user.id ? 'ready' : 'expired' : state.recovery === 'complete' ? 'complete' : 'none' });
+    } catch {
+      if (active && request === generation) update({ session: null, loading: false, recovery: recoveryRequested ? 'expired' : 'none', authIssue: true });
+    }
+  };
+  // Register immediately after client creation, before any React mount/getter.
+  const subscription = client?.onAuthStateChange((event, value) => {
+    if (!active) return;
+    // SDK initialization/getter notifications can finish after a newer event.
+    if (event === 'INITIAL_SESSION' && authEventObserved) return;
+    if (event !== 'INITIAL_SESSION') { authEventObserved = true; generation++; }
+    const session = usable(value) ? value : null;
+    if (event === 'PASSWORD_RECOVERY') {
+      recoveryRequested = true; recoveryUserId = session?.user.id || null;
+      update({ session, loading: !!session, recovery: session ? 'pending' : 'expired', authIssue: false });
+      if (confirmationTimer) clearTimeout(confirmationTimer);
+      // Do not call/await SDK methods inside its auth-state callback/lock.
+      if (session) confirmationTimer = setTimeout(() => { confirmationTimer = null; void confirmSession(); }, 0);
+    } else if (event === 'SIGNED_OUT') {
+      if (confirmationTimer) clearTimeout(confirmationTimer);
+      recoveryUserId = null;
+      update({ session: null, loading: false, recovery: recoveryRequested ? 'expired' : 'none', authIssue: false });
+    } else if (recoveryRequested && recoveryUserId && session?.user.id !== recoveryUserId) {
+      generation++; recoveryUserId = null;
+      update({ session, loading: false, recovery: 'expired', authIssue: false });
+    } else {
+      // A stored session or normal SIGNED_IN event does not prove recovery.
+      const unconfirmed = recoveryRequested && !recoveryUserId;
+      update({ ...state, session, loading: event === 'INITIAL_SESSION' ? state.loading : unconfirmed ? false : state.loading && state.recovery === 'pending', recovery: unconfirmed && event !== 'INITIAL_SESSION' ? 'expired' : state.recovery, authIssue: false });
+      if (event !== 'INITIAL_SESSION' && recoveryUserId && state.recovery === 'pending') {
+        if (confirmationTimer) clearTimeout(confirmationTimer);
+        confirmationTimer = setTimeout(() => { confirmationTimer = null; void confirmSession(); }, 0);
+      }
+    }
+  }).data.subscription;
+  if (client) void confirmSession();
+  return {
+    getSnapshot: () => state,
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    canSetPassword: (session: Session | null) => state.recovery === 'ready' && usable(session) && session?.user.id === recoveryUserId && state.session?.user.id === recoveryUserId,
+    expireRecovery: () => { generation++; if (confirmationTimer) clearTimeout(confirmationTimer); recoveryRequested = true; recoveryUserId = null; update({ ...state, loading: false, recovery: 'expired' }); },
+    dismissRecovery: () => { generation++; if (confirmationTimer) clearTimeout(confirmationTimer); recoveryRequested = false; recoveryUserId = null; update({ ...state, session: null, loading: false, recovery: 'none' }); },
+    completeRecovery: (session: Session) => {
+      if (state.recovery !== 'ready' || !usable(session) || session.user.id !== recoveryUserId) throw new Error('密码设置会话已失效，请重新申请设置邮件。');
+      generation++; recoveryRequested = false; recoveryUserId = null;
+      update({ session, loading: false, recovery: 'complete', authIssue: false });
+    },
+    dispose: () => { active = false; generation++; if (confirmationTimer) clearTimeout(confirmationTimer); subscription?.unsubscribe(); listeners.clear(); },
+  };
+}
+export async function saveRecoveryPassword(client: Pick<AuthObserverClient, 'getSession'> & { updateUser: (attributes: { password: string }) => Promise<{ error: { status?: number; code?: string } | null }> }, observer: ReturnType<typeof createAdminAuthObserver>, password: string, confirmation: string) {
+  const validation = newPasswordError(password, confirmation);
+  if (validation) throw new Error(validation);
+  let current: Awaited<ReturnType<AuthObserverClient['getSession']>>;
+  try { current = await client.getSession(); } catch { throw new Error('会话验证没有完成，请检查网络后重试。'); }
+  if (current.error || !observer.canSetPassword(current.data.session)) { observer.expireRecovery(); throw new Error('密码设置链接已失效，请重新申请设置邮件。'); }
+  let result: { error: { status?: number; code?: string } | null };
+  try { result = await client.updateUser({ password }); } catch { throw new Error('密码保存结果未确认。请用新密码尝试登录，或重新申请设置邮件。'); }
+  if (result.error) {
+    if (result.error.status === 401 || result.error.status === 403 || ['bad_jwt', 'session_not_found', 'session_expired'].includes(result.error.code || '')) { observer.expireRecovery(); throw new Error('密码设置会话已失效，请重新申请设置邮件。'); }
+    throw new Error(result.error.code === 'weak_password' ? '这个密码不符合安全要求，请换一个更长的密码。' : result.error.code === 'same_password' ? '请设置一个与旧密码不同的新密码。' : '密码没有保存成功，请稍后重试。');
+  }
+  observer.completeRecovery(current.data.session!);
+}
 const auth = (() => { const url = import.meta.env.VITE_SUPABASE_URL, key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY; if (!url || !key) return null; try { return createClient(url, key); } catch { return null; } })();
+const adminAuth = createAdminAuthObserver(auth?.auth || null, initialPasswordRecovery);
 function AdminPage() {
-  const [session, setSession] = useState<Session | null>(null), [authLoading, setAuthLoading] = useState(true), [email, setEmail] = useState(''), [password, setPassword] = useState(''), [tab, setTab] = useState<'waybills' | 'queries' | 'community'>('waybills'), [offset, setOffset] = useState(0), [list, setList] = useState<PddAdminList | PddQueryLogPage | null>(null), [detail, setDetail] = useState<PddAdminDetail | null>(null), [community, setCommunity] = useState<Community | null>(null), [notes, setNotes] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('');
-  const sequence = useRef(0);
-  useEffect(() => { if (!auth) { setAuthLoading(false); return; } void auth.auth.getSession().then(result => { setSession(result.data.session); setAuthLoading(false); }); const { data: { subscription } } = auth.auth.onAuthStateChange((_event, value) => setSession(value)); return () => subscription.unsubscribe(); }, []);
-  const reload = useCallback(async () => { if (!session) return; const current = ++sequence.current; setBusy(true); setError(''); try { if (tab === 'community') { const value = await pddApi.adminCommunity(session.access_token); if (current === sequence.current) setCommunity(value); } else { const value = tab === 'waybills' ? await pddApi.adminList(session.access_token, offset) : await pddApi.adminQueries(session.access_token, offset); if (current === sequence.current) setList(value); } } catch (exception) { if (current === sequence.current) setError(errorMessage(exception)); } finally { if (current === sequence.current) setBusy(false); } }, [session, tab, offset]);
+  const authState = useSyncExternalStore(adminAuth.subscribe, adminAuth.getSnapshot, adminAuth.getSnapshot), { session, loading: authLoading } = authState;
+  const navigate = useNavigate();
+  const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [newPassword, setNewPassword] = useState(''), [confirmation, setConfirmation] = useState(''), [authAction, setAuthAction] = useState<'login' | 'email' | 'password' | null>(null), [tab, setTab] = useState<'waybills' | 'queries' | 'community'>('waybills'), [offset, setOffset] = useState(0), [list, setList] = useState<PddAdminList | PddQueryLogPage | null>(null), [detail, setDetail] = useState<PddAdminDetail | null>(null), [community, setCommunity] = useState<Community | null>(null), [notes, setNotes] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(authState.recovery === 'complete' ? '密码设置成功，已进入管理员工作台。' : '');
+  const sequence = useRef(0), emailInput = useRef<HTMLInputElement>(null), authBusy = useRef(false);
+  useEffect(() => { if (authState.recovery === 'expired') { setNewPassword(''); setConfirmation(''); } }, [authState.recovery]);
+  const reload = useCallback(async () => { if (!session || authLoading || needsPasswordRecovery(authState)) return; const current = ++sequence.current; setBusy(true); setError(''); try { if (tab === 'community') { const value = await pddApi.adminCommunity(session.access_token); if (current === sequence.current) setCommunity(value); } else { const value = tab === 'waybills' ? await pddApi.adminList(session.access_token, offset) : await pddApi.adminQueries(session.access_token, offset); if (current === sequence.current) setList(value); } } catch (exception) { if (current === sequence.current) setError(errorMessage(exception)); } finally { if (current === sequence.current) setBusy(false); } }, [session, authLoading, authState.recovery, tab, offset]);
   useEffect(() => { void reload(); }, [reload]);
   const action = async (actionName: PddAdminAction, registrationCode?: string) => { if (!session || !detail) return; if (actionName === 'return' && !window.confirm('仅在包裹已实际交还后确认。确定已完成交还吗？')) return; if (actionName === 'withdraw' && !window.confirm('确定撤回这条登记吗？此操作将被审计。')) return; setBusy(true); setError(''); try { await pddApi.adminAction(session.access_token, detail.record.code, detail.record.revision, actionName, notes, registrationCode); setDetail(await pddApi.adminDetail(session.access_token, detail.record.code)); setNotes(''); setNotice('管理员操作已保存并记录审计。'); await reload(); } catch (exception) { setError(errorMessage(exception)); } finally { setBusy(false); } };
+  if (authState.recovery === 'pending') return <div className="pdd-page pdd-auth"><span className="pdd-eyebrow">CMI 管理员</span><h1>验证密码设置链接</h1><Busy>正在验证邮件中的安全链接…</Busy><p>验证完成后即可设置密码。</p></div>;
+  if (authState.recovery === 'expired') return <div className="pdd-page pdd-auth"><span className="pdd-eyebrow">CMI 管理员</span><h1>密码设置链接已失效</h1><section className="pdd-panel pdd-recovery-invalid"><p>链接可能已经使用、过期，或没有有效的密码设置会话。请重新申请设置邮件，并使用最新邮件中的链接。</p><ErrorNote>{!auth ? '管理员认证服务尚未配置。' : ''}</ErrorNote><button className="pdd-button pdd-primary pdd-full" onClick={() => { adminAuth.dismissRecovery(); setError(''); setNotice('请填写管理员邮箱，然后点击“设置或重置密码”。'); navigate('/admin', { replace: true }); }}>重新申请密码设置邮件</button></section></div>;
+  if (authState.recovery === 'ready' && session) return <div className="pdd-page pdd-auth"><span className="pdd-eyebrow">CMI 管理员</span><h1>设置管理员密码</h1><p>邮件链接已验证。请为自己的管理员账号设置密码。</p><form className="pdd-panel pdd-password-form" onSubmit={async event => {
+    event.preventDefault(); if (!auth || authBusy.current) return;
+    const validation = newPasswordError(newPassword, confirmation);
+    if (validation) { setError(validation); return; }
+    authBusy.current = true; setBusy(true); setAuthAction('password'); setError('');
+    try { await saveRecoveryPassword(auth.auth, adminAuth, newPassword, confirmation); setNotice('密码设置成功，已进入管理员工作台。'); navigate('/admin', { replace: true }); }
+    catch (exception) { setError(errorMessage(exception)); }
+    finally { setNewPassword(''); setConfirmation(''); setPassword(''); authBusy.current = false; setBusy(false); setAuthAction(null); }
+  }}><p className="pdd-auth-account">当前账号<strong>{session.user.email || '已验证的管理员账号'}</strong></p><label>新密码<input type="password" value={newPassword} onChange={event => setNewPassword(event.target.value)} autoComplete="new-password" minLength={12} aria-describedby="pdd-password-help" disabled={busy} required /></label><label>再次输入新密码<input type="password" value={confirmation} onChange={event => setConfirmation(event.target.value)} autoComplete="new-password" minLength={12} disabled={busy} required /></label><p id="pdd-password-help" className="pdd-auth-help">至少12个字符。请使用只由您保管的密码。</p><ErrorNote>{error}</ErrorNote><button className="pdd-button pdd-primary pdd-full" disabled={busy || !auth}>{authAction === 'password' ? '正在保存密码…' : '保存密码并进入工作台'}</button></form></div>;
   if (authLoading) return <div className="pdd-page"><Busy>正在验证管理员会话…</Busy></div>;
-  if (!session) return <div className="pdd-page"><Back /><span className="pdd-eyebrow">CMI 管理员</span><h1>工作台登录</h1><p>公众无需注册。此入口仅供授权管理员。</p><form className="pdd-panel" onSubmit={async event => { event.preventDefault(); if (!auth) return; setBusy(true); setError(''); try { const result = await auth.auth.signInWithPassword({ email, password }); if (result.error) throw result.error; setPassword(''); setSession(result.data.session); } catch (exception) { setError(errorMessage(exception)); } finally { setBusy(false); } }}><label>邮箱<input type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="username" required /></label><label>密码<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required /></label><ErrorNote>{error || (!auth ? '管理员认证服务尚未配置。' : '')}</ErrorNote><button className="pdd-button pdd-primary pdd-full" disabled={busy || !auth}>{busy ? '正在登录…' : '登录工作台'}</button></form></div>;
+  if (!session) return <div className="pdd-page pdd-auth"><Back /><span className="pdd-eyebrow">CMI 管理员</span><h1>工作台登录</h1><p>公众无需注册。此入口仅供授权管理员。</p><form className="pdd-panel" onSubmit={async event => {
+    event.preventDefault(); if (!auth || authBusy.current) return;
+    authBusy.current = true; setBusy(true); setAuthAction('login'); setError(''); setNotice('');
+    try { const result = await auth.auth.signInWithPassword({ email: email.trim(), password }); if (result.error) throw result.error; setPassword(''); }
+    catch { setError('登录未完成，请核对邮箱和密码，或通过邮件设置密码。'); }
+    finally { authBusy.current = false; setBusy(false); setAuthAction(null); }
+  }}><label>邮箱<input ref={emailInput} type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="username" disabled={busy} required /></label><label>密码<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" disabled={busy} required /></label><ErrorNote>{error || (!auth ? '管理员认证服务尚未配置。' : authState.authIssue ? '管理员会话读取失败，请检查网络后重新登录。' : '')}</ErrorNote>{notice && <p className="pdd-notice" role="status">{notice}</p>}<button className="pdd-button pdd-primary pdd-full" disabled={busy || !auth}>{authAction === 'login' ? '正在登录…' : '登录工作台'}</button><div className="pdd-auth-reset"><p>第一次使用或忘记密码？填写邮箱后，通过邮件设置密码。</p><button type="button" className="pdd-button pdd-secondary pdd-full" disabled={busy || !auth} onClick={async () => {
+    if (!auth || authBusy.current || !emailInput.current?.reportValidity()) return;
+    authBusy.current = true; setBusy(true); setAuthAction('email'); setError(''); setNotice('');
+    try { const result = await auth.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin + '/admin' }); if (result.error) throw result.error; setPassword(''); setNotice('如果这个邮箱可用于登录，我们会发送密码设置邮件。请检查收件箱和垃圾邮件，并打开最新邮件中的链接。'); }
+    catch { setError('密码设置邮件申请没有完成，请检查网络后稍后重试。'); }
+    finally { authBusy.current = false; setBusy(false); setAuthAction(null); }
+  }}>{authAction === 'email' ? '正在申请设置邮件…' : '设置或重置密码'}</button></div></form></div>;
   return <div className="pdd-page pdd-admin"><div className="pdd-admin-header"><div><span className="pdd-eyebrow">PDD404 · OPERATIONS</span><h1>管理员工作台</h1><p className="pdd-small">{session.user.email}</p></div><button className="pdd-button pdd-secondary" onClick={() => void auth?.auth.signOut().catch(exception => setError(errorMessage(exception)))}>退出登录</button></div><nav className="pdd-admin-tabs" aria-label="工作台模块">{([['waybills', '单号与跟进'], ['queries', '查询日志'], ['community', '社区入口']] as const).map(([value, label]) => <button key={value} className={tab === value ? 'selected' : ''} onClick={() => { setTab(value); setOffset(0); setList(null); setDetail(null); setNotes(''); setNotice(''); }} disabled={busy}>{label}</button>)}<button className="pdd-text-link" onClick={() => void reload()} disabled={busy}><RefreshCw size={16} />刷新</button></nav><ErrorNote>{error}</ErrorNote>{notice && <p className="pdd-notice" role="status">{notice}</p>}{busy && <Busy>正在读取或保存…</Busy>}{tab === 'community' && community ? <AdminCommunity community={community} token={session.access_token} onSaved={reload} /> : <div className="pdd-admin-columns"><div><div className="pdd-admin-list">{list?.items.map((item, index) => 'number' in item && 'resolution' in item ? <article key={item.code}><div><code>{item.number}</code><span className="pdd-status">{resolutionLabel[item.resolution]}</span></div><p className="pdd-small">丢件：{item.lostContact?.value || '未登记'} · 多收件：{item.receivedContact?.value || '未登记'}</p><p className="pdd-small">查询 {item.queryCount} 次 · {dateText(item.updatedAt)}</p><button className="pdd-text-link" onClick={() => void pddApi.adminDetail(session.access_token, item.code).then(value => { setDetail(value); setNotes(''); }).catch(exception => setError(errorMessage(exception)))}>查看全部记录与处理状态<ArrowRight size={16} /></button></article> : 'queryId' in item ? <article key={item.queryId || index}><div><code>{item.number}</code><span className="pdd-status">{modeLabel[item.mode]}</span></div><p>{resultLabel[item.result]} · {item.source === 'barcode' ? '扫码' : '手动输入'}</p><p className="pdd-small">{dateText(item.queriedAt)}</p>{item.contact && <p>{contactLabel(item.contact)}：{item.contact.value}</p>}{item.code && <button className="pdd-text-link" onClick={() => void pddApi.adminDetail(session.access_token, item.code!).then(setDetail).catch(exception => setError(errorMessage(exception)))}>查看这个单号的处理记录<ArrowRight size={16} /></button>}</article> : null)}</div>{!busy && list?.items.length === 0 && <div className="pdd-empty">目前没有记录。</div>}<div className="pdd-pagination"><button className="pdd-button pdd-secondary" disabled={busy || offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>上一页</button><span>第 {Math.floor(offset / 50) + 1} 页</span><button className="pdd-button pdd-secondary" disabled={busy || list?.nextOffset == null} onClick={() => setOffset(list!.nextOffset!)}>下一页</button></div></div>{detail && <section className="pdd-panel pdd-admin-detail"><button className="pdd-icon pdd-close" onClick={() => setDetail(null)} aria-label="关闭单号详情"><X /></button><span className="pdd-eyebrow">{detail.record.code}</span><h2>{detail.record.number}</h2><p>{resolutionLabel[detail.record.resolution]} · 版本 {detail.record.revision}</p><h3>双方登记</h3>{detail.registrations.map(item => <article className="pdd-admin-registration" key={item.registrationCode}><strong>{modeLabel[item.mode]} · {item.visibility === 'withdrawn' ? '已撤回' : '有效'}</strong><p>{item.contact ? contactLabel(item.contact) + '：' + item.contact.value : '联系方式已按保留期清理'}</p><small>{dateText(item.createdAt)}</small>{item.visibility === 'active' && <button className="pdd-text-link pdd-danger" disabled={busy} onClick={() => void action('withdraw', item.registrationCode)}>撤回此登记</button>}</article>)}<label>跟进备注<textarea maxLength={2000} value={notes} onChange={event => setNotes(event.target.value)} placeholder="记录核实、联系或交还进展" /></label><div className="pdd-actions"><button className="pdd-button pdd-secondary" disabled={busy || detail.record.resolution !== 'open'} onClick={() => void action('verify')}>开始核实</button><button className="pdd-button pdd-secondary" disabled={busy || !['open', 'verifying'].includes(detail.record.resolution)} onClick={() => void action('claim')}>确认归属，待交还</button><button className="pdd-button pdd-primary" disabled={busy || detail.record.resolution !== 'claimed'} onClick={() => void action('return')}>确认实际交还</button></div><h3>查询时间线</h3>{detail.queries.map(query => <div className="pdd-timeline-item" key={query.queryId}><strong>{modeLabel[query.mode]} · {resultLabel[query.result]}</strong><p>{dateText(query.queriedAt)}</p>{query.contact && <p>{contactLabel(query.contact)}：{query.contact.value}</p>}</div>)}<h3>管理操作记录</h3>{detail.events.map(item => <div className="pdd-timeline-item" key={item.id}><strong>{item.action}</strong><p>{item.notes}</p><small>{dateText(item.createdAt)}</small></div>)}</section>}</div>}</div>;
 }
 
@@ -215,4 +365,7 @@ function AdminCommunity({ community, token, onSaved }: { community: Community; t
 function PrivacyPage() { return <div className="pdd-page pdd-privacy"><Back /><span className="pdd-eyebrow">PDD404 · CMI COMMUNITY</span><h1>隐私与使用说明</h1><section className="pdd-panel"><h2>不用注册，凭单号找货</h2><p>请填写完整的国内运输单号，不要填写订单编号、集运单号或末端配送单号。相同单号的登记会提供线索，包裹归属与实际交还仍由双方核实。</p><h2>联系方式用于配对联系</h2><p>登记时填写的本人微信号或电话号码保存在本项目服务器。查询到相同完整单号的另一方可查看，用于联系、核实和交还；公开分享页不展示联系方式和完整单号。管理员可查看登记与查询处理记录。</p><h2>查询留下日志，待提交列表先存本机</h2><p>每次点击查询，服务器记录单号、查询类型、来源、查询日期时间和结果。暂未匹配的单号保存在当前浏览器，填写联系方式并确认提交后才成为正式登记。</p><p>查询日志保留30天；正式联系方式在登记有效期间保留，包裹交还或登记撤回30天后清理。匹配弹窗内的可选联系方式可在查询后24小时内补充。</p><h2>扫码画面不上传</h2><p>扫码需要摄像头权限。条形码在当前设备上读取；网站不上传或保存扫码画面。扫描后只填入号码，您核对后手动点击查询。</p><h2>保存好私密管理链接</h2><p>本机回执与管理凭证保存在当前浏览器。私密管理链接可修改联系方式、查看进展或撤回本人登记。请勿发到群里。换设备或清理浏览器不会自动恢复凭证，丢失时请联系 CMI 小助手。</p><h2>社区共同跟进</h2><p>这是 CMI Community 的公益项目，不收取登记费用。页面提供匹配线索，管理员可协助跟进，不承诺自动发送微信消息。请保存重要回执截图。</p></section><CommunityCodes /></div>; }
 function CommunityPage() { return <div className="pdd-page"><Back /><h1>一起帮包裹回家</h1><p>无论丢件还是多收件，每一条准确的登记都会让线索更清晰。感谢您的参与。</p><CommunityCodes /></div>; }
 function MissingPage() { return <div className="pdd-page"><h1>这个页面不存在</h1><p>请检查链接，或返回首页继续查询单号。</p><Back /></div>; }
-export default function PddApp() { return <PddProvider><a className="pdd-skip" href="#pdd-main">跳到内容</a><header className="pdd-header"><Link to="/" className="pdd-brand" aria-label="PDD404 首页">pdd<span>404</span><small>包裹寻回计划</small></Link><Link to="/community" className="pdd-header-community">CMI <span>COMMUNITY</span><ArrowRight size={16} /></Link></header><main id="pdd-main"><Routes><Route path="/" element={<Home />} /><Route path="/local" element={<LocalPage />} /><Route path="/p/:code" element={<PublicPage />} /><Route path="/p/:code/share" element={<PublicPage share />} /><Route path="/m/:code" element={<ManagePage />} /><Route path="/manage/:code" element={<ManagePage />} /><Route path="/admin" element={<AdminPage />} /><Route path="/admin/login" element={<AdminPage />} /><Route path="/community" element={<CommunityPage />} /><Route path="/privacy" element={<PrivacyPage />} /><Route path="/received/*" element={<Navigate to="/?mode=received" replace />} /><Route path="/search/*" element={<Navigate to="/" replace />} /><Route path="/queue" element={<Navigate to="/local" replace />} /><Route path="/success" element={<Navigate to="/local" replace />} /><Route path="*" element={<MissingPage />} /></Routes></main><Footer /></PddProvider>; }
+export default function PddApp() {
+  const authState = useSyncExternalStore(adminAuth.subscribe, adminAuth.getSnapshot, adminAuth.getSnapshot);
+  return <PddProvider><a className="pdd-skip" href="#pdd-main">跳到内容</a><header className="pdd-header"><Link to="/" className="pdd-brand" aria-label="PDD404 首页">pdd<span>404</span><small>包裹寻回计划</small></Link><Link to="/community" className="pdd-header-community">CMI <span>COMMUNITY</span><ArrowRight size={16} /></Link></header><main id="pdd-main">{needsPasswordRecovery(authState) ? <AdminPage /> : <Routes><Route path="/" element={<Home />} /><Route path="/local" element={<LocalPage />} /><Route path="/p/:code" element={<PublicPage />} /><Route path="/p/:code/share" element={<PublicPage share />} /><Route path="/m/:code" element={<ManagePage />} /><Route path="/manage/:code" element={<ManagePage />} /><Route path="/admin" element={<AdminPage />} /><Route path="/admin/login" element={<AdminPage />} /><Route path="/community" element={<CommunityPage />} /><Route path="/privacy" element={<PrivacyPage />} /><Route path="/received/*" element={<Navigate to="/?mode=received" replace />} /><Route path="/search/*" element={<Navigate to="/" replace />} /><Route path="/queue" element={<Navigate to="/local" replace />} /><Route path="/success" element={<Navigate to="/local" replace />} /><Route path="*" element={<MissingPage />} /></Routes>}</main><Footer /></PddProvider>;
+}
