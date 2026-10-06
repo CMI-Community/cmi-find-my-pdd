@@ -1,46 +1,57 @@
-import { Check, HandHeart, Search } from 'lucide-react';
+import { HandHeart, Search } from 'lucide-react';
 import type { PddMode, PddRegistration } from '../shared/waybill';
+import lostDesktopScene from './assets/home-detectives-lost-desktop.webp';
+import receivedDesktopScene from './assets/home-detectives-received-desktop.webp';
+import lostMobileScene from './assets/home-detectives-lost-mobile.webp';
+import receivedMobileScene from './assets/home-detectives-received-mobile.webp';
 
 export const homeModeContent = {
   lost: {
     label: '找包裹',
-    title: '我的包裹去哪了？',
-    description: '',
-    inputHint: '输入你要找的包裹的国内快递单号',
-    queryLabel: '查询错收登记',
+    title: '我的拼多多快递去哪了？',
+    titleLines: ['我的拼多多快递', '去哪了？'],
+    inputHint: '输入或粘贴国内快递单号',
+    queryLabel: '查找',
     icon: Search,
   },
   received: {
     label: '找失主',
-    title: '这个包裹，可能正有人在找。',
-    description: '扫描面单上的国内快递单号，看看有没有人登记挂失。',
-    inputHint: '输入手上这个包裹的国内快递单号',
-    queryLabel: '查询挂失登记',
+    title: '你的拼多多包裹在我这儿！',
+    titleLines: ['你的拼多多包裹', '在我这儿！'],
+    inputHint: '输入或粘贴国内快递单号',
+    queryLabel: '查找',
     icon: HandHeart,
   },
 } as const;
 
 export const receivedRegistrationThanks = '谢谢你帮忙登记，让找包裹的人多一条线索。';
 
-export function HomeModeIntro({ mode, disabled, onChange }: { mode: PddMode; disabled: boolean; onChange: (mode: PddMode) => void }) {
+const homeScenes = {
+  lost: { desktop: lostDesktopScene, mobile: lostMobileScene },
+  received: { desktop: receivedDesktopScene, mobile: receivedMobileScene },
+} as const;
+
+export function HomeModeHeading({ mode }: { mode: PddMode }) {
   const content = homeModeContent[mode];
-  return <>
-    <p className="pdd-mode-guide">有别人的包裹在你手上？帮忙找找失主。</p>
-    <div className="pdd-modes" role="group" aria-label="选择你的情况">
-      {(['lost', 'received'] as const).map(value => {
-        const Icon = homeModeContent[value].icon;
-        return <button type="button" key={value} aria-pressed={mode === value} className={mode === value ? 'selected' : ''} disabled={disabled} onClick={() => onChange(value)}>
-          <Icon size={22} strokeWidth={1.8} aria-hidden="true" />
-          <span>{homeModeContent[value].label}</span>
-          <Check className="pdd-mode-check" size={16} aria-hidden="true" />
-        </button>;
-      })}
-    </div>
-    <div className={'pdd-heading pdd-heading-' + mode}>
-      <h1>{content.title}</h1>
-      {content.description && <p>{content.description}</p>}
-    </div>
-  </>;
+  return <div className="pdd-heading" data-mode={mode}>
+    {(['lost', 'received'] as const).flatMap(value => (['left', 'right'] as const).map(side => <picture key={value + '-' + side} className={'pdd-home-scene pdd-home-scene-' + value + ' pdd-home-scene-' + side} aria-hidden="true">
+      <source media="(max-width:800px)" srcSet={homeScenes[value].mobile} />
+      <img src={homeScenes[value].desktop} alt="" fetchPriority="high" decoding="async" />
+    </picture>))}
+    <h1>{content.titleLines[0]}<br /><span>{content.titleLines[1]}</span></h1>
+  </div>;
+}
+
+export function HomeModeControls({ mode, disabled, onChange }: { mode: PddMode; disabled: boolean; onChange: (mode: PddMode) => void }) {
+  return <div className="pdd-modes" role="group" aria-label="选择你的情况">
+    {(['lost', 'received'] as const).map(value => {
+      const Icon = homeModeContent[value].icon;
+      return <button type="button" key={value} aria-pressed={mode === value} className={mode === value ? 'selected' : ''} disabled={disabled} onClick={() => onChange(value)}>
+        <Icon size={22} strokeWidth={1.8} aria-hidden="true" />
+        <span>{homeModeContent[value].label}</span>
+      </button>;
+    })}
+  </div>;
 }
 
 export function ReceivedRegistrationThanks({ registrations }: { registrations: (PddRegistration | null)[] }) {
