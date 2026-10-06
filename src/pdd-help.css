@@ -1,25 +1,23 @@
 .pdd-help{max-width:760px;font-size:16px;line-height:1.75}
 .pdd-help-back{display:inline-flex;align-items:center;gap:8px;min-height:44px;margin-bottom:25px;color:#65556f;font-size:16px}
-.pdd-help-heading>span{display:block;font-size:16px;color:#76627f;margin-bottom:13px}
 .pdd-help-heading h1{font-size:34px;line-height:1.3;letter-spacing:-.8px;color:#352a40}
 .pdd-help-heading p{font-size:16px;line-height:1.8;color:#65556f;margin:17px 0 0}
 .pdd-help-section{margin:27px 0;padding:25px;border:1px solid var(--pdd-line,#e7e1ec);border-radius:16px;background:#fff}
 .pdd-help-section h2{display:flex;align-items:center;gap:12px;font-size:21px;line-height:1.5;color:#493952;margin-bottom:17px}
-.pdd-help-section h2>span{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;flex-shrink:0;border-radius:9px;background:#eee7f5;color:#674782;font-size:18px;font-weight:550}
 .pdd-help-section h3{margin:0 0 7px;font-size:18px;line-height:1.55;color:#493952;font-weight:600}
 .pdd-help-section p{font-size:16px;line-height:1.8;color:#65556f;margin:11px 0}
 .pdd-help-section p:last-child{margin-bottom:0}
-.pdd-help-modes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
-.pdd-help-mode{display:flex;flex-direction:column;padding:20px;border:1px solid #e5d9ef;border-radius:12px;background:#faf7fd;min-width:0}
-.pdd-help-mode p{margin:0 0 11px}
-.pdd-help-mode>span{display:flex;align-items:center;gap:8px;min-height:44px;margin-top:auto;color:#674782;font-size:16px;font-weight:550}
-.pdd-help-mode:hover{background:#f4eef9;border-color:#cbb8db}
-.pdd-help-note{background:#f7f3fa;border-radius:9px;padding:13px 15px;color:#54465f!important}
-.pdd-help-camera-steps{margin:15px 0;padding-left:25px;font-size:16px;line-height:1.8;color:#65556f}
-.pdd-help-camera-steps li{padding:5px 0 5px 5px}
-.pdd-help-camera-steps li::marker{color:#674782;font-weight:550}
-.pdd-help-local{display:flex;align-items:flex-start;gap:8px;color:#674782!important}
-.pdd-help-local svg{flex-shrink:0;margin-top:4px}
+.pdd-help-steps{list-style:none;counter-reset:help-step;margin:0;padding:0;color:#65556f}
+.pdd-help-steps li{counter-increment:help-step;position:relative;padding:13px 0 13px 47px;border-top:1px solid #eee7f3;line-height:1.8}
+.pdd-help-steps li:first-child{border-top:0;padding-top:0}
+.pdd-help-steps li::before{content:counter(help-step);position:absolute;left:0;top:13px;display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:9px;background:#eee7f5;color:#674782;font-size:18px;font-weight:600}
+.pdd-help-steps li:first-child::before{top:0}
+.pdd-help-steps a{display:inline-flex;align-items:center;min-height:44px;color:#674782;text-decoration:underline;text-underline-offset:3px}
+.pdd-help-important{background:#faf7fd;border-color:#cbb8db;border-left:4px solid #8960a5}
+.pdd-help-reminders{list-style:none;margin:0;padding:0}
+.pdd-help-reminders li+li{margin-top:20px;padding-top:20px;border-top:1px solid #e5d9ef}
+.pdd-help-reminders p{margin:0}
+.pdd-help-reminders strong{color:#493952;font-weight:600}
 .pdd-help-result{padding-top:17px;margin-top:17px;border-top:1px solid #eee7f3}
 .pdd-help-result:first-of-type{border-top:0;padding-top:0;margin-top:0}
 .pdd-help-result strong{color:#493952;font-weight:550}
@@ -29,4 +27,4 @@
 .pdd-help-ending p{display:flex;align-items:flex-start;justify-content:center;gap:9px;color:#65556f;font-size:16px;line-height:1.8;margin:0 0 22px}
 .pdd-help-ending p svg{flex-shrink:0;color:#674782;margin-top:4px}
 .pdd-help-ending .pdd-button{font-size:16px;min-height:48px}
-@media(max-width:560px){.pdd-help-heading h1{font-size:29px;letter-spacing:-.4px}.pdd-help-heading>span{line-height:1.7}.pdd-help-section{padding:20px 17px;margin:22px 0}.pdd-help-section h2{font-size:20px;gap:10px}.pdd-help-section h2>span{width:30px;height:30px}.pdd-help-modes{grid-template-columns:1fr;gap:12px}.pdd-help-mode{padding:17px}.pdd-help-mode>span{margin-top:0}.pdd-help-camera-steps{padding-left:23px}.pdd-help-ending p{text-align:left}.pdd-help-ending .pdd-button{padding:12px 10px;gap:7px}}
+@media(max-width:560px){.pdd-help-heading h1{font-size:29px;letter-spacing:-.4px}.pdd-help-section{padding:20px 17px;margin:22px 0}.pdd-help-section h2{font-size:20px;gap:10px}.pdd-help-steps li{padding-left:40px}.pdd-help-steps li::before{width:29px;height:29px}.pdd-help-ending p{text-align:left}.pdd-help-ending .pdd-button{padding:12px 10px;gap:7px}}
