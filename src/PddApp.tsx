@@ -10,6 +10,8 @@ import { pddApi } from './pdd-api';
 import { makeCapability } from './photos';
 import { cameraConstraintsForDevice, createCameraSession, describeCamera, setCameraFocus, startBarcodeScanner, type BarcodeScanMode, type CameraDescription, type CameraFocusMode, type CameraSession } from './pdd-camera';
 import { HelpPage } from './pdd-help';
+import { CMI_COMMUNITY_URL } from './cmi-community';
+import cmiCommunityLogo from './assets/cmi-community-logo.jpg';
 import { AdminFeedbackPanel, FeedbackForm } from './pdd-feedback';
 import { addQueueEntry, draftBatchNote, needsDomesticWaybillReminder, newPendingBatch, newQueueEntry, normalizeWaybillInput, pendingBatchInput, privateWaybillUrl, queryQueueAction, readWaybillDrafts, receiptFromRegistration, saveWaybillDrafts, setDraftBatchNote, settleQueue, waybillInputError, waybillQueryInputError, type NumberSource, type WaybillDraftState, type WaybillMode } from './waybill-drafts';
 
@@ -78,7 +80,29 @@ function CommunityCodes({ compact = false }: { compact?: boolean }) {
   const { community, communityError } = useContext(PddContext);
   return <div className={'pdd-community ' + (compact ? 'pdd-community-compact' : '')}><div className="pdd-qr-pair"><div className="pdd-qr"><span>关注 CMI 公众号</span><QrPicture url={community?.officialAccountQrUrl} alt={(community?.officialAccountName || 'CMI') + '公众号二维码'} missing="公众号二维码" /><small>{community?.officialAccountName || 'CMI Community'}</small></div><div className="pdd-qr"><span>加入找货群<small className="pdd-qr-channel">微信群</small></span><QrPicture url={community?.groupQrUrl} alt="拼多多找货微信群二维码" missing="找货微信群二维码" group /><small>保存后用微信扫一扫</small></div></div><p className="pdd-helper">群满了？联系 CMI 小助手：<strong>{community?.assistantWechat || '联系方式尚未配置'}</strong></p>{!compact && community?.assistantQrUrl && <a href={community.assistantQrUrl} target="_blank" rel="noreferrer" className="pdd-text-link">查看小助手二维码<ArrowRight size={15} /></a>}{!community && communityError && <ErrorNote>{communityError}</ErrorNote>}</div>;
 }
-function Footer() { const [feedbackOpen, setFeedbackOpen] = useState(false); return <><footer className="pdd-footer"><CommunityCodes compact /><div className="pdd-credit"><span className="pdd-community-wordmark">CMI <small>COMMUNITY</small></span><p>PDD404 Built by CMI Community</p><small>Connect · Make · Impact</small><nav aria-label="页脚"><Link to="/local">本机记录</Link><Link to="/privacy">隐私说明</Link><button type="button" onClick={() => setFeedbackOpen(true)}>建议与反馈</button><a href="https://github.com/CMI-Community/cmi-find-my-pdd" target="_blank" rel="noreferrer">开源代码</a></nav></div></footer>{feedbackOpen && <Dialog title="建议与反馈" className="pdd-feedback-dialog" onClose={() => setFeedbackOpen(false)}><FeedbackForm /></Dialog>}</>; }
+function Footer() {
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  return <>
+    <footer className="pdd-footer">
+      <CommunityCodes compact />
+      <div className="pdd-credit">
+        <a href={CMI_COMMUNITY_URL} target="_blank" rel="noopener noreferrer" className="pdd-community-logo" aria-label="CMI Community 官网">
+          <img src={cmiCommunityLogo} width={180} height={180} alt="CMI Community" />
+        </a>
+        <p>PDD404 Built by CMI Community</p>
+        <small>Connect · Make · Impact</small>
+        <nav aria-label="页脚">
+          <a href={CMI_COMMUNITY_URL} target="_blank" rel="noopener noreferrer">访问 CMI Community</a>
+          <Link to="/local">本机记录</Link>
+          <Link to="/privacy">隐私说明</Link>
+          <button type="button" onClick={() => setFeedbackOpen(true)}>建议与反馈</button>
+          <a href="https://github.com/CMI-Community/cmi-find-my-pdd" target="_blank" rel="noreferrer">开源代码</a>
+        </nav>
+      </div>
+    </footer>
+    {feedbackOpen && <Dialog title="建议与反馈" className="pdd-feedback-dialog" onClose={() => setFeedbackOpen(false)}><FeedbackForm /></Dialog>}
+  </>;
+}
 function ContactFields({ contact, onChange, disabled = false }: { contact: PddContact; onChange: (contact: PddContact) => void; disabled?: boolean }) {
   const id = useId();
   return <div className="pdd-contact-fields"><label htmlFor={id + '-kind'}>联系方式<select id={id + '-kind'} value={contact.kind} onChange={event => onChange({ kind: event.target.value as PddContact['kind'], value: '' })} disabled={disabled}><option value="wechat">微信号</option><option value="phone">电话号码</option></select></label><label htmlFor={id + '-value'}>{contact.kind === 'wechat' ? '您的微信号' : '您的电话号码'}<input id={id + '-value'} type={contact.kind === 'phone' ? 'tel' : 'text'} value={contact.value} maxLength={contact.kind === 'phone' ? 32 : 64} onChange={event => onChange({ ...contact, value: event.target.value })} placeholder={contact.kind === 'wechat' ? '填写微信号，请勿填写昵称' : '包含国家区号，如 +66…'} autoComplete="off" disabled={disabled} required /></label><p className="pdd-privacy-hint"><ShieldCheck size={17} />相同单号的另一方可查看，用于联系、核实与交还。</p></div>;

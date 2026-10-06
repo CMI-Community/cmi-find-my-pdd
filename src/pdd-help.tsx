@@ -1,10 +1,14 @@
 import { Link } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Heart, ScanLine, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowUpRight, Heart, ScanLine, ShieldCheck } from 'lucide-react';
+import { CMI_COMMUNITY_URL } from './cmi-community';
 import './pdd-help.css';
 
 export function HelpPage() {
   return <div className="pdd-page pdd-help">
-    <Link to="/" className="pdd-help-back"><ArrowLeft size={18} aria-hidden="true" />返回查询</Link>
+    <nav className="pdd-help-nav" aria-label="帮助页导航">
+      <a href={CMI_COMMUNITY_URL} target="_blank" rel="noopener noreferrer" className="pdd-help-community-link">了解更多关于 CMI 社区<ArrowUpRight size={18} aria-hidden="true" /></a>
+      <Link to="/" className="pdd-help-back"><ArrowLeft size={18} aria-hidden="true" />返回查询</Link>
+    </nav>
     <header className="pdd-help-heading">
       <h1>如何使用 PDD404</h1>
       <p>不用注册，按下面六步查询或登记包裹。</p>
