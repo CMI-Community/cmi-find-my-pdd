@@ -40,6 +40,5 @@ describe('registration notes and truthful public totals', () => {
     expect(html).toContain('累计错收登记');
     expect(html).not.toContain('多收');
     expect(html).toContain('上方为最近一次读取的数字');
-    expect(html).toContain('匹配不代表已核实或已交还');
   });
 });

@@ -14,6 +14,7 @@ export type WaybillDraftState = { entries: QueueEntry[]; receipts: LocalReceipt[
 const db = createStore('pdd404-domestic-waybills-v1', 'drafts');
 const emptyState = (): WaybillDraftState => ({ entries: [], receipts: [] });
 export function normalizeWaybillInput(value: string) { return normalizeWaybill(value); }
+export function needsDomesticWaybillReminder(value: string) { return normalizeWaybillInput(value).startsWith('JTTH'); }
 export function waybillInputError(value: string) {
   const number = normalizeWaybillInput(value);
   if (!number) return '请先输入国内快递单号。';
