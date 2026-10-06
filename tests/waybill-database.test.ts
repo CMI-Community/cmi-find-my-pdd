@@ -36,8 +36,44 @@ async function batch(number: string, mode: PddMode, contact = lostContact, cap =
 }
 type HomeStats = { lostRegistered: number; receivedRegistered: number; matchedParcels: number };
 const homeStats = () => rpc<HomeStats>('pdd_home_stats');
+async function businessError(name: string, payload: Record<string, unknown>, message: string) {
+  await db.exec('savepoint expected_business_error;');
+  try { await expect(rpc(name, payload)).rejects.toMatchObject({ code: 'P0001', message: expect.stringContaining(message) }); }
+  finally { await db.exec('rollback to savepoint expected_business_error; release savepoint expected_business_error;'); }
+}
 
 describe('PDD404 isolated transactional flow', () => {
+  it('reports business conflicts as P0001 without mutating contacts, notes, counters or idempotent receipts', async () => {
+    const input = { request_id: randomUUID(), mode: 'lost', contact: lostContact, note: 'Preserved private note', capability_hash: capA, body_hash: 'first-body', items: [{ request_id: randomUUID(), number: 'LOCKOWNER1234', source: 'manual' }] };
+    const original = (await rpc<PddBatchResult>('pdd_batch_register', input)).items[0];
+    await businessError('pdd_batch_register', { ...input, body_hash: 'changed-body' }, 'IDEMPOTENCY_CONFLICT');
+    const duplicateItem = { ...input, request_id: randomUUID(), body_hash: 'reused-item', items: [{ ...input.items[0], number: 'ROLLBACKITEM12' }] };
+    await businessError('pdd_batch_register', duplicateItem, 'IDEMPOTENCY_CONFLICT');
+    expect((await db.query("select id from public.pdd_waybills where number='ROLLBACKITEM12'")).rows).toHaveLength(0);
+    const missing = { query_id: randomUUID(), number: 'QUERYERROR1234', mode: 'lost', source: 'manual', capability_hash: capB, body_hash: 'original-query' };
+    await rpc('pdd_query', missing);
+    await businessError('pdd_query', { ...missing, body_hash: 'changed-query' }, 'IDEMPOTENCY_CONFLICT');
+    const received = (await batch('BUSINESS1234', 'received', receivedContact, capB)).items[0];
+    const possible = await query('BUSINESS123X', 'lost', capC);
+    expect(possible.result).toBe('possible');
+    await businessError('pdd_query_contact', { query_id: possible.queryId, capability_hash: capC, contact: lostContact, idempotency_key: 'possible-contact', body_hash: 'possible-contact' }, 'VERSION_CONFLICT');
+    const own = original.registration!;
+    await businessError('pdd_manage_update', { registration_code: own.registrationCode, capability_hash: capA, revision: own.revision + 1, action: 'contact', contact: receivedContact }, 'VERSION_CONFLICT');
+    const actor = randomUUID();
+    await businessError('pdd_admin_action', { public_code: original.record.code, revision: original.record.revision + 1, action: 'verify', actor_id: actor }, 'VERSION_CONFLICT');
+    await businessError('pdd_admin_action', { public_code: original.record.code, revision: original.record.revision, action: 'claim', actor_id: actor }, 'NEEDS_RECEIVED');
+    await businessError('pdd_admin_action', { public_code: original.record.code, revision: original.record.revision, action: 'return', actor_id: actor }, 'INVALID_ADMIN_STATE');
+    await rpc('pdd_admin_action', { public_code: received.record.code, revision: received.record.revision, action: 'claim', actor_id: actor });
+    await businessError('pdd_manage_update', { registration_code: received.registration!.registrationCode, capability_hash: capB, revision: received.registration!.revision, action: 'withdraw' }, 'OWNERSHIP_LOCKED');
+    const feedback = { request_id: randomUUID(), body_hash: 'feedback-original', message: 'Preserved feedback' };
+    const receipt = await rpc('pdd_feedback_submit', feedback);
+    await businessError('pdd_feedback_submit', { ...feedback, body_hash: 'feedback-changed' }, 'IDEMPOTENCY_CONFLICT');
+    expect(await rpc('pdd_feedback_submit', feedback)).toEqual(receipt);
+    expect((await rpc<PddRegistration>('pdd_manage', { registration_code: own.registrationCode, capability_hash: capA }))).toMatchObject({ contact: lostContact, note: 'Preserved private note', revision: own.revision });
+    expect(await homeStats()).toEqual({ lostRegistered: 1, receivedRegistered: 1, matchedParcels: 0 });
+    expect((await db.query('select * from public.pdd_handovers')).rows).toHaveLength(0);
+    expect((await db.query("select * from public.pdd_write_requests where scope like 'query-contact:%'")).rows).toHaveLength(0);
+  });
   it('preserves exact-only clients unless they explicitly opt into possible candidates', async () => {
     await batch('ABCDEFGH12', 'received', receivedContact);
     const payload = { number: 'ABCDEFGHXY', mode: 'lost', source: 'manual', capability_hash: capB, body_hash: 'legacy-exact-query' };

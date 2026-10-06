@@ -73,6 +73,8 @@ node --env-file=.private/production.env scripts/deploy.mjs production
 
 查看 health、登记开关、群码有效期、异常/限流、数据库与备份用量。诊断只保存请求 ID、操作标识和白名单错误码，不输出完整单号、联系或管理凭证。业务查询日志本身是私有数据，只供管理员。
 
+业务冲突用普通 `P0001` 异常保留白名单错误名称，Edge 将版本冲突及幂等冲突映射为 HTTP 409。不得把这些固定业务拒绝写成 SQLSTATE `40001`：PostgREST 14 会反复重试，造成接口超时。真实数据库事务的序列化失败不被吞掉。诊断与处理依据 [Supabase 官方说明](https://supabase.com/docs/guides/troubleshooting/high-cpu-and-infinite-transaction-retries-when-using-custom-error-codes-in-rpc-functions-77326b)；只对照日志中的进程编号和活动事务处理明确的故障连接，不为此重启整个生产项目。
+
 查询日志和幂等元数据保留 30 天；正式登记活跃时保留。结案/撤回 30 天后清除联系方式、管理凭证、关联私密备注；保留必要匿名状态和交还统计。清理使用与登记相同的有序单号锁，撤销凭证时递增版本；不得跳过锁或把清理后的字段用旧请求写回。旧图片流程的既有清理规则继续保留，不混为本版查询日志周期。
 
 ## 加密备份与恢复
@@ -87,7 +89,7 @@ node --env-file=.private/production.env scripts/backup.mjs
 
 范围限定备份在新增反馈迁移后覆盖21张public业务表及3个存储bucket，保留新备注与首次匹配统计字段；旧20表快照按原迁移manifest仍可恢复。脚本拒绝新迁移缺少反馈表的快照，通过两次一致读取及AES-256-GCM验证后，在隔离PostgreSQL核对恢复数据。Auth元数据不含凭据；该快照不包含完整原生public/Auth dump、Vault或角色，不构成完整灾难恢复证明。完整 `scripts/backup.mjs` 备份仍需私有 `SUPABASE_DB_URL`，随后重新做全量恢复；实际生产归档与检查结果写入发布记录，不在公开文档披露资料或密钥。
 
-范围备份命令为 `npm run ops:backup:scoped -- backups/filename.cmibak` 与 `npm run ops:verify:scoped -- backups/filename.cmibak`。它覆盖20张固定业务表和3个存储 bucket，直接写 AES-GCM 密文；运行配置只保留安全字段，不读取 Auth/Vault。两轮完整业务表读取必须一致，变更时失败并要求在安静时段重试；即使两轮一致，也不保证数据库快照隔离或期间存储不变。恢复只用独立本机 PostgreSQL，验证全部约束、RLS、行值和存储哈希。
+范围备份命令为 `npm run ops:backup:scoped -- backups/filename.cmibak` 与 `npm run ops:verify:scoped -- backups/filename.cmibak`。它按迁移版本覆盖21张业务表（旧版本为20张）和3个存储 bucket，直接写 AES-GCM 密文；运行配置只保留安全字段，不读取 Auth/Vault。两轮完整业务表读取必须一致，变更时失败并要求在安静时段重试；即使两轮一致，也不保证数据库快照隔离或期间存储不变。恢复只用独立本机 PostgreSQL，验证全部约束、RLS、行值和存储哈希。
 
 `backup-scoped.yml` 定于曼谷02:30执行，避开每小时第17分钟清理；只有 `ENABLE_SCOPED_BACKUP=true` 才运行。恢复验证通过后上传7天保留的加密 artifact。启用前配置其中的项目 vars、服务端密钥和单独备份密码，完成一次实际执行与下载恢复；不要只因 YAML 存在就称自动备份可用。
 

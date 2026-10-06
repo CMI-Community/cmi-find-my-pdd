@@ -67,6 +67,8 @@ type PddContact = { kind: 'wechat' | 'phone'; value: string };
 
 匹配后可选留自己的联系方式：自己的这一侧尚无有效登记时创建登记；已有登记时只把此次联系方式追加到查询历史，`registration=null`，不覆盖原联系人。返回 `{saved:true,registration}`。首次留联系要求查询未超过 24 小时，且提交时仍能匹配。
 
+数据库业务拒绝使用普通 `P0001` 和原有白名单错误名称；接口层仍以 HTTP 409 返回 `VERSION_CONFLICT`、`IDEMPOTENCY_CONFLICT` 等业务冲突。SQLSTATE `40001` 仅留给数据库实际序列化失败，不用于人为业务拒绝，避免 PostgREST 的事务重试循环。
+
 `PddPublicRecord` 只包含 `code,tail,resolution,visibility,revision,lostRegistered,receivedRegistered,createdAt,updatedAt`。`PddRegistration` 再包含本人 `registrationCode,number,mode,source,contact,note,revision,visibility,createdAt,updatedAt,record`，不含凭证摘要；清理后 `contact=null,note=null` 且管理凭证失效。确认归属或交还后，本人不能撤回；有效登记的联系方式仍可在保留期内修改，修改联系方式保留已有备注。
 
 `health.ok` 要求数据库/社区配置可读取且 PDD 表可用；`ready` 另要求有效社区资料、开启提交和管理员白名单，不依赖 OpenAI。两者都不能替代域名、真机或完整生产验收。
