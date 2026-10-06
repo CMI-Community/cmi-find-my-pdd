@@ -70,11 +70,23 @@ try {
   const directory = new URL('../supabase/migrations/', import.meta.url);
   let backfillChecked = false;
   let businessMetadataChecked = false;
+  let domesticGuardChecked = false;
+  const domesticMetadataSQL = `select jsonb_agg(jsonb_build_object('name',p.proname,'oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig) order by p.proname)::text
+    from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('pdd_number','pdd_query_number','pdd_query_contact');`;
+  const forwardingNumber = 'JTTH000990001';
+  let historicalRegistration, historicalQuery, historicalContact, forwardingBefore, forwardingMetadata;
+  const forwardingSnapshot = async () => JSON.parse(await sql(`select jsonb_build_object(
+    'waybills',(select coalesce(jsonb_agg(to_jsonb(w) order by id),'[]') from public.pdd_waybills w),
+    'registrations',(select coalesce(jsonb_agg(to_jsonb(r) order by id),'[]') from public.pdd_registrations r),
+    'queries',(select coalesce(jsonb_agg(to_jsonb(q) order by id),'[]') from public.pdd_query_events q),
+    'writes',(select coalesce(jsonb_agg(to_jsonb(p) order by scope,key),'[]') from public.pdd_write_requests p),
+    'audits',(select coalesce(jsonb_agg(to_jsonb(a) order by id),'[]') from public.pdd_audit_events a))::text;`));
   const businessMetadataSQL = `select jsonb_agg(jsonb_build_object('name',p.proname,'oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig,'arguments',p.proargtypes::text) order by p.proname)::text
     from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('pdd_query','pdd_query_contact','pdd_batch_register','pdd_manage_update','pdd_admin_action','pdd_feedback_submit') and p.proargtypes='3802'::oidvector;`;
   for (const name of (await readdir(directory)).filter(n => /^\d+_.+\.sql$/.test(n)).sort()) {
     const upgrade = name === '20261006141735_home_stats_notes_feedback.sql';
     const businessUpgrade = name.endsWith('_pdd_business_conflict_errors.sql');
+    const domesticUpgrade = name.endsWith('_domestic_waybill_guard.sql');
     const beforeBusinessMetadata = businessUpgrade ? JSON.parse(await sql(businessMetadataSQL)) : null;
     if (businessUpgrade) assert.equal(beforeBusinessMetadata.length, 6);
     if (upgrade) {
@@ -88,7 +100,48 @@ try {
       await rpc('pdd_query', evidence);
     }
     const migration = (await readFile(new URL(name, directory), 'utf8')).replace(/^create extension if not exists pg_net.*$/m, '').replace(/^create extension if not exists pg_cron.*$/m, '');
+    if (domesticUpgrade) {
+      forwardingMetadata = JSON.parse(await sql(domesticMetadataSQL));
+      historicalRegistration = (await rpc('pdd_batch_register', batch(forwardingNumber, 'received', capA, 'fictional_forwarding_holder'))).items[0].registration;
+      historicalQuery = { query_id: randomUUID(), number: forwardingNumber, mode: 'lost', source: 'manual', capability_hash: capB, body_hash: 'historical-forwarding-query' };
+      assert.equal((await rpc('pdd_query', historicalQuery)).result, 'matched');
+      historicalContact = { query_id: historicalQuery.query_id, capability_hash: capB, contact: { kind: 'wechat', value: 'fictional_forwarding_owner' }, idempotency_key: 'historical-forwarding-contact', body_hash: 'historical-forwarding-contact' };
+      await rpc('pdd_query_contact', historicalContact);
+      historicalQuery = { ...historicalQuery, query_id: randomUUID(), body_hash: 'historical-unsubmitted-query' };
+      await rpc('pdd_query', historicalQuery);
+      forwardingBefore = await forwardingSnapshot();
+    }
     await sql(migration);
+    if (domesticUpgrade) {
+      assert.deepEqual(JSON.parse(await sql(domesticMetadataSQL)), forwardingMetadata);
+      assert.deepEqual(await forwardingSnapshot(), forwardingBefore);
+      for (const mode of ['lost', 'received']) for (const source of ['manual', 'barcode']) {
+        for (const number of [forwardingNumber, ' jtth 000990001 ', 'J T T H\u00a0000990001']) {
+          for (const flags of [{}, { allow_possible: false }, { allow_possible: true }]) {
+            await assert.rejects(() => rpc('pdd_query', { ...historicalQuery, query_id: randomUUID(), number, mode, source, ...flags }), /NON_DOMESTIC_WAYBILL/);
+          }
+          const mixed = batch('SF000990002', mode, capA, 'fictional_mixed_batch');
+          mixed.items.push({ request_id: randomUUID(), number, source });
+          await assert.rejects(() => rpc('pdd_batch_register', mixed), /NON_DOMESTIC_WAYBILL/);
+        }
+      }
+      await assert.rejects(() => rpc('pdd_query', { ...historicalQuery, query_id: randomUUID(), number: 'JTTH00099?001', allow_possible: true }), /NON_DOMESTIC_WAYBILL/);
+      for (const contact of [historicalContact, { ...historicalContact, query_id: historicalQuery.query_id, idempotency_key: 'new-forwarding-contact' }]) {
+        await assert.rejects(() => rpc('pdd_query_contact', contact), /NON_DOMESTIC_WAYBILL/);
+      }
+      await assert.rejects(() => rpc('pdd_query_contact', { ...historicalContact, capability_hash: 'c'.repeat(64) }), /FORBIDDEN/);
+      assert.deepEqual(await forwardingSnapshot(), forwardingBefore);
+      assert.equal((await rpc('pdd_manage', { registration_code: historicalRegistration.registrationCode, capability_hash: capA })).number, forwardingNumber);
+      const updated = await rpc('pdd_manage_update', { registration_code: historicalRegistration.registrationCode, capability_hash: capA, revision: historicalRegistration.revision,
+        action: 'contact', contact: { kind: 'wechat', value: 'fictional_updated_holder' } });
+      assert.equal(updated.number, forwardingNumber);
+      const withdrawn = await rpc('pdd_manage_update', { registration_code: updated.registrationCode, capability_hash: capA, revision: updated.revision, action: 'withdraw' });
+      assert.equal(withdrawn.visibility, 'withdrawn');
+      assert.equal(await sql("select count(*) from public.pdd_audit_events where action='owner_withdraw';"), '1');
+      await sql('truncate public.pdd_waybills,public.pdd_registrations,public.pdd_query_events,public.pdd_write_requests,public.pdd_audit_events,public.pdd_handovers cascade;');
+      domesticGuardChecked = true;
+      console.log('Domestic guard real PostgreSQL upgrade passed: mixed batches/query/contact replays reject without side effects; history and RPC identities remain intact and withdrawal is audited.');
+    }
     if (businessUpgrade) {
       assert.deepEqual(JSON.parse(await sql(businessMetadataSQL)), beforeBusinessMetadata);
       businessMetadataChecked = true;
@@ -105,6 +158,7 @@ try {
   }
   assert(backfillChecked, 'The statistics/notes/feedback upgrade migration was not exercised.');
   assert(businessMetadataChecked, 'The business conflict migration metadata was not exercised.');
+  assert(domesticGuardChecked, 'The domestic-waybill guard upgrade was not exercised.');
   await sql(await readFile(new URL('../tests/db.sql', import.meta.url), 'utf8'));
   assert.equal((await rpc('runtime_config', {})).OCR_ENABLED, 'false');
   console.log('Legacy real PostgreSQL transaction regression and server-only OCR default passed.');
@@ -417,6 +471,8 @@ try {
   await assert.rejects(() => sql("set role anon; select public.pdd_telemetry_summary('{}');", 'pdd404_restore_check'), /permission denied/);
   await assert.rejects(() => sql("set role authenticated; select public.pdd_monitor_status('{}');", 'pdd404_restore_check'), /permission denied/);
   console.log('Telemetry aggregates/budget and private monitor RPC survived encrypted independent restore with public privileges still denied.');
+  await assert.rejects(() => rpc('pdd_query', { ...historicalQuery, query_id: randomUUID() }, 'pdd404_restore_check'), /NON_DOMESTIC_WAYBILL/);
+  await assert.rejects(() => rpc('pdd_batch_register', batch(forwardingNumber, 'lost', capA, 'fictional_restored_forwarding'), 'pdd404_restore_check'), /NON_DOMESTIC_WAYBILL/);
   console.log('Encrypted dump/decrypt and independent database restore passed, including lifetime stats, notes and feedback; restored RLS remains closed.');
 } finally {
   if (running) await run(path.join(bin, 'pg_ctl'), ['-D', data, '-m', 'fast', '-w', 'stop'], { env }).catch(() => undefined);

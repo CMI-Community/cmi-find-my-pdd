@@ -1,6 +1,6 @@
 import { ApiError, body, json, onlyKeys, stringValue, uuid, version } from './http.ts';
 import { capability, canonicalJson, sha256 } from './security.ts';
-import { validatePddContact, validatePddNote, validateWaybill, validateWaybillQuery, type PddMode, type PddSource, type PddContact, type PddHomeStats, type PddPossibleCandidate, type PddPublicRecord, type PddQueryResult, type PddRegistration, type PddBatchResultItem } from '../../../shared/waybill.ts';
+import { DOMESTIC_WAYBILL_MESSAGE, normalizeWaybill, validatePddContact, validatePddNote, validateWaybill, validateWaybillQuery, type PddMode, type PddSource, type PddContact, type PddHomeStats, type PddPossibleCandidate, type PddPublicRecord, type PddQueryResult, type PddRegistration, type PddBatchResultItem } from '../../../shared/waybill.ts';
 
 type Row = Record<string, any>;
 export interface PddRouteContext {
@@ -11,11 +11,22 @@ export interface PddRouteContext {
 
 export function pddNumber(value: unknown): string {
   try { return validateWaybill(value); }
-  catch { throw new ApiError('INVALID_WAYBILL', '请输入完整国内快递单号，仅包含字母和数字。', 422); }
+  catch (error) {
+    if (error instanceof Error && error.message === 'NON_DOMESTIC_WAYBILL') throw new ApiError('NON_DOMESTIC_WAYBILL', DOMESTIC_WAYBILL_MESSAGE, 422);
+    throw new ApiError('INVALID_WAYBILL', '请输入完整国内快递单号，仅包含字母和数字。', 422);
+  }
 }
 export function pddQueryNumber(value: unknown): string {
   try { return validateWaybillQuery(value); }
-  catch { throw new ApiError('INVALID_WAYBILL', '请输入6至40位单号，至少包含6位已知字母或数字；每个未知字符可用 ? 或 * 表示。', 422); }
+  catch (error) {
+    if (error instanceof Error && error.message === 'NON_DOMESTIC_WAYBILL') throw new ApiError('NON_DOMESTIC_WAYBILL', DOMESTIC_WAYBILL_MESSAGE, 422);
+    throw new ApiError('INVALID_WAYBILL', '请输入6至40位单号，至少包含6位已知字母或数字；每个未知字符可用 ? 或 * 表示。', 422);
+  }
+}
+/** Historical receipts must remain readable and withdrawable after input rules tighten. */
+function pddStoredNumber(value: unknown): string {
+  if (typeof value !== 'string' || value.length > 100 || !/^[A-Z0-9]{6,40}$/.test(normalizeWaybill(value))) unavailable();
+  return normalizeWaybill(value);
 }
 export function pddContact(value: unknown): PddContact {
   try { return validatePddContact(value); }
@@ -67,13 +78,13 @@ function pddPossibleCandidate(raw: Row): PddPossibleCandidate {
 }
 export function pddRegistration(raw: Row): PddRegistration {
   if (!raw || typeof raw.registrationCode !== 'string' || !Number.isSafeInteger(raw.revision) || !['active', 'withdrawn'].includes(raw.visibility)) unavailable();
-  return { registrationCode: raw.registrationCode, number: pddNumber(raw.number), mode: mode(raw.mode), source: source(raw.source),
+  return { registrationCode: raw.registrationCode, number: pddStoredNumber(raw.number), mode: mode(raw.mode), source: source(raw.source),
     contact: raw.contact ? pddContact(raw.contact) : null, note: pddNote(raw.note), revision: raw.revision, visibility: raw.visibility,
     createdAt: String(raw.createdAt), updatedAt: String(raw.updatedAt), record: pddPublic(raw.record) };
 }
 export function pddBatchItem(raw: Row): PddBatchResultItem {
   if (!raw || !['registered', 'matched', 'duplicate', 'closed'].includes(raw.result)) unavailable();
-  return { requestId: uuid(raw.requestId), number: pddNumber(raw.number), result: raw.result, record: pddPublic(raw.record),
+  return { requestId: uuid(raw.requestId), number: pddStoredNumber(raw.number), result: raw.result, record: pddPublic(raw.record),
     registration: raw.registration ? pddRegistration(raw.registration) : null,
     contact: raw.result === 'matched' && raw.contact ? pddContact(raw.contact) : null,
     note: raw.result === 'matched' ? pddNote(raw.note) : null,

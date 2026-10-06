@@ -1,6 +1,6 @@
 import { createStore, get, set } from 'idb-keyval';
 import { makeCapability } from './photos';
-import { normalizeWaybill, validatePddNote, validateWaybill, validateWaybillQuery, type PddBatchInput, type PddContact, type PddRegistration, type PddResult } from '../shared/waybill';
+import { DOMESTIC_WAYBILL_MESSAGE, isNonDomesticWaybill, normalizeWaybill, validatePddNote, validateWaybill, validateWaybillQuery, type PddBatchInput, type PddContact, type PddRegistration, type PddResult } from '../shared/waybill';
 
 export type WaybillMode = 'lost' | 'received';
 export type NumberSource = 'manual' | 'barcode';
@@ -14,15 +14,17 @@ export type WaybillDraftState = { entries: QueueEntry[]; receipts: LocalReceipt[
 const db = createStore('pdd404-domestic-waybills-v1', 'drafts');
 const emptyState = (): WaybillDraftState => ({ entries: [], receipts: [] });
 export function normalizeWaybillInput(value: string) { return normalizeWaybill(value); }
-export function needsDomesticWaybillReminder(value: string) { return normalizeWaybillInput(value).startsWith('JTTH'); }
+export const needsDomesticWaybillReminder = isNonDomesticWaybill;
 export function waybillInputError(value: string) {
   const number = normalizeWaybillInput(value);
   if (!number) return '请先输入国内快递单号。';
+  if (needsDomesticWaybillReminder(value)) return DOMESTIC_WAYBILL_MESSAGE;
   try { validateWaybill(value); } catch { return '请填写完整的国内快递单号（6–40位字母或数字），不要填订单编号。'; }
   return '';
 }
 export function waybillQueryInputError(value: string) {
   if (!normalizeWaybillInput(value)) return '请先输入国内快递单号。';
+  if (needsDomesticWaybillReminder(value)) return DOMESTIC_WAYBILL_MESSAGE;
   try { validateWaybillQuery(value); } catch { return '请填写6–40位国内快递单号，至少保留6位清楚的字母或数字。不清楚的字符可用 ? 或 * 代替一位。'; }
   return '';
 }
@@ -31,6 +33,7 @@ export function queryQueueAction(number: string, result: PddResult): 'queue' | '
   return waybillInputError(number) ? 'complete_number' : 'queue';
 }
 export function addQueueEntry(entries: QueueEntry[], entry: QueueEntry): QueueEntry[] {
+  if (needsDomesticWaybillReminder(entry.number)) throw new Error(DOMESTIC_WAYBILL_MESSAGE);
   const validation = waybillInputError(entry.number);
   if (validation) throw new Error('登记需要完整单号，请核对不清楚的字符后再添加。');
   if (entries.some(item => item.mode === entry.mode && normalizeWaybillInput(item.number) === normalizeWaybillInput(entry.number))) return entries;
@@ -48,6 +51,7 @@ export async function saveWaybillDrafts(state: WaybillDraftState) {
   return state;
 }
 export function newQueueEntry(number: string, mode: WaybillMode, source: NumberSource): QueueEntry {
+  if (needsDomesticWaybillReminder(number)) throw new Error(DOMESTIC_WAYBILL_MESSAGE);
   if (waybillInputError(number)) throw new Error('登记需要完整单号，请核对不清楚的字符后再添加。');
   return { requestId: crypto.randomUUID(), number: normalizeWaybillInput(number), mode, source, createdAt: new Date().toISOString() };
 }
@@ -56,12 +60,14 @@ export function setDraftBatchNote(state: WaybillDraftState, mode: WaybillMode, n
   return { ...state, batchNotes: { ...state.batchNotes, [mode]: note } };
 }
 export function newPendingBatch(mode: WaybillMode, items: QueueEntry[], contact: PddContact, note?: string | null): PendingBatch {
+  if (items.some(item => needsDomesticWaybillReminder(item.number))) throw new Error(DOMESTIC_WAYBILL_MESSAGE + ' 请从待提交列表移除集运单号。');
   let normalizedNote: string | null;
   try { normalizedNote = validatePddNote(note); } catch { throw new Error('补充说明最多500个字，不能包含异常字符。请调整后再提交。'); }
   if (items.some(item => waybillInputError(item.number))) throw new Error('待提交列表中有不完整单号，请核对后再登记。');
   return { id: crypto.randomUUID(), capability: makeCapability(), mode, items: items.map(item => ({ ...item })), contact: { ...contact }, note: normalizedNote };
 }
 export function pendingBatchInput(batch: PendingBatch): PddBatchInput {
+  if (batch.items.some(item => needsDomesticWaybillReminder(item.number))) throw new Error(DOMESTIC_WAYBILL_MESSAGE + ' 此旧批次不能继续提交。');
   // Older saved retries omitted this field. Preserve their original body instead
   // of adding null and changing the already accepted idempotency payload.
   if (batch.items.some(item => waybillInputError(item.number))) throw new Error('待提交列表中有不完整单号，请核对后再登记。');

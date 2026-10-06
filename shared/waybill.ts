@@ -51,9 +51,18 @@ export type PddAdminAction = 'verify' | 'claim' | 'return' | 'withdraw';
 export function normalizeWaybill(input: string): string {
   return input.replace(/\s/g, '').toUpperCase();
 }
+/** Only the confirmed forwarding prefix is excluded; never guess other formats. */
+export function isNonDomesticWaybill(input: string): boolean {
+  return normalizeWaybill(input).startsWith('JTTH');
+}
+export const DOMESTIC_WAYBILL_MESSAGE = 'JTTH 开头的是集运或境外配送单号，请在拼多多物流详情或包裹面单查找中国境内的完整快递单号。';
+function requireDomesticWaybill(value: string): void {
+  if (isNonDomesticWaybill(value)) throw new Error('NON_DOMESTIC_WAYBILL');
+}
 export function validateWaybill(input: unknown): string {
   if (typeof input !== 'string' || input.length > 100) throw new Error('INVALID_WAYBILL');
   const value = normalizeWaybill(input);
+  requireDomesticWaybill(value);
   if (!/^[A-Z0-9]{6,40}$/.test(value)) throw new Error('INVALID_WAYBILL');
   return value;
 }
@@ -61,6 +70,7 @@ export function validateWaybill(input: unknown): string {
 export function validateWaybillQuery(input: unknown): string {
   if (typeof input !== 'string' || input.length > 100) throw new Error('INVALID_WAYBILL');
   const value = normalizeWaybill(input);
+  requireDomesticWaybill(value);
   if (!/^[A-Z0-9?*]{6,40}$/.test(value) || value.replace(/[?*]/g, '').length < 6) throw new Error('INVALID_WAYBILL');
   return value;
 }

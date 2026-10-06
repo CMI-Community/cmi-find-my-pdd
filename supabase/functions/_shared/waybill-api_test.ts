@@ -50,6 +50,37 @@ Deno.test('lookup refuses short capability, alternate body fields and partial id
   await rejects(() => pddRoute(req('waybill-queries', { ...input, number: '***6001' }), ['waybill-queries'], {}, never), 'INVALID_WAYBILL');
 });
 
+Deno.test('forwarding numbers cannot query or batch-register through old clients or fuzzy flags', async () => {
+  let calls = 0;
+  const never = ctx(async () => { calls++; throw new Error('must not query DB'); });
+  for (const mode of ['lost', 'received']) for (const source of ['manual', 'barcode']) {
+    for (const number of ['JTTH000990001', ' jtth 000990001 ', 'J T T H\u00a0000990001']) {
+      for (const extra of [{}, { allowPossible: false }, { allowPossible: true }]) {
+        await rejects(() => pddRoute(req('waybill-queries', { queryId: id, number, mode, source, ...extra }), ['waybill-queries'], {}, never), 'NON_DOMESTIC_WAYBILL');
+      }
+      await rejects(() => pddRoute(req('waybill-batches', { mode, contact: { kind: 'wechat', value: 'fictional_person' }, items: [
+        { requestId: id, number: 'SF000990001', source },
+        { requestId: '00000000-0000-4000-8000-000000000002', number, source },
+      ] }), ['waybill-batches'], {}, never), 'NON_DOMESTIC_WAYBILL');
+    }
+    await rejects(() => pddRoute(req('waybill-queries', { queryId: id, number: 'JTTH00099?001', mode, source, allowPossible: true }), ['waybill-queries'], {}, never), 'NON_DOMESTIC_WAYBILL');
+  }
+  assert(calls === 0);
+});
+
+Deno.test('previously admitted forwarding registrations still project for private management and withdrawal', async () => {
+  const historical = { registrationCode: 'PDD-R-SYNTHETIC', number: 'JTTH000990001', mode: 'lost', source: 'manual',
+    contact: { kind: 'wechat', value: 'fictional_person' }, note: null, revision: 1, visibility: 'active', createdAt: 'now', updatedAt: 'now', record };
+  const context = ctx(async (name) => {
+    assert(['pdd_manage', 'pdd_manage_update'].includes(name));
+    return { ...historical, visibility: name === 'pdd_manage_update' ? 'withdrawn' : 'active' };
+  });
+  const get = new Request('https://pdd404.app/v1/waybill-manage/PDD-R-SYNTHETIC', { headers: { Authorization: `Bearer ${cap}` } });
+  assert((await (await pddRoute(get, ['waybill-manage', 'PDD-R-SYNTHETIC'], {}, context))!.json()).data.number === historical.number);
+  const withdrawn = await pddRoute(req('waybill-manage/PDD-R-SYNTHETIC/withdraw', { revision: 1 }), ['waybill-manage', 'PDD-R-SYNTHETIC', 'withdraw'], {}, context);
+  assert((await withdrawn!.json()).data.visibility === 'withdrawn');
+});
+
 Deno.test('paused registrations preserve misses as queries rather than false successful registrations', async () => {
   const paused = ctx(async () => ({ queryId: id, result: 'not_found', queriedAt: 'now', record: null, registeredAt: null, contact: null }), false);
   const query = await pddRoute(req('waybill-queries', { queryId: id, number: 'SF990000006001', mode: 'lost', source: 'barcode' }), ['waybill-queries'], {}, paused);
