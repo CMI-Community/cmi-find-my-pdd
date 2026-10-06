@@ -110,6 +110,7 @@ async function process(job: Job): Promise<void> {
   } catch (error) {
     const code = stableError(error);
     if (code === 'STALE_LEASE') return;
+    console.log(JSON.stringify({ event: 'pdd404.worker_job', schemaVersion: 1, status: 'failed', errorCategory: code }));
     const retryable = ['OPENAI_RATE_LIMIT', 'OPENAI_TIMEOUT', 'OPENAI_UNAVAILABLE', 'PROCESSING_ERROR', 'OPENAI_INCOMPLETE'].includes(code);
     await dbRpc('fail_job', { job_id: job.id, lease_token: job.lease_token, reservation_id: reservation?.reservationId,
       error_code: code, retryable, input_tokens: inputTokens, output_tokens: outputTokens, usage_unknown: callStarted && usageUnknown })
@@ -132,7 +133,22 @@ async function cleanup(): Promise<void> {
 async function work(): Promise<void> {
   const jobs = await dbRpc<Job[]>('claim_jobs', { limit: 2 });
   // Independent cleanup runs concurrently so it cannot consume the OCR wall-clock budget.
-  await Promise.allSettled([cleanup(), ...jobs.map(process)]);
+  const results = await Promise.allSettled([cleanup(), ...jobs.map(process)]);
+  if (results.some(result => result.status === 'rejected')) throw new Error('PROCESSING_ERROR');
+}
+
+async function observedWork(ocrEnabled: boolean): Promise<void> {
+  const started = performance.now();
+  let errorCategory: string | null = null;
+  try { await (ocrEnabled ? work() : cleanup()); }
+  catch (error) {
+    errorCategory = error instanceof Error && /^DATABASE_ERROR_\d{3}$/.test(error.message) ? 'DATABASE_ERROR' : stableError(error);
+  } finally {
+    // Detached task failures used to disappear in an empty catch. Keep only a
+    // static category; cleanup paths, job data and provider errors stay private.
+    console.log(JSON.stringify({ event: 'pdd404.worker_task', schemaVersion: 1, mode: ocrEnabled ? 'ocr' : 'cleanup',
+      status: errorCategory ? 'failed' : 'completed', durationMs: Math.max(0, Math.round(performance.now() - started)), errorCategory }));
+  }
 }
 
 Deno.serve(async (request: Request) => {
@@ -142,7 +158,7 @@ Deno.serve(async (request: Request) => {
     const secret = env('WORKER_SECRET');
     if (!sameSecret(request.headers.get('x-worker-secret') ?? '', secret)) return new Response('Unauthorized', { status: 401 });
     const ocrEnabled = env('OCR_ENABLED') === 'true';
-    EdgeRuntime.waitUntil((ocrEnabled ? work() : cleanup()).catch(() => {}));
+    EdgeRuntime.waitUntil(observedWork(ocrEnabled));
     return Response.json({ accepted: true, mode: ocrEnabled ? 'ocr' : 'cleanup' }, { status: 202 });
   } catch { return Response.json({ accepted: false }, { status: 503 }); }
 });

@@ -359,6 +359,41 @@ try {
     console.log('Real PostgreSQL business guards returned P0001 with original messages/rollback, while an actual two-session SERIALIZABLE RPC conflict retained 40001.');
   } finally { await serializable.close(); }
 
+  // New telemetry writes are bounded, anonymous and separate from registrations.
+  const telemetryEvent = { event: 'pdd_page_view', page: 'home', count: 10 };
+  const telemetryInput = { events: [telemetryEvent], daily_limit: 50 };
+  const businessBeforeTelemetry = await rpc('pdd_home_stats', {});
+  await sql(`begin; ${invoke('pdd_telemetry_ingest', telemetryInput)} rollback;`);
+  assert.equal(await sql('select count(*) from public.pdd_telemetry_daily;'), '0');
+  assert.equal(await sql('select count(*) from public.pdd_telemetry_budget;'), '0');
+  await assert.rejects(() => rpc('pdd_telemetry_ingest', { ...telemetryInput, events: [telemetryEvent, { ...telemetryEvent, ip: 'synthetic-private-ip' }] }), /INVALID_REQUEST/);
+  await assert.rejects(() => rpc('pdd_telemetry_ingest', { ...telemetryInput, events: [{ event: 'pdd_visible_dwell', page: 'home', count: 1 }] }), /INVALID_REQUEST/);
+  await assert.rejects(() => rpc('pdd_telemetry_ingest', { ...telemetryInput, daily_limit: 100001 }), /INVALID_REQUEST/);
+  assert.equal(await sql('select count(*) from public.pdd_telemetry_budget;'), '0');
+  const telemetryRace = await Promise.all(Array.from({ length: 12 }, () => rpc('pdd_telemetry_ingest', telemetryInput)));
+  assert.equal(telemetryRace.filter(receipt => receipt.accepted).length, 5);
+  assert.equal(telemetryRace.filter(receipt => receipt.limited).length, 7);
+  assert(telemetryRace.every(receipt => receipt.day === new Date().toISOString().slice(0, 10)));
+  assert.equal(await sql('select sum(event_count) from public.pdd_telemetry_daily;'), '50');
+  let telemetrySummary = await rpc('pdd_telemetry_summary', { days: 7 });
+  assert.equal(telemetrySummary.budget[0].acceptedBatches, 5);
+  assert.equal(telemetrySummary.budget[0].acceptedEvents, 50);
+  assert(telemetrySummary.budget[0].limitedAt);
+  assert.deepEqual(await rpc('pdd_home_stats', {}), businessBeforeTelemetry);
+  for (const name of ['pdd_telemetry_ingest', 'pdd_telemetry_summary', 'pdd_monitor_status']) {
+    await assert.rejects(() => sql(`set role anon; ${invoke(name, name === 'pdd_telemetry_ingest' ? telemetryInput : {})}`), /permission denied/);
+    await assert.rejects(() => sql(`set role authenticated; ${invoke(name, name === 'pdd_telemetry_ingest' ? telemetryInput : {})}`), /permission denied/);
+  }
+  const monitor = JSON.parse(await sql(`begin read only; set local role service_role; ${invoke('pdd_monitor_status', {})} commit;`));
+  assert(monitor.databaseBytes > 0 && monitor.connections >= 1 && monitor.maxConnections > monitor.reservedConnections);
+  assert.equal(monitor.databaseSizeLimitBytes, null);
+  assert(!JSON.stringify(monitor).includes('fictional_'));
+  const monitorColumns = await sql("select string_agg(key,',' order by key) from jsonb_object_keys(public.pdd_monitor_status('{}')) key;");
+  await sql("insert into public.pdd_telemetry_daily(day,event,page,event_count) values((now() at time zone 'UTC')::date-30,'pdd_page_view','help',2); insert into public.pdd_telemetry_budget(day,daily_limit) values((now() at time zone 'UTC')::date-30,50);");
+  assert.deepEqual(await rpc('pdd_telemetry_cleanup', {}), { aggregateRows: 1, budgetRows: 1 });
+  telemetrySummary = await rpc('pdd_telemetry_summary', { days: 30 });
+  console.log('Telemetry real transactions/concurrency passed: invalid/rolled-back batches wrote nothing, 12 competing batches stayed at exactly 50 events, no registration stats changed; monitor RPC passed a service-role read-only transaction and public access was denied.');
+
   const dumped = path.join(root, 'database.dump'), sealed = path.join(root, 'database.cmibak'), reopened = path.join(root, 'restored.dump');
   await run(path.join(bin, 'pg_dump'), ['--format=custom', '--no-owner', '--schema=public', '--schema=auth', '--file', dumped, '--dbname', 'postgres'], { env });
   const password = randomBytes(32).toString('base64url');
@@ -377,6 +412,11 @@ try {
   await assert.rejects(() => sql('set role authenticated; select * from public.pdd_feedback;', 'pdd404_restore_check'), /permission denied/);
   await businessError(() => rpc('pdd_query_contact', { query_id: completePossible.queryId, capability_hash: capB, contact: { kind: 'wechat', value: 'fictional_fuzzy_owner' }, idempotency_key: 'restored-possible-error', body_hash: 'restored-possible-error' }, 'pdd404_restore_check'), 'VERSION_CONFLICT');
   await businessError(() => rpc('pdd_feedback_submit', { ...feedbackInput, body_hash: 'restored-changed-feedback' }, 'pdd404_restore_check'), 'IDEMPOTENCY_CONFLICT');
+  assert.deepEqual(await rpc('pdd_telemetry_summary', { days: 30 }, 'pdd404_restore_check'), telemetrySummary);
+  assert.equal(await sql("select string_agg(key,',' order by key) from jsonb_object_keys(public.pdd_monitor_status('{}')) key;", 'pdd404_restore_check'), monitorColumns);
+  await assert.rejects(() => sql("set role anon; select public.pdd_telemetry_summary('{}');", 'pdd404_restore_check'), /permission denied/);
+  await assert.rejects(() => sql("set role authenticated; select public.pdd_monitor_status('{}');", 'pdd404_restore_check'), /permission denied/);
+  console.log('Telemetry aggregates/budget and private monitor RPC survived encrypted independent restore with public privileges still denied.');
   console.log('Encrypted dump/decrypt and independent database restore passed, including lifetime stats, notes and feedback; restored RLS remains closed.');
 } finally {
   if (running) await run(path.join(bin, 'pg_ctl'), ['-D', data, '-m', 'fast', '-w', 'stop'], { env }).catch(() => undefined);
