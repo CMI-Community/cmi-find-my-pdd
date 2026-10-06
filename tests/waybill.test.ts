@@ -2,6 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { normalizeWaybill, validatePddContact, validatePddNote, validateWaybill, validateWaybillQuery } from '../shared/waybill.ts';
 
 describe('domestic waybill and self-supplied contacts', () => {
+  it('rejects the confirmed forwarding prefix for full and fuzzy input without guessing other formats', () => {
+    for (const number of ['JTTH000990001', 'jtth000990001', ' J T T H\u00a0000990001\n', 'JTTH', 'JTTH00099?001', 'JTTH00099*001']) {
+      expect(() => validateWaybill(number)).toThrow('NON_DOMESTIC_WAYBILL');
+      expect(() => validateWaybillQuery(number)).toThrow('NON_DOMESTIC_WAYBILL');
+    }
+    for (const number of ['JT000990001', 'YT000990001', 'SF000990001', '000990001', '00JTTH000990001']) {
+      expect(validateWaybill(number)).toBe(number);
+      expect(validateWaybillQuery(number)).toBe(number);
+    }
+    expect(validateWaybillQuery('JTT?000990001')).toBe('JTT?000990001');
+  });
   it('removes whitespace, preserves leading zeros and rejects inferred/partial numbers', () => {
     expect(normalizeWaybill(' 00 sf\u00a01234\n')).toBe('00SF1234');
     expect(validateWaybill('000123456')).toBe('000123456');

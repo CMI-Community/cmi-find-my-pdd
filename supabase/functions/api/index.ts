@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.4';
 import type { CandidatePage, Community, Extraction, ImageRole, PublicRecord, ScanProgress, ScanStart, PrivateRecord } from '../../../shared/contracts.ts';
 import { APP_VERSION } from '../../../shared/contracts.ts';
+import { DOMESTIC_WAYBILL_MESSAGE } from '../../../shared/waybill.ts';
 import { publicSummary } from '../../../shared/domain.ts';
 import { ApiError, body, candidateRequest, corsHeaders, failure, json, onlyKeys, stringValue, uuid, version } from '../_shared/http.ts';
 import { bearer, capability, canonicalJson, contact, dimensions, fingerprint, sha256, withoutMetadata } from '../_shared/security.ts';
@@ -31,6 +32,7 @@ async function rpc(db: SupabaseClient, name: string, payload: Row): Promise<Row>
   const { data, error } = await db.rpc(name, { p_payload: payload });
   if (error) {
     const raw = String(error.message ?? '');
+    if (raw.includes('NON_DOMESTIC_WAYBILL')) throw new ApiError('NON_DOMESTIC_WAYBILL', DOMESTIC_WAYBILL_MESSAGE, 422);
     const recognized = ['VERSION_CONFLICT', 'SCAN_EXPIRED', 'QUERY_EXPIRED', 'QUERY_TIMEOUT', 'RATE_LIMITED', 'FORBIDDEN', 'INVALID_IMAGE', 'UPLOAD_INCOMPLETE', 'NEEDS_PHOTO', 'OCR_DEFERRED', 'INVALID_REQUEST', 'INVALID_CONTACT', 'INVALID_WAYBILL', 'IDEMPOTENCY_CONFLICT', 'RECORD_NOT_FOUND', 'SCAN_NOT_FOUND', 'WAYBILL_NOT_FOUND', 'QUERY_NOT_FOUND', 'OWNERSHIP_LOCKED', 'NEEDS_RECEIVED', 'INVALID_ADMIN_STATE'].find((code) => raw.includes(code));
     if (recognized === 'RECORD_NOT_FOUND' || recognized === 'SCAN_NOT_FOUND' || recognized === 'WAYBILL_NOT_FOUND' || recognized === 'QUERY_NOT_FOUND') throw new ApiError('NOT_FOUND', '记录不存在。', 404);
     if (recognized === 'OWNERSHIP_LOCKED') throw new ApiError('OWNERSHIP_LOCKED', '包裹已确认归属，撤回请联系小助手处理。', 409);

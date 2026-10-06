@@ -1,12 +1,29 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { needsDomesticWaybillReminder, waybillQueryInputError } from '../src/waybill-drafts';
+import { addQueueEntry, needsDomesticWaybillReminder, newPendingBatch, newQueueEntry, pendingBatchInput, waybillInputError, waybillQueryInputError, type PendingBatch, type QueueEntry } from '../src/waybill-drafts';
 
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => null }));
 import { DomesticWaybillReminder } from '../src/PddApp';
 
 describe('confirmed JTTH query reminder', () => {
+  it('blocks queue creation, stale persisted entries and retry batches in both modes and input sources', () => {
+    const contact = { kind: 'wechat' as const, value: 'synthetic_owner' };
+    for (const mode of ['lost', 'received'] as const) for (const source of ['manual', 'barcode'] as const) {
+      const number = ' jtth 000990001 ';
+      const stale: QueueEntry = { requestId: 'synthetic-invalid', number, mode, source, createdAt: '2026-10-06T00:00:00Z' };
+      const valid: QueueEntry = { ...stale, requestId: 'synthetic-valid', number: 'SF000990001' };
+      expect(waybillInputError(number)).toContain('集运');
+      expect(waybillQueryInputError(number)).toContain('中国境内');
+      expect(() => newQueueEntry(number, mode, source)).toThrow('集运');
+      expect(() => addQueueEntry([], stale)).toThrow('集运');
+      expect(() => newPendingBatch(mode, [valid, stale], contact)).toThrow('集运');
+      const pending: PendingBatch = { id: 'synthetic-batch', capability: 'synthetic-capability', mode, items: [valid, stale], contact };
+      expect(() => pendingBatchInput(pending)).toThrow('集运');
+      expect(pending.items).toEqual([valid, stale]); // Reject the whole old request, never silently change its idempotent body.
+      expect(pendingBatchInput({ ...pending, items: [valid] }).items[0].number).toBe(valid.number);
+    }
+  });
   it('recognizes only the confirmed prefix after removing whitespace and normalizing case, even before minimum-length validation', () => {
     for (const input of ['JTTH1234567890', 'jtth1234567890', '  jTtH 1234\n567890\t', '\u3000J T T H\u00a0123456', 'JTTH']) expect(needsDomesticWaybillReminder(input)).toBe(true);
     expect(waybillQueryInputError('JTTH')).toBeTruthy(); // The dedicated reminder runs before this generic validation.
