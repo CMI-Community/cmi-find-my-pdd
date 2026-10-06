@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 // @ts-expect-error Native operational ESM is intentionally outside TS compilation.
-import { TABLES, FORMAT, FEEDBACK_MIGRATION, migrationManifest, readEncryptedSnapshot, rowsHash, sanitizeRow, sha256, snapshotChunks, tablesForMigrations, writeEncryptedChunks } from '../scripts/backup-scoped.mjs';
+import { TABLES, FORMAT, FEEDBACK_MIGRATION, TELEMETRY_MIGRATION, migrationManifest, readEncryptedSnapshot, rowsHash, sanitizeRow, sha256, snapshotChunks, tablesForMigrations, writeEncryptedChunks } from '../scripts/backup-scoped.mjs';
 // @ts-expect-error Native operational ESM is intentionally outside TS compilation.
 import { BOOTSTRAP_SQL, restoreAndCompare, validateSnapshot, verifiedMigrations, verifyScopedRestore } from '../scripts/verify-scoped-restore.mjs';
 
@@ -55,6 +55,11 @@ beforeAll(async () => {
   const receipt = (await source.query<{ value: { feedbackId: string } }>('select public.pdd_feedback_submit($1::jsonb) value', [JSON.stringify(feedback)])).rows[0].value;
   await source.query('select public.pdd_feedback_submit($1::jsonb)', [JSON.stringify(feedback)]);
   await source.query('select public.pdd_admin_feedback_update($1::jsonb)', [JSON.stringify({ feedback_id: receipt.feedbackId, status: 'reviewed', actor_id: actor })]);
+  await source.query('select public.pdd_telemetry_ingest($1::jsonb)', [JSON.stringify({ events: [
+    { event: 'pdd_page_view', page: 'home', count: 3 },
+    { event: 'pdd_query_matched', page: 'home', count: 2, mode: 'lost', source: 'barcode' },
+    { event: 'pdd_visible_dwell', page: 'help', count: 1, bucket: '30-59s' },
+  ], daily_limit: 100000 })]);
   const tables = [];
   for (const name of tableNames) {
     const rows = (await source.query<{ value: Row }>(`select to_jsonb(row) value from public.${name} row`)).rows.map(row => row.value);
@@ -94,8 +99,8 @@ describe('scoped encrypted fallback and restore', () => {
       expect(sealed.includes(Buffer.from('fictional_owner'))).toBe(false);
       expect((await stat(file)).mode & 0o777).toBe(0o600);
       const opened = await readEncryptedSnapshot(file, password);
-      expect(validateSnapshot(opened).size).toBe(21);
-      expect(client.calls.size).toBe(21);
+      expect(validateSnapshot(opened).size).toBe(23);
+      expect(client.calls.size).toBe(23);
       expect([...client.calls.values()].every(count => count === 2)).toBe(true);
       expect(opened.authMetadata).toBeUndefined();
       await expect(writeFixture(file)).rejects.toThrow();
@@ -125,6 +130,9 @@ describe('scoped encrypted fallback and restore', () => {
     expect(() => validateSnapshot({ ...fixture, storage: [{ ...fixture.storage[0], key: '../escape.bin' }] })).toThrow('Invalid');
     expect(() => validateSnapshot({ ...fixture, storage: [{ ...fixture.storage[0], sha256: '0'.repeat(64) }] })).toThrow('checksum');
     expect(() => validateSnapshot({ ...fixture, tables: fixture.tables.map(table => table.name === 'pdd_waybills' ? { ...table, sha256: '0'.repeat(64) } : table) })).toThrow('digest');
+    for (const name of ['pdd_telemetry_daily', 'pdd_telemetry_budget']) {
+      expect(() => validateSnapshot({ ...fixture, tables: fixture.tables.filter(table => table.name !== name) })).toThrow('Incomplete');
+    }
   });
   it('restores populated legacy and PDD tables with FK/self references, RLS and audit UUID placeholders', async () => {
     expect(fixture.tables.every(table => table.rows.length > 0)).toBe(true);
@@ -136,11 +144,37 @@ describe('scoped encrypted fallback and restore', () => {
         return last ? String(Object.values(last)[0]) : '';
       };
       const result = await restoreAndCompare(fixture, sql);
-      expect(result).toMatchObject({ tables: 21, storageObjects: 1, auditActorPlaceholders: 1 });
+      expect(result).toMatchObject({ tables: 23, storageObjects: 1, auditActorPlaceholders: 1 });
       expect(JSON.parse(await sql("select public.pdd_home_stats('{}'::jsonb)::text"))).toEqual({ lostRegistered: 2, receivedRegistered: 1, matchedParcels: 1 });
       expect((await database.query<{ note: string | null }>('select note from public.pdd_registrations order by note nulls first')).rows.map(row => row.note)).toEqual([null, 'Synthetic holder description', 'Synthetic owner description']);
       expect((await database.query<{ message: string; contact: unknown; status: string }>('select message,contact,status from public.pdd_feedback')).rows).toEqual([{ message: 'Synthetic private camera feedback', contact: { kind: 'wechat', value: 'fictional_feedback_contact' }, status: 'reviewed' }]);
+      expect((await database.query<{ event: string; page: string; mode: string; source: string; dwell_bucket: string; event_count: number }>('select event,page,mode,source,dwell_bucket,event_count from public.pdd_telemetry_daily order by event')).rows).toEqual([
+        { event: 'pdd_page_view', page: 'home', mode: '', source: '', dwell_bucket: '', event_count: 3 },
+        { event: 'pdd_query_matched', page: 'home', mode: 'lost', source: 'barcode', dwell_bucket: '', event_count: 2 },
+        { event: 'pdd_visible_dwell', page: 'help', mode: '', source: '', dwell_bucket: '30-59s', event_count: 1 },
+      ]);
+      expect((await database.query<{ accepted_batches: number; accepted_events: number; daily_limit: number; limited_at: string | null }>('select accepted_batches,accepted_events,daily_limit,limited_at from public.pdd_telemetry_budget')).rows).toEqual([{ accepted_batches: 1, accepted_events: 6, daily_limit: 100000, limited_at: null }]);
     } finally { await database.close(); }
+  }, 30_000);
+  it('restores an encrypted pre-telemetry 21-table snapshot without requiring or reading new aggregates', async () => {
+    const migrations = fixture.migrations.filter(entry => entry.version < TELEMETRY_MIGRATION);
+    const tableNames = new Set((tablesForMigrations(migrations) as { name: string }[]).map(table => table.name));
+    const old: Snapshot = { ...fixture, migrations, tables: fixture.tables.filter(table => tableNames.has(table.name)) };
+    const database = new PGlite({ extensions: { pgcrypto } });
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdd404-pre-telemetry-scoped-test-'));
+    try {
+      const file = path.join(directory, 'legacy.cmibak'), client = mockClient(false, false, old);
+      await writeEncryptedChunks(file, password, snapshotChunks(client, { project, migrations }));
+      const opened = await readEncryptedSnapshot(file, password);
+      expect(validateSnapshot(opened).size).toBe(21);
+      expect(client.calls.has('pdd_telemetry_daily')).toBe(false);
+      expect(client.calls.has('pdd_telemetry_budget')).toBe(false);
+      const sql = async (statement: string) => { const result = await database.exec(statement); const row = result.at(-1)?.rows[0]; return row ? String(Object.values(row)[0]) : ''; };
+      expect(await restoreAndCompare(opened, sql)).toMatchObject({ tables: 21, auditActorPlaceholders: 1 });
+      expect(await sql("select count(*) from public.pdd_feedback where status='reviewed'")).toBe('1');
+      expect(await sql("select count(*) from information_schema.tables where table_schema='public' and table_name in ('pdd_telemetry_daily','pdd_telemetry_budget')")).toBe('0');
+      expect(() => validateSnapshot({ ...opened, migrations: fixture.migrations })).toThrow('Incomplete');
+    } finally { await database.close(); await rm(directory, { recursive: true, force: true }); }
   }, 30_000);
   it('restores an encrypted pre-feedback 20-table snapshot using its original migration manifest', async () => {
     const migrations = fixture.migrations.filter(entry => entry.version < FEEDBACK_MIGRATION);
@@ -189,7 +223,7 @@ describe('scoped encrypted fallback and restore', () => {
     try {
       const file = path.join(directory, 'snapshot.cmibak');
       await writeFixture(file);
-      expect(await verifyScopedRestore(file, password)).toMatchObject({ tables: 21, storageObjects: 1, auditActorPlaceholders: 1 });
+      expect(await verifyScopedRestore(file, password)).toMatchObject({ tables: 23, storageObjects: 1, auditActorPlaceholders: 1 });
     } finally { await rm(directory, { recursive: true, force: true }); }
   }, 30_000);
 });

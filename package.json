@@ -11,7 +11,7 @@
     "setup": "node scripts/local-setup.mjs",
     "typecheck": "tsc --noEmit && deno check --config supabase/functions/deno.json supabase/functions/api/index.ts supabase/functions/worker/index.ts",
     "test": "vitest run",
-    "test:edge": "deno test --allow-env=APP_PUBLIC_URL,ALLOWED_ORIGINS --config supabase/functions/deno.json supabase/functions/_shared/security_test.ts supabase/functions/_shared/waybill-api_test.ts supabase/functions/_shared/feedback-api_test.ts",
+    "test:edge": "deno test --allow-env=APP_PUBLIC_URL,ALLOWED_ORIGINS --config supabase/functions/deno.json supabase/functions/_shared/security_test.ts supabase/functions/_shared/waybill-api_test.ts supabase/functions/_shared/feedback-api_test.ts supabase/functions/_shared/monitoring_test.ts supabase/functions/_shared/telemetry-api_test.ts",
     "check": "npm run typecheck && npm run test && npm run test:edge",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
@@ -19,10 +19,13 @@
     "ops:restore": "node scripts/restore.mjs",
     "ops:deploy": "node scripts/deploy.mjs",
     "ops:backup:scoped": "node scripts/backup-scoped.mjs",
-    "ops:verify:scoped": "node scripts/verify-scoped-restore.mjs"
+    "ops:verify:scoped": "node scripts/verify-scoped-restore.mjs",
+    "ops:monitor": "node scripts/monitor.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
+    "@vercel/analytics": "2.0.1",
+    "@vercel/speed-insights": "2.0.0",
     "idb-keyval": "^6.2.2",
     "lucide-react": "^0.468.0",
     "qrcode.react": "^4.2.0",

@@ -1,12 +1,13 @@
 import { Link } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, ArrowUpRight, Heart, ScanLine, ShieldCheck } from 'lucide-react';
 import { CMI_COMMUNITY_URL } from './cmi-community';
+import { trackPddEvent } from './pdd-analytics';
 import './pdd-help.css';
 
 export function HelpPage() {
   return <div className="pdd-page pdd-help">
     <nav className="pdd-help-nav" aria-label="帮助页导航">
-      <a href={CMI_COMMUNITY_URL} target="_blank" rel="noopener noreferrer" className="pdd-help-community-link">了解更多关于 CMI 社区<ArrowUpRight size={18} aria-hidden="true" /></a>
+      <a href={CMI_COMMUNITY_URL} target="_blank" rel="noopener noreferrer" className="pdd-help-community-link" onClick={() => trackPddEvent('community_open')}>了解更多关于 CMI 社区<ArrowUpRight size={18} aria-hidden="true" /></a>
       <Link to="/" className="pdd-help-back"><ArrowLeft size={18} aria-hidden="true" />返回查询</Link>
     </nav>
     <header className="pdd-help-heading">

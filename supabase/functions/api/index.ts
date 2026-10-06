@@ -5,19 +5,26 @@ import { publicSummary } from '../../../shared/domain.ts';
 import { ApiError, body, candidateRequest, corsHeaders, failure, json, onlyKeys, stringValue, uuid, version } from '../_shared/http.ts';
 import { bearer, capability, canonicalJson, contact, dimensions, fingerprint, sha256, withoutMetadata } from '../_shared/security.ts';
 import { ensureRuntimeConfig, getRuntime } from '../_shared/runtime.ts';
-import { pddRoute } from '../_shared/waybill-api.ts';
+import { pddHomeStats, pddRoute } from '../_shared/waybill-api.ts';
 import { feedbackRoute } from '../_shared/feedback-api.ts';
+import { apiParts, databaseTiming, observedError, observedFetch, requestObservation, type DatabaseTiming } from '../_shared/observability.ts';
+import { monitorRoute, type MonitorContext } from '../_shared/monitor-api.ts';
+import { createPublicCache } from '../_shared/public-cache.ts';
+import { configuredTelemetryLimit, createTelemetryLimiter, createTelemetryRoutes } from '../_shared/telemetry-api.ts';
 
 type Row = Record<string, any>;
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 const BUCKET = 'parcel-originals';
 const ROLES: ImageRole[] = ['label', 'item', 'logistics', 'product'];
 const MAX_BYTES = 5 * 1024 * 1024;
-function database(): SupabaseClient {
+const publicCache = createPublicCache();
+const telemetryRoute = createTelemetryRoutes();
+const telemetryLimit = createTelemetryLimiter();
+function database(timing: DatabaseTiming): SupabaseClient {
   const url = getRuntime('SUPABASE_URL');
   const key = getRuntime('SUPABASE_SERVICE_ROLE_KEY');
   if (!url || !key) throw new ApiError('SERVICE_UNAVAILABLE', '服务尚未完成配置。', 503, true);
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: observedFetch(timing) } });
 }
 
 async function rpc(db: SupabaseClient, name: string, payload: Row): Promise<Row> {
@@ -229,6 +236,31 @@ async function settings(db: SupabaseClient): Promise<Community> {
   return community;
 }
 
+async function loadConfiguration(db: SupabaseClient): Promise<void> {
+  await ensureRuntimeConfig(async () => {
+    const { data, error } = await db.rpc('runtime_config', { p_payload: {} });
+    if (error || !data) throw new ApiError('SERVICE_UNAVAILABLE', '服务配置暂时不可用，请稍后再试。', 503, true);
+    return data as Record<string, unknown>;
+  });
+}
+
+function monitoring(db: SupabaseClient, request: Request): MonitorContext {
+  return { admin: () => admin(db, request), secret: getRuntime('MONITOR_SECRET'), databaseLimit: getRuntime('MONITOR_DATABASE_LIMIT_BYTES'),
+    configuration: () => loadConfiguration(db), database: () => rpc(db, 'pdd_monitor_status', {}),
+    registration: async () => { const community = await settings(db); return community.ready && community.submissionsEnabled && Boolean(getRuntime('ADMIN_USER_IDS')); },
+    ...(getRuntime('TELEMETRY_ENABLED') === 'true' ? { telemetry: () => rpc(db, 'pdd_telemetry_summary', { days: 1 }) } : {}),
+    runtime: getRuntime, version: APP_VERSION };
+}
+
+async function publicLegacyStats(db: SupabaseClient): Promise<Record<string, unknown>> {
+  const result = await rpc(db, 'pdd_stats', {});
+  const success = Object.hasOwn(result, 'successfulHandoverCount') ? result.successfulHandoverCount : result.successful_handover_count;
+  const recorded = result.recordedPackageCount ?? result.recorded_package_count;
+  const seekers = result.activeSeekerCount ?? result.active_seeker_count;
+  if (![recorded, seekers].every((count) => typeof count === 'number' && Number.isSafeInteger(count) && count >= 0) || !(success === null || typeof success === 'number' && Number.isSafeInteger(success) && success >= 0)) throw new ApiError('SERVICE_UNAVAILABLE', '统计暂时不可用。', 503, true);
+  return { recordedPackageCount: recorded, activeSeekerCount: seekers, successfulHandoverCount: typeof success === 'number' && success > 5 ? success : null };
+}
+
 async function kickWorker(): Promise<void> {
   const key = getRuntime('WORKER_SECRET');
   const url = getRuntime('SUPABASE_URL');
@@ -253,7 +285,22 @@ async function route(request: Request, db: SupabaseClient, headers: Record<strin
   if (path === '/health' && method === 'GET') {
     let ready = false, ok = false;
     try { const community = await settings(db); await rpc(db, 'pdd_stats', {}); ready = community.ready && community.submissionsEnabled && Boolean(getRuntime('ADMIN_USER_IDS')); ok = true; } catch { /* configuration pending */ }
-    return json({ service: 'pdd404', version: APP_VERSION, sha: getRuntime('DEPLOY_SHA') ?? getRuntime('APP_SHA') ?? 'unknown', environment: getRuntime('APP_ENVIRONMENT') ?? 'test', ok, ready }, 200, headers);
+    return json({ service: 'pdd404', version: APP_VERSION, sha: getRuntime('DEPLOY_SHA') ?? getRuntime('APP_SHA') ?? 'unknown', environment: getRuntime('APP_ENVIRONMENT') ?? 'test', ok, ready }, ok ? 200 : 503, headers);
+  }
+  const monitorResponse = await monitorRoute(request, parts, headers, monitoring(db, request));
+  if (monitorResponse) return monitorResponse;
+  const telemetryResponse = await telemetryRoute(request, parts, headers, {
+    rpc: (name, payload) => rpc(db, name, payload), admin: () => admin(db, request),
+    enabled: getRuntime('TELEMETRY_ENABLED') === 'true', dailyLimit: configuredTelemetryLimit(getRuntime('TELEMETRY_DAILY_LIMIT')),
+    limit: async () => { telemetryLimit(await sha256(fingerprint(request))); await limited(db, request, 'telemetry', 6); },
+  });
+  if (telemetryResponse) return telemetryResponse;
+  // Shared public reads are coalesced before the database-backed IP limiter.
+  // Registration readiness and /health still perform fresh database reads.
+  if (parts.length === 1 && method === 'GET') {
+    if (path === '/community') return json(await publicCache.get('community', () => settings(db)), 200, headers);
+    if (path === '/waybill-stats') return json(await publicCache.get('waybill-stats', async () => pddHomeStats(await rpc(db, 'pdd_home_stats', {}))), 200, headers);
+    if (path === '/stats') return json(await publicCache.get('stats', () => publicLegacyStats(db)), 200, headers);
   }
   await limited(db, request, parts[0] ?? 'root', method === 'GET' ? 120 : 20);
   if (parts[0] === 'feedback' && method === 'POST') await limited(db, request, 'feedback-submit', 5);
@@ -269,15 +316,6 @@ async function route(request: Request, db: SupabaseClient, headers: Record<strin
   if (getRuntime('OCR_ENABLED') !== 'true' && legacyScope &&
       (method !== 'GET' || parts[0] === 'scans' && parts[2] === 'candidates')) {
     throw new ApiError('SERVICE_UNAVAILABLE', '图片识别入口已暂停，请在首页输入或扫描国内快递单号。', 503, false);
-  }
-  if (path === '/community' && method === 'GET') return json(await settings(db), 200, headers);
-  if (path === '/stats' && method === 'GET') {
-    const result = await rpc(db, 'pdd_stats', {});
-    const success = Object.hasOwn(result, 'successfulHandoverCount') ? result.successfulHandoverCount : result.successful_handover_count;
-    const recorded = result.recordedPackageCount ?? result.recorded_package_count;
-    const seekers = result.activeSeekerCount ?? result.active_seeker_count;
-    if (![recorded, seekers].every((count) => typeof count === 'number' && Number.isSafeInteger(count) && count >= 0) || !(success === null || typeof success === 'number' && Number.isSafeInteger(success) && success >= 0)) throw new ApiError('SERVICE_UNAVAILABLE', '统计暂时不可用。', 503, true);
-    return json({ recordedPackageCount: recorded, activeSeekerCount: seekers, successfulHandoverCount: typeof success === 'number' && success > 5 ? success : null }, 200, headers);
   }
   if (path === '/scans' && method === 'POST') {
     if (getRuntime('OCR_ENABLED') !== 'true') throw new ApiError('SERVICE_UNAVAILABLE', '图片识别入口已暂停，请在首页输入或扫描国内快递单号。', 503, false);
@@ -442,6 +480,7 @@ async function adminRoute(request: Request, db: SupabaseClient, parts: string[],
       if (key === 'officialAccountName' && value !== null) stringValue(value, '公众号名称', 80);
     }
     await rpc(db, 'admin_update', { action: 'settings', actor_id: actor, payload: input });
+    publicCache.clear();
     return json(await settings(db), 200, headers);
   }
   if (parts[0] === 'records' && parts[1] && method === 'GET') {
@@ -544,19 +583,30 @@ async function adminRoute(request: Request, db: SupabaseClient, parts: string[],
 
 Deno.serve(async (request: Request) => {
   const requestId = crypto.randomUUID();
-  let headers: Record<string, string> = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
+  const started = performance.now();
+  const timing = databaseTiming();
+  let response: Response | undefined;
+  let errorCode: string | null = null;
+  let headers: Record<string, string> = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Request-ID': requestId };
   try {
-    const db = database();
-    await ensureRuntimeConfig(async () => {
-      const { data, error } = await db.rpc('runtime_config', { p_payload: {} });
-      if (error || !data) throw new ApiError('SERVICE_UNAVAILABLE', '服务配置暂时不可用，请稍后再试。', 503, true);
-      return data as Record<string, unknown>;
-    });
+    const db = database(timing);
+    const parts = apiParts(request.url);
+    // A server monitor must authenticate before any runtime-config/database probe,
+    // and must remain able to report a real configuration/database outage.
+    if (parts.length === 2 && parts[0] === 'ops' && parts[1] === 'status') {
+      response = (await monitorRoute(request, parts, headers, monitoring(db, request)))!;
+      return response;
+    }
+    await loadConfiguration(db);
     headers = { ...corsHeaders(request), 'X-Request-ID': requestId };
-    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
-    return await route(request, db, headers);
+    response = request.method === 'OPTIONS' ? new Response(null, { status: 204, headers }) : await route(request, db, headers);
+    return response;
   } catch (error) {
-    console.error(JSON.stringify({ requestId, code: error instanceof ApiError ? error.code : 'INTERNAL_ERROR' }));
-    return failure(error, requestId, headers);
+    errorCode = observedError(error);
+    response = failure(error, requestId, headers);
+    return response;
+  } finally {
+    const observation = requestObservation(request, requestId, response?.status ?? 500, performance.now() - started, timing, errorCode, Number(getRuntime('LOG_SUCCESS_SAMPLE_RATE') ?? '0.1'));
+    if (observation) console.log(JSON.stringify(observation));
   }
 });

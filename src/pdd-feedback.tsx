@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { validateFeedbackMessage, type PddFeedbackInput, type PddFeedbackList, type PddFeedbackStatus } from '../shared/feedback';
 import { validatePddContact, type PddContact } from '../shared/waybill';
 import { pddApi } from './pdd-api';
+import { trackPddEvent } from './pdd-analytics';
 import './pdd-feedback.css';
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : '操作未完成，请稍后重试。';
@@ -20,11 +21,11 @@ export function FeedbackForm({ onSubmitted }: { onSubmitted?: () => void }) {
     try {
       const input = feedbackInput(message, contact), fingerprint = JSON.stringify(input);
       if (!pending.current || pending.current.fingerprint !== fingerprint) pending.current = { fingerprint, key: crypto.randomUUID() };
-      sending.current = true; setBusy(true); setError('');
+      trackPddEvent('feedback_started'); sending.current = true; setBusy(true); setError('');
       const result = await pddApi.submitFeedback(input, pending.current.key);
       if (result.submitted !== true) throw new Error('尚未收到提交确认，请重试。');
-      setSubmitted(true); onSubmitted?.();
-    } catch (failure) { setError(errorText(failure)); } finally { sending.current = false; setBusy(false); }
+      trackPddEvent('feedback_submitted'); setSubmitted(true); onSubmitted?.();
+    } catch (failure) { trackPddEvent('feedback_error'); setError(errorText(failure)); } finally { sending.current = false; setBusy(false); }
   }
   if (submitted) return <div className="pdd-feedback-success" role="status"><strong>反馈已收到，谢谢你的帮助！</strong><p>社区管理员会查看你的建议。如需跟进，会通过你留下的联系方式联系你。</p></div>;
   return <form onSubmit={submit} className="pdd-feedback-form">

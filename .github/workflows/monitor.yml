@@ -1,0 +1,28 @@
+name: PDD404 service monitor
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pdd404-service-monitor
+  cancel-in-progress: false
+jobs:
+  monitor:
+    if: vars.ENABLE_SERVICE_MONITOR == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PRODUCTION_PROJECT_ID }}
+      SUPABASE_URL: ${{ vars.SUPABASE_PRODUCTION_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_PRODUCTION_SERVICE_ROLE_KEY }}
+      MONITOR_SECRET: ${{ secrets.PDD404_MONITOR_SECRET }}
+      MONITOR_STATE_FILE: /tmp/pdd404-monitor-state.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check live website, service, database and memory
+        run: node scripts/monitor.mjs
