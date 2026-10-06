@@ -11,11 +11,15 @@
 - `MONITOR_SECRET` 为32随机字节hex，仅服务器/维护者私有环境保存，调用时使用 `x-monitor-secret` 请求头；`MONITOR_DATABASE_LIMIT_BYTES=500000000` 为目前Free套餐保守空间阈值，升级后按实际限制修改。
 - Vercel Web Analytics、Speed Insights还要求对应项目服务可用；前端启用遵循上述主机/构建标志规则。`VITE_ANALYTICS_CUSTOM_EVENTS` 始终要求显式 `true`，只用于支持自定义事件的Vercel Pro；站内动作与停留汇总不要求Pro。代码默认值不能证明平台成功收到数据，每次生产发布仍需以真实公开页面访问验收脚本及采集请求。
 
-原生Web Analytics的项目开关已通过官方API启用。Speed Insights脚本在当前Hobby上返回有效JavaScript；官方切换接口尝试开启Plus返回402（要求Pro/Enterprise），因此未开启Plus或购买升级。免费性能采集是否有数据需在发布后以实际请求和平台状态验收。
+上述默认规则适用于包含PR #36的最新main构建。当前首页任务的`a85c6d7`静态运行版本采用显式开关，已单独验证采集；下一次应从包含默认修复的最新main构建，具体版本见发布记录。
+
+原生Web Analytics的项目开关已通过官方API启用。Speed Insights脚本在当前Hobby上返回有效JavaScript；官方切换接口尝试开启Plus返回402（要求Pro/Enterprise），因此未开启Plus或购买升级。免费性能采集已取得真实vitals POST200及平台`hasData=true`证据，按10%抽样；某一次访问未产生性能请求不能据此判断采集关闭。每次后续发布仍需核查。
 
 ## 健康检查与告警
 
 `GET /v1/health` 的数据库/配置失败返回503。`GET /v1/ops/status` 用监控密钥读取资源；`GET /v1/admin/system` 用既有管理员JWT读取。公众不能读资源、私密事件汇总或管理资料。
+
+容量修正迁移的`databaseBytes`为`pg_database`内全部数据库大小之和，包含模板库，与Supabase项目数据库配额口径一致；它不是WAL或整个磁盘占用。500,000,000字节阈值保持，70%/85%告警按该总量计算。监控状态的固定`databaseScope=cluster-v1`使旧单库或未知口径的增长基线重新建立，保留可用CPU/延迟历史，避免把口径变化误报为数据暴涨。应用迁移后再启用新版监控脚本；恢复或更换实例后同样需重建增长基线。
 
 ```sh
 node --env-file=.private/cloud.env --env-file=.private/monitor.env scripts/monitor.mjs
