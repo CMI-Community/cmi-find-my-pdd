@@ -5,7 +5,7 @@ import type { CameraDescription } from '../src/pdd-camera';
 
 // Importing the UI must never create a real authentication client in tests.
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => null }));
-import { createScannerCameraController, defaultPreviewMirror, initialScannerFocusDistance, observedScannerFocus, refreshScannerDevices, ScannerCameraControls, ScannerDevicePicker, scannerFailureCanEnumerate, ScannerPreview, scannerFocusOptions } from '../src/PddApp';
+import { createScannerCameraController, defaultPreviewMirror, initialScannerFocusDistance, observedScannerFocus, refreshScannerDevices, ScannerCameraControls, ScannerReadControls, ScannerDevicePicker, scannerFailureCanEnumerate, ScannerPreview, scannerFocusOptions } from '../src/PddApp';
 
 function description(values: Partial<CameraDescription> = {}): CameraDescription { return { focusModes: [], ...values }; }
 function stream() {
@@ -22,6 +22,21 @@ function controlsHtml(camera: CameraDescription, values: Record<string, unknown>
 }
 
 describe('scanner preview and useful camera controls', () => {
+  it('makes photo capture a separate user action and disables capture until ready or while decoding', () => {
+    const props = { mode: 'photo' as const, ready: true, busy: false, onMode() {}, onCapture() {} };
+    const ready = renderToStaticMarkup(createElement(ScannerReadControls, props));
+    expect(ready).toContain('拍照并识别条形码');
+    expect(ready).toContain('实时扫码');
+    expect(ready.match(/<button[^>]*class="[^"]*pdd-capture-button[^>]*>/)?.[0]).not.toContain('disabled');
+    const preparing = renderToStaticMarkup(createElement(ScannerReadControls, { ...props, ready: false }));
+    expect(preparing.match(/<button[^>]*class="[^"]*pdd-capture-button[^>]*>/)?.[0]).toContain('disabled');
+    const decoding = renderToStaticMarkup(createElement(ScannerReadControls, { ...props, busy: true }));
+    expect(decoding).toContain('正在识别这张照片');
+    expect(decoding.match(/<button[^>]*class="[^"]*pdd-capture-button[^>]*>/)?.[0]).toContain('disabled');
+    const realtime = renderToStaticMarkup(createElement(ScannerReadControls, { ...props, mode: 'realtime' }));
+    expect(realtime).not.toContain('pdd-capture-button');
+    expect(realtime).not.toContain('正在识别这张照片');
+  });
   it('follows observed front/rear settings and uses distinct desktop/mobile fallback', () => {
     expect(defaultPreviewMirror(description({ facingMode: 'user' }), false)).toBe(true);
     expect(defaultPreviewMirror(description({ facingMode: 'user' }), true)).toBe(true);
@@ -83,7 +98,7 @@ describe('scanner preview and useful camera controls', () => {
   it('reports focus failure separately without disabling a supported slider or asserting clarity', () => {
     const html = controlsHtml(description({ focusMode: 'manual', focusModes: ['manual'], focusDistance: { min: 0, max: 2, step: .2 } }), { manualFocus: true, focusBusy: true, focusError: '对焦调整没有成功，扫码仍在继续。' });
     expect(html).toContain('role="alert"');
-    expect(html).toContain('正在调整对焦，扫码仍在继续');
+    expect(html).toContain('正在调整对焦，相机保持开启');
     expect(html.match(/<input\b[^>]*type="range"[^>]*>/)?.[0]).not.toContain('disabled');
     expect(html).not.toContain('已清晰');
   });

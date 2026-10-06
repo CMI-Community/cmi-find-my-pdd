@@ -32,14 +32,21 @@ function deferred<T>() {
 function fixtures(play: Promise<void> = Promise.resolve()) {
   const context = { drawImage: vi.fn(), fillRect: vi.fn(), translate: vi.fn(), rotate: vi.fn(), imageSmoothingEnabled: true };
   const canvas = { width: 0, height: 0, getContext: () => context } as unknown as HTMLCanvasElement;
-  vi.stubGlobal('document', { createElement: vi.fn(() => canvas) });
+  const photos: { canvas: HTMLCanvasElement; drawImage: ReturnType<typeof vi.fn> }[] = [];
+  let created = false;
+  vi.stubGlobal('document', { createElement: vi.fn(() => {
+    if (!created) { created = true; return canvas; }
+    const drawImage = vi.fn(), photoContext = { drawImage, fillRect: vi.fn(), rotate: vi.fn(), translate: vi.fn(), imageSmoothingEnabled: true };
+    const photo = { width: 0, height: 0, getContext: () => photoContext } as unknown as HTMLCanvasElement;
+    photos.push({ canvas: photo, drawImage }); return photo;
+  }) });
   const video = {
     videoWidth: 1280, videoHeight: 720, srcObject: null,
     play: vi.fn(() => play), pause: vi.fn(),
   } as unknown as HTMLVideoElement;
   const track = { stop: vi.fn() };
   const stream = { getTracks: () => [track], getVideoTracks: () => [track] } as unknown as MediaStream;
-  return { video, stream, context, canvas, track };
+  return { video, stream, context, canvas, track, photos };
 }
 
 beforeEach(() => {
@@ -133,7 +140,7 @@ describe('barcode scanner scheduling and camera lifecycle', () => {
   });
 
   it('does not let an old scanner ready or stop clear the replacement video stream', async () => {
-    const playing = deferred<void>(), { video, stream, context } = fixtures(playing.promise), next = focusCamera();
+    const playing = deferred<void>(), { video, stream, context, photos } = fixtures(playing.promise), next = focusCamera();
     vi.mocked(video.play).mockReturnValueOnce(playing.promise).mockResolvedValue(undefined);
     const { startBarcodeScanner } = await import('../src/pdd-camera');
     const old = startBarcodeScanner(stream, video, vi.fn());
@@ -143,7 +150,7 @@ describe('barcode scanner scheduling and camera lifecycle', () => {
     expect(video.srcObject).toBe(next.stream);
     old.stop(); playing.resolve(); await old.ready;
     expect(video.srcObject).toBe(next.stream);
-    expect(context.drawImage).toHaveBeenCalledOnce();
+    expect(context.drawImage).not.toHaveBeenCalled(); expect(photos[0].drawImage).toHaveBeenCalledOnce();
     expect(decoder.constructed).toHaveBeenCalledTimes(2);
     expect(decoder.fastDecode).toHaveBeenCalledOnce();
     expect(decoder.decode).toHaveBeenCalledOnce(); current.stop();
@@ -267,6 +274,127 @@ describe('barcode scanner scheduling and camera lifecycle', () => {
     await expect(session.ready).resolves.toBe(stream);
     expect(track.applyConstraints).not.toHaveBeenCalled();
     session.stop(); expect(track.stop).toHaveBeenCalledOnce();
+  });
+});
+
+describe('explicit local photo barcode decoding', () => {
+  it('keeps the preview open without decoding or scheduling while waiting for a photo', async () => {
+    const { stream, video } = fixtures(), { startBarcodeScanner } = await import('../src/pdd-camera');
+    const scanner = startBarcodeScanner(stream, video, vi.fn(), undefined, { mode: 'photo' });
+    await scanner.ready; await vi.advanceTimersByTimeAsync(10000);
+    expect(video.srcObject).toBe(stream); expect(video.play).toHaveBeenCalledOnce();
+    expect(decoder.fastDecode).not.toHaveBeenCalled(); expect(decoder.decode).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0); scanner.stop();
+  });
+
+  it('freezes one full original frame, shares repeated clicks, and yields before decoding', async () => {
+    const { stream, video, photos, context } = fixtures(), { startBarcodeScanner } = await import('../src/pdd-camera');
+    const onDecoded = vi.fn();
+    const scanner = startBarcodeScanner(stream, video, onDecoded, undefined, { mode: 'photo' }); await scanner.ready;
+    decoder.decode.mockImplementationOnce(() => { throw new Error('Whole frame misses'); }).mockReturnValue({ getText: () => '12345678901234' });
+    const result = scanner.capture(); expect(scanner.capture()).toBe(result);
+    expect(photos).toHaveLength(1); expect(photos[0].drawImage).toHaveBeenCalledExactlyOnceWith(video, 0, 0, 1280, 720);
+    expect(decoder.decode).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(15); expect(decoder.decode).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1); expect(decoder.decode).toHaveBeenCalledOnce();
+    expect(onDecoded).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(16);
+    await expect(result).resolves.toEqual({ result: 'decoded', text: '12345678901234' });
+    expect(onDecoded).toHaveBeenCalledExactlyOnceWith('12345678901234');
+    expect(context.drawImage.mock.calls.every(call => call[0] === photos[0].canvas)).toBe(true);
+    expect(context.rotate).toHaveBeenCalledWith(-Math.PI / 2);
+    expect(photos[0].canvas.width).toBe(0); expect(photos[0].canvas.height).toBe(0);
+    expect(video.srcObject).toBe(stream); scanner.stop();
+  });
+
+  it('makes nine bounded attempts then waits for another explicit photo without a retry loop', async () => {
+    const { stream, video, photos, context } = fixtures(), { startBarcodeScanner } = await import('../src/pdd-camera');
+    const scanner = startBarcodeScanner(stream, video, vi.fn(), undefined, { mode: 'photo' }); await scanner.ready;
+    const result = scanner.capture(); await vi.advanceTimersByTimeAsync(1000);
+    await expect(result).resolves.toEqual({ result: 'not_found' });
+    expect(decoder.decode).toHaveBeenCalledTimes(9); expect(context.drawImage).toHaveBeenCalledTimes(9);
+    expect(context.drawImage.mock.calls[0].slice(1)).toEqual([0, 0, 1280, 720, 0, 0, 1280, 720]);
+    expect(vi.getTimerCount()).toBe(0); await vi.advanceTimersByTimeAsync(10000);
+    expect(decoder.decode).toHaveBeenCalledTimes(9); expect(photos).toHaveLength(1);
+    const again = scanner.capture(); expect(again).not.toBe(result); await vi.advanceTimersByTimeAsync(1000);
+    await expect(again).resolves.toEqual({ result: 'not_found' });
+    expect(decoder.decode).toHaveBeenCalledTimes(18); expect(photos).toHaveLength(2); scanner.stop();
+  });
+
+  it('returns success even when the existing decoded callback closes the camera session', async () => {
+    const { stream, video } = fixtures(), { startBarcodeScanner, createCameraSession } = await import('../src/pdd-camera');
+    const session = createCameraSession(async () => stream); await session.ready;
+    const scanner = startBarcodeScanner(stream, video, () => session.stop(), undefined, { mode: 'photo' });
+    session.attachDecoder(scanner); await scanner.ready;
+    decoder.fastDecode.mockReturnValue({ getText: () => '12345678901234' });
+    const result = scanner.capture(); await vi.advanceTimersByTimeAsync(16);
+    await expect(result).resolves.toEqual({ result: 'decoded', text: '12345678901234' });
+    expect(video.srcObject).toBeNull(); expect(video.pause).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('switches between photo and realtime on the same stream without another permission request', async () => {
+    const { stream, video } = fixtures(), { startBarcodeScanner } = await import('../src/pdd-camera');
+    const scanner = startBarcodeScanner(stream, video, vi.fn(), undefined, { mode: 'photo' }); await scanner.ready;
+    scanner.setMode('realtime'); await vi.advanceTimersByTimeAsync(0); expect(decoder.decode).toHaveBeenCalledOnce();
+    scanner.setMode('photo'); await vi.advanceTimersByTimeAsync(1000); expect(decoder.decode).toHaveBeenCalledOnce();
+    expect(video.srcObject).toBe(stream); expect(video.play).toHaveBeenCalledOnce(); expect(video.pause).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0); scanner.stop();
+  });
+
+  it('cancels a native photo wait immediately and ignores its late result after close', async () => {
+    const nativeResult = deferred<{ rawValue: string }[]>(), detect = vi.fn(() => nativeResult.promise);
+    vi.stubGlobal('BarcodeDetector', class { static getSupportedFormats() { return Promise.resolve(['code_128']); } detect = detect; });
+    const { stream, video, photos } = fixtures(), onDecoded = vi.fn(), { startBarcodeScanner } = await import('../src/pdd-camera');
+    const scanner = startBarcodeScanner(stream, video, onDecoded, undefined, { mode: 'photo' }); await scanner.ready;
+    const result = scanner.capture().catch(error => error); await vi.advanceTimersByTimeAsync(16);
+    expect(detect).toHaveBeenCalledOnce(); expect(vi.getTimerCount()).toBe(1);
+    scanner.stop(); expect(vi.getTimerCount()).toBe(0); expect(await result).toMatchObject({ name: 'AbortError' });
+    expect(photos[0].canvas.width).toBe(0);
+    nativeResult.resolve([{ rawValue: '12345678901234' }]); await vi.advanceTimersByTimeAsync(1000);
+    expect(onDecoded).not.toHaveBeenCalled(); expect(decoder.decode).not.toHaveBeenCalled();
+  });
+
+  it('interrupts an old realtime native frame before capturing without overlapping native calls', async () => {
+    const nativeResult = deferred<{ rawValue: string }[]>(), detect = vi.fn(() => nativeResult.promise);
+    vi.stubGlobal('BarcodeDetector', class { static getSupportedFormats() { return Promise.resolve(['code_128']); } detect = detect; });
+    const { stream, video } = fixtures(), onDecoded = vi.fn(), { startBarcodeScanner } = await import('../src/pdd-camera');
+    const scanner = startBarcodeScanner(stream, video, onDecoded); await scanner.ready; expect(detect).toHaveBeenCalledOnce();
+    decoder.fastDecode.mockReturnValue({ getText: () => '12345678901234' });
+    const result = scanner.capture(); await vi.advanceTimersByTimeAsync(16);
+    await expect(result).resolves.toEqual({ result: 'decoded', text: '12345678901234' });
+    expect(detect).toHaveBeenCalledOnce(); expect(onDecoded).toHaveBeenCalledOnce();
+    scanner.setMode('photo'); nativeResult.resolve([{ rawValue: 'OLD-WAYBILL' }]); await vi.advanceTimersByTimeAsync(0);
+    expect(onDecoded).toHaveBeenCalledExactlyOnceWith('12345678901234'); scanner.stop();
+  });
+
+  it('cancels a pending photo before the decoder finishes loading without waiting for it', async () => {
+    const loading = deferred<void>(); decoder.loading = loading.promise;
+    const { stream, video } = fixtures(), { startBarcodeScanner } = await import('../src/pdd-camera');
+    const scanner = startBarcodeScanner(stream, video, vi.fn(), undefined, { mode: 'photo' });
+    const result = scanner.capture().catch(error => error); scanner.stop();
+    expect(await result).toMatchObject({ name: 'AbortError' }); expect(vi.getTimerCount()).toBe(0);
+    loading.resolve(); await scanner.ready; expect(decoder.decode).not.toHaveBeenCalled();
+  });
+
+  it('cancels photo work when changing mode or replacing the scanner and retains the new preview', async () => {
+    const { stream, video } = fixtures(), next = focusCamera(), { startBarcodeScanner } = await import('../src/pdd-camera');
+    const onDecoded = vi.fn(), old = startBarcodeScanner(stream, video, onDecoded, undefined, { mode: 'photo' }); await old.ready;
+    const first = old.capture().catch(error => error); old.setMode('realtime');
+    expect(await first).toMatchObject({ name: 'AbortError' });
+    await vi.advanceTimersByTimeAsync(0); old.setMode('photo');
+    const second = old.capture().catch(error => error);
+    const current = startBarcodeScanner(next.stream, video, vi.fn(), undefined, { mode: 'photo' }); await current.ready;
+    expect(await second).toMatchObject({ name: 'AbortError' });
+    expect(video.srcObject).toBe(next.stream); expect(onDecoded).not.toHaveBeenCalled(); current.stop();
+  });
+
+  it('rejects a not-yet-ready video with an actionable error and takes no empty photo', async () => {
+    const { stream, video, photos } = fixtures(), { startBarcodeScanner } = await import('../src/pdd-camera');
+    const scanner = startBarcodeScanner(stream, video, vi.fn(), undefined, { mode: 'photo' }); await scanner.ready;
+    Object.defineProperty(video, 'videoWidth', { value: 0 });
+    await expect(scanner.capture()).rejects.toMatchObject({ name: 'InvalidStateError', message: expect.stringContaining('稍等') });
+    expect(photos).toHaveLength(0); expect(decoder.decode).not.toHaveBeenCalled(); scanner.stop();
   });
 });
 
@@ -474,6 +602,46 @@ function pixelCanvas(frame: GrayFrame): HTMLCanvasElement {
   return { width: frame.width, height: frame.height, getContext: () => ({ getImageData: () => ({ data: rgba }) }) } as unknown as HTMLCanvasElement;
 }
 
+function frozenPixelFixtures(initial: GrayFrame) {
+  const { video, stream } = fixtures();
+  Object.defineProperty(video, 'videoWidth', { value: initial.width });
+  Object.defineProperty(video, 'videoHeight', { value: initial.height });
+  let preview = initial;
+  const frames = new Map<HTMLCanvasElement, GrayFrame>(), frozen: GrayFrame[] = [];
+  vi.stubGlobal('document', { createElement: () => {
+    let rotation = 0;
+    const canvas = { width: 0, height: 0, getContext: () => context } as unknown as HTMLCanvasElement;
+    const context = {
+      translate() {}, rotate(value: number) { rotation = value; }, imageSmoothingEnabled: false, fillStyle: '#fff',
+      fillRect() { rotation = 0; },
+      drawImage(source: CanvasImageSource, ...args: number[]) {
+        const frame = source === video ? preview : frames.get(source as HTMLCanvasElement)!;
+        if (args.length === 4) {
+          // Independently copy the current video pixels once. Subsequent video
+          // changes cannot alter the canvas used by production capture passes.
+          const copy = { ...frame, pixels: frame.pixels.slice() }; frames.set(canvas, copy); frozen.push(copy);
+        } else {
+          const [sourceX, sourceY, sourceWidth, sourceHeight, _x, _y, targetWidth, targetHeight] = args;
+          frames.set(canvas, renderCapture(frame, {
+            sourceX, sourceY, sourceWidth, sourceHeight, targetWidth, targetHeight,
+            canvasWidth: canvas.width, canvasHeight: canvas.height,
+            quarterTurn: Math.abs(rotation + Math.PI / 2) < 1e-8,
+            tilt: Math.abs(rotation + Math.PI / 2) < 1e-8 ? 0 : rotation * 180 / Math.PI,
+          }));
+        }
+      },
+      getImageData() {
+        const frame = frames.get(canvas)!;
+        const rgba = new Uint8ClampedArray(frame.width * frame.height * 4);
+        frame.pixels.forEach((value, index) => { rgba[index * 4] = rgba[index * 4 + 1] = rgba[index * 4 + 2] = value; rgba[index * 4 + 3] = 255; });
+        return { data: rgba };
+      },
+    };
+    return canvas;
+  } });
+  return { video, stream, frozen, changePreview(frame: GrayFrame) { preview = frame; } };
+}
+
 describe('real Code128 pixels and production capture geometry', () => {
   const hints = new Map([[actualLibrary.DecodeHintType.POSSIBLE_FORMATS, [actualLibrary.BarcodeFormat.CODE_128, actualLibrary.BarcodeFormat.CODE_39, actualLibrary.BarcodeFormat.CODE_93, actualLibrary.BarcodeFormat.ITF, actualLibrary.BarcodeFormat.CODABAR]]]);
   function decode(frame: GrayFrame, defaultFormats = false) {
@@ -495,5 +663,26 @@ describe('real Code128 pixels and production capture geometry', () => {
   it('rejects a synthetic barcode with a damaged Code128 checksum', async () => {
     const source = syntheticCode128(0, 240, true), { barcodeFramePlan } = await import('../src/pdd-camera');
     for (let pass = 0; pass < 10; pass++) expect(decode(renderCapture(source, barcodeFramePlan(source.width, source.height, pass)))).toBeUndefined();
+  });
+
+  it.each([25, 90])('decodes an actual frozen %s-degree photo after the live preview changes', async angle => {
+    const source = syntheticCode128(angle), { video, stream, frozen, changePreview } = frozenPixelFixtures(source);
+    decoder.fastDecode.mockImplementation(canvas => new actualBrowser.BrowserCodeReader(new actualLibrary.Code128Reader()).decodeFromCanvas(canvas));
+    decoder.decode.mockImplementation(canvas => new actualBrowser.BrowserMultiFormatOneDReader(hints).decodeFromCanvas(canvas));
+    const onDecoded = vi.fn(), { startBarcodeScanner } = await import('../src/pdd-camera');
+    const scanner = startBarcodeScanner(stream, video, onDecoded, text => text === fixtureNumber, { mode: 'photo' }); await scanner.ready;
+    const result = scanner.capture();
+    changePreview({ ...source, pixels: new Uint8ClampedArray(source.width * source.height).fill(255) });
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(result).resolves.toEqual({ result: 'decoded', text: fixtureNumber });
+    expect(frozen).toHaveLength(1); expect(frozen[0].pixels).toEqual(source.pixels);
+    expect(onDecoded).toHaveBeenCalledExactlyOnceWith(fixtureNumber);
+    expect(vi.getTimerCount()).toBe(0); scanner.stop();
+  });
+
+  it('retains more fine pixels for a high-resolution photo without upscaling a small camera frame', async () => {
+    const { barcodeFramePlan } = await import('../src/pdd-camera');
+    expect(barcodeFramePlan(3840, 2160, 7, 2048)).toMatchObject({ targetWidth: 2048, targetHeight: 1152 });
+    expect(barcodeFramePlan(640, 480, 7, 2048)).toMatchObject({ targetWidth: 640, targetHeight: 480 });
   });
 });
