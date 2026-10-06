@@ -11,11 +11,15 @@
 - `MONITOR_SECRET` 为32随机字节hex，仅服务器/维护者私有环境保存，调用时使用 `x-monitor-secret` 请求头；`MONITOR_DATABASE_LIMIT_BYTES=500000000` 为目前Free套餐保守空间阈值，升级后按实际限制修改。
 - Vercel Web Analytics、Speed Insights还要求对应项目服务可用；前端启用遵循上述主机/构建标志规则。`VITE_ANALYTICS_CUSTOM_EVENTS` 始终要求显式 `true`，只用于支持自定义事件的Vercel Pro；站内动作与停留汇总不要求Pro。代码默认值不能证明平台成功收到数据，每次生产发布仍需以真实公开页面访问验收脚本及采集请求。
 
-原生Web Analytics的项目开关已通过官方API启用。Speed Insights脚本在当前Hobby上返回有效JavaScript；官方切换接口尝试开启Plus返回402（要求Pro/Enterprise），因此未开启Plus或购买升级。免费性能采集是否有数据需在发布后以实际请求和平台状态验收。
+上述默认规则适用于包含PR #36的最新main构建。当前首页任务的`a85c6d7`静态运行版本采用显式开关，已单独验证采集；下一次应从包含默认修复的最新main构建，具体版本见发布记录。
+
+原生Web Analytics的项目开关已通过官方API启用。Speed Insights脚本在当前Hobby上返回有效JavaScript；官方切换接口尝试开启Plus返回402（要求Pro/Enterprise），因此未开启Plus或购买升级。免费性能采集已取得真实vitals POST200及平台`hasData=true`证据，按10%抽样；某一次访问未产生性能请求不能据此判断采集关闭。每次后续发布仍需核查。
 
 ## 健康检查与告警
 
 `GET /v1/health` 的数据库/配置失败返回503。`GET /v1/ops/status` 用监控密钥读取资源；`GET /v1/admin/system` 用既有管理员JWT读取。公众不能读资源、私密事件汇总或管理资料。
+
+容量修正迁移的`databaseBytes`为`pg_database`内全部数据库大小之和，包含模板库，与Supabase项目数据库配额口径一致；它不是WAL或整个磁盘占用。500,000,000字节阈值保持，70%/85%告警按该总量计算。监控状态的固定`databaseScope=cluster-v1`使旧单库或未知口径的增长基线重新建立，保留可用CPU/延迟历史，避免把口径变化误报为数据暴涨。应用迁移后再启用新版监控脚本；恢复或更换实例后同样需重建增长基线。
 
 ```sh
 node --env-file=.private/cloud.env --env-file=.private/monitor.env scripts/monitor.mjs
@@ -36,13 +40,13 @@ node --env-file=.private/cloud.env --env-file=.private/monitor.env scripts/monit
 
 脚本的耗时是单次探测，CPU是采样间平均；均不冒充业务查询p95。业务日志记录安全的固定路由、响应状态、耗时、数据库调用次数/累计耗时，成功采样10%，错误及慢调用全部记录。请求体、完整路径/参数、单号、联系、JWT和凭证不进入诊断日志。使用Supabase日志平台查看实际请求错误率及延迟分布。
 
-Codex线程心跳每五分钟运行该脚本，只在新增/升级告警、恢复、监控故障或需操作时通知；按维护者要求同样发送到其已连接Gmail账户 `me`。相同未变化告警不重复发邮件。Codex本地调度依赖当前主机/应用可运行。另有GitHub Actions `PDD404 service monitor` 五分钟定时云检查，不需要本机开着；检查失败以失败运行呈现，原生Actions邮件取决于账户通知设置，不能把它当作已验证邮件送达。GitHub schedule可能排队或延迟。Vercel原生付费Alerts/Observability Plus目前不购买。平台基本流量与日志控制台已存在，新增应用日志覆盖Supabase后端。
+Codex线程心跳每五分钟运行该脚本，只在新增/升级告警、恢复、监控故障或需操作时通知；按维护者要求同样发送到其已连接Gmail账户 `me`。相同未变化告警不重复发邮件。Codex本地调度依赖当前主机/应用可运行。另有GitHub Actions `PDD404 service monitor` 五分钟定时云检查，不需要本机开着；检查失败以失败运行呈现。已只读核实当前GitHub账户的Actions Email与Failed workflows only开启，发送到GitHub默认通知邮箱；该邮箱与已连接Gmail可能不同。配置已验证，实际原生失败邮件收件未验证，不冒称送达。GitHub schedule可能排队或延迟。Vercel原生付费Alerts/Observability Plus目前不购买。平台基本流量与日志控制台已存在，新增应用日志覆盖Supabase后端。
 
 云工作流仅在`main`运行，用官方`actions/cache/restore@v4`和`actions/cache/save@v4`跨运行保留`/tmp/pdd404-monitor-state.json`。每次保存使用唯一运行ID/重试次数键，下一次用前缀恢复最新状态；即使本次监控因告警退出1，也保存新状态。因此在主机关闭时，云端也能比较CPU计数、连续延迟/内存和死锁变化；数据库增长预测在保存的基线跨至少一天后才具备数据。缓存只含明确白名单的数值资源、日期、公开发布SHA及固定告警枚举，不含凭据、单号、联系、SQL或Exporter标签；缓存不是私密存储，能读取仓库缓存的人可以看到这些资源汇总。[GitHub缓存的可见性与键匹配](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)
 
 首次运行、缓存缺失/损坏/超过30分钟未更新，或CPU计数重置时，云检查报告`MONITOR_BASELINE_UNAVAILABLE`，继续探测网站/数据库/内存并保存新样本；下一次有效采样后恢复比较。CPU持续高占用仍需要两段有效增量，不能从首个累计值推出使用率。缓存恢复失败另报`MONITOR_CACHE_RESTORE_FAILED`。官方保存动作可能只写警告而返回成功，所以保存后再按本次唯一键只读查找并断言命中；未真正保存会使工作流失败，不将丢失监控历史标为正常。GitHub可能清除缓存或延迟调度；此状态仍不是托管时序数据库，也不保证通知到达。[官方保存实现](https://github.com/actions/cache/blob/v4/src/saveImpl.ts)
 
-Hobby账户的月用量查询受到平台功能限制。Vercel账单接口显示不可用，不是零用量；SupabaseFree配额也不能用Prometheus数据库网卡字节冒充账单出站流量。定期核查两家Usage页，对比实际Edge、出站/CDN及采集额度60/80%阈值。需要独立全天候告警和月额度自动预测时，优先接托管Prometheus/Grafana及平台用量告警，账户创建、条款和费用须另行完成。当前缺少的数据明确列入发布记录。
+Vercel月用量接口受到平台功能限制，账单接口不可用不是零用量；已实际读取标准Usage页面的团队所选30天汇总，以及Supabase组织当前账期用量，具体时间、范围与数值见CAPACITY.md。不能用Prometheus数据库网卡字节冒充账单出站流量。Codex在本机及登录态可用时每天只读核查两家Usage页，比较实际Edge、出站/CDN及采集额度60/80%阈值；失败保留未知状态，不写成零。资源压力由独立云检查覆盖，但月额度页面核查仍依赖本机，尚无独立全天候自动账单查询。需要该覆盖时优先接平台用量告警或可用账单接口，账户创建、条款和费用须另行完成。
 
 ## 可逆维护
 

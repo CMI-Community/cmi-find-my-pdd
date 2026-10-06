@@ -24,14 +24,18 @@ describe('private resource monitor',()=>{
     expect(resources({...missing,memoryAvailable:0},null).memoryUtilization).toBe(1);
   });
   it('warns on verified growth approaching the DB quota',()=>{
-    const report={checkedAt:new Date(172800000).toISOString(),website:{ok:true,durationMs:20},system:{ok:true,warnings:[],database:{databaseBytes:400,databaseSizeLimitBytes:500,deadlocks:1,statsResetAt:'fixed'}},metricsState:'available',resources:{}};
-    expect(evaluate(report,{growthBaseline:{at:0,bytes:200},system:{database:{deadlocks:0,statsResetAt:'fixed'}}})).toEqual(['DATABASE_LIMIT_WITHIN_7_DAYS','NEW_DEADLOCK']);
+    const report={databaseScope:'cluster-v1',checkedAt:new Date(172800000).toISOString(),website:{ok:true,durationMs:20},system:{ok:true,warnings:[],database:{databaseBytes:400,databaseSizeLimitBytes:500,deadlocks:1,statsResetAt:'fixed'}},metricsState:'available',resources:{}};
+    expect(evaluate(report,{databaseScope:'cluster-v1',growthBaseline:{at:0,bytes:200},system:{database:{deadlocks:0,statsResetAt:'fixed'}}})).toEqual(['DATABASE_LIMIT_WITHIN_7_DAYS','NEW_DEADLOCK']);
+    expect(evaluate(report,{growthBaseline:{at:0,bytes:200},system:{database:{deadlocks:0,statsResetAt:'fixed'}}})).toEqual(['NEW_DEADLOCK']);
   });
   it('projects cache state through a safe allowlist and rejects stale or malformed baselines',()=>{
     const now=Date.now(), report={checkedAt:new Date(now-300000).toISOString(),website:{ok:true,status:200,durationMs:10,secret:'private-secret'},system:{ok:true,ready:true,sha:'a'.repeat(40),durationMs:20,warnings:['DATABASE_SIZE_HIGH','private-sql'],database:{databaseBytes:300,deadlocks:0,statsResetAt:null,contact:'private-contact'}},metricsState:'available',metrics:{cpuTotal:200,cpuIdle:100,memoryTotal:1000,memoryAvailable:900,query:'private-sql'},resources:{cpuUtilization:.5,memoryUtilization:.1,load1:0},alerts:['DATABASE_SIZE_HIGH','private-token'],growthBaseline:{at:now-86400000,bytes:100,credential:'private-token'},MONITOR_SECRET:'private-secret'};
     const safe=safeMonitorState(report);
     expect(JSON.stringify(safe)).not.toMatch(/private-|MONITOR_SECRET|credential|query|contact/);
     expect(safe.alerts).toEqual(['DATABASE_SIZE_HIGH']);
+    expect(safe.databaseScope).toBeNull();
+    expect(safeMonitorState({...report,databaseScope:'cluster-v1'}).databaseScope).toBe('cluster-v1');
+    expect(safeMonitorState({...report,databaseScope:'private-contact'}).databaseScope).toBeNull();
     expect(previousMonitorState(report,now)?.metrics.cpuTotal).toBe(200);
     expect(previousMonitorState({...report,checkedAt:new Date(now-1800001).toISOString()},now)).toBeNull();
     expect(previousMonitorState({...report,checkedAt:new Date(now+1).toISOString()},now)).toBeNull();
@@ -57,5 +61,24 @@ describe('private resource monitor',()=>{
     expect(corrupted.resources.cpuUtilization).toBeNull();expect(corrupted.alerts).toContain('MONITOR_BASELINE_UNAVAILABLE');
     const missingCounters=await collect(env,{...previous,metrics:{cpuTotal:0,cpuIdle:0}},fetcher);
     expect(missingCounters.resources.cpuUtilization).toBeNull();expect(missingCounters.alerts).toContain('MONITOR_BASELINE_UNAVAILABLE');
+  });
+  it('rebuilds legacy database growth history while retaining CPU samples and forecasts within the new scope',async()=>{
+    const now=Date.now(), env={SUPABASE_PROJECT_ID:'fogncjjsnakbhfdbfvdi',SUPABASE_URL:'https://fogncjjsnakbhfdbfvdi.supabase.co',MONITOR_SECRET:'a'.repeat(64),SUPABASE_SERVICE_ROLE_KEY:'synthetic-private',MONITOR_REQUIRE_BASELINE:'true'};
+    const exporter='node_cpu_seconds_total{cpu="0",mode="idle"} 180\nnode_cpu_seconds_total{cpu="0",mode="user"} 20\nnode_memory_MemTotal_bytes 1000\nnode_memory_MemAvailable_bytes 900';
+    const fetcher=async(url:string)=>url.includes('privileged/metrics')?new Response(exporter):url.includes('ops/status')?Response.json({data:{service:'pdd404',environment:'production',ok:true,ready:true,sha:'a'.repeat(40),database:{databaseBytes:490,databaseSizeLimitBytes:500,deadlocks:0,statsResetAt:null},warnings:[]}}):new Response('<html></html>',{headers:{'content-type':'text/html'}});
+    const legacy={checkedAt:new Date(now-300000).toISOString(),website:{ok:true,status:200,durationMs:10},system:{ok:true,database:{databaseBytes:100,deadlocks:0,statsResetAt:null},durationMs:10},metrics:{cpuTotal:100,cpuIdle:90},resources:{cpuUtilization:.1,memoryUtilization:.1},growthBaseline:{at:now-86400000,bytes:100},alerts:[]};
+    const previous=previousMonitorState(legacy,now);
+    const migrated=await collect(env,previous,fetcher);
+    expect(migrated.databaseScope).toBe('cluster-v1');
+    expect(migrated.resources.cpuUtilization).toBeCloseTo(.1);
+    expect(migrated.growthBaseline.bytes).toBe(490);
+    expect(migrated.growthBaseline.at).toBeGreaterThanOrEqual(now);
+    expect(migrated.alerts).toEqual([]);
+    const established={...previous,databaseScope:'cluster-v1',growthBaseline:{at:now-2*86400000,bytes:100}};
+    const growing=await collect(env,established,fetcher);
+    expect(growing.growthBaseline).toEqual(established.growthBaseline);
+    expect(growing.alerts).toEqual(['DATABASE_LIMIT_WITHIN_7_DAYS']);
+    const mismatched=await collect(env,{...established,databaseScope:'obsolete'},fetcher);
+    expect(mismatched.growthBaseline.bytes).toBe(490);expect(mismatched.alerts).toEqual([]);
   });
 });

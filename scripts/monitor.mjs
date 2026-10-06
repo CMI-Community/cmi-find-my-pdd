@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 const ALERT_CODES = new Set(['DATABASE_UNAVAILABLE', 'CONFIGURATION_UNAVAILABLE', 'REGISTRATION_NOT_READY', 'CONNECTIONS_CRITICAL', 'CONNECTIONS_HIGH', 'DATABASE_QUOTA_UNCONFIGURED', 'DATABASE_SIZE_CRITICAL', 'DATABASE_SIZE_HIGH', 'LONG_TRANSACTION', 'LOCK_WAIT', 'IDLE_TRANSACTION', 'DATABASE_SLOW', 'TELEMETRY_MONITOR_UNAVAILABLE', 'TELEMETRY_BUDGET_HIGH', 'TELEMETRY_BUDGET_CRITICAL', 'TELEMETRY_BUDGET_EXHAUSTED', 'WEBSITE_UNAVAILABLE', 'SERVICE_UNAVAILABLE', 'WEBSITE_SLOW', 'SERVICE_SLOW', 'RESOURCE_METRICS_UNAVAILABLE', 'CPU_CRITICAL', 'CPU_HIGH', 'MEMORY_CRITICAL', 'MEMORY_HIGH', 'NEW_DEADLOCK', 'DATABASE_LIMIT_WITHIN_7_DAYS', 'MONITOR_BASELINE_UNAVAILABLE', 'MONITOR_CACHE_RESTORE_FAILED']);
 const DB_COUNTERS = ['databaseBytes', 'connections', 'maxConnections', 'reservedConnections', 'activeConnections', 'waitingConnections', 'idleInTransactionConnections', 'longestTransactionSeconds', 'transactionsCommitted', 'transactionsRolledBack', 'deadlocks', 'tempBytes', 'connectionUtilization'];
 const METRIC_COUNTERS = ['cpuTotal', 'cpuIdle', 'memoryTotal', 'memoryAvailable', 'load1', 'cpus'];
+const DATABASE_SCOPE = 'cluster-v1';
 const numeric = value => Number.isFinite(value) && value >= 0 ? value : null;
 const codes = values => Array.isArray(values) ? values.filter(value => ALERT_CODES.has(value)) : [];
 
@@ -25,6 +26,7 @@ export function safeMonitorState(report) {
   }
   const baseline = report.growthBaseline;
   return { stateVersion: 1, checkedAt: new Date(report.checkedAt).toISOString(), durationMs: numeric(report.durationMs),
+    databaseScope: report.databaseScope === DATABASE_SCOPE ? DATABASE_SCOPE : null,
     website: { ok: report.website.ok === true, status: numeric(report.website.status), durationMs: numeric(report.website.durationMs) },
     system, metricsState: report.metricsState === 'available' ? 'available' : 'unavailable',
     metrics: report.metrics ? Object.fromEntries(METRIC_COUNTERS.map(key => [key, numeric(report.metrics[key])])) : null,
@@ -95,7 +97,7 @@ export function evaluate(report, previous) {
   // A saved baseline spans at least one day; brief measurement noise is not
   // extrapolated into a promise about remaining quota.
   const baseline = previous?.growthBaseline;
-  if (db?.databaseSizeLimitBytes && baseline && Date.parse(report.checkedAt) - baseline.at >= 86400000) {
+  if (report.databaseScope === DATABASE_SCOPE && previous?.databaseScope === DATABASE_SCOPE && db?.databaseSizeLimitBytes && baseline && Date.parse(report.checkedAt) - baseline.at >= 86400000) {
     const growthPerDay = (db.databaseBytes - baseline.bytes) / ((Date.parse(report.checkedAt) - baseline.at) / 86400000);
     if (growthPerDay > 0 && (db.databaseSizeLimitBytes - db.databaseBytes) / growthPerDay < 7) alerts.push('DATABASE_LIMIT_WITHIN_7_DAYS');
   }
@@ -127,11 +129,15 @@ export async function collect(env, previous = null, fetcher = fetch) {
   try { if (exporter?.response?.ok) metrics = parseMetrics(await exporter.response.text()); } catch { /* unknown */ }
   const report = {
     checkedAt: new Date().toISOString(), durationMs: Date.now() - started,
+    databaseScope: DATABASE_SCOPE,
     website: { ok: site.response?.ok === true && site.response.headers.get('content-type')?.includes('text/html') === true, status: site.status, durationMs: site.durationMs },
     system: system ? { ok: system.ok === true, ready: system.ready === true, sha: system.sha, durationMs: api.durationMs, database: system.database, warnings: system.warnings } : null,
     metricsState: metrics?.memoryTotal > 0 ? 'available' : 'unavailable', metrics,
     resources: resources(metrics, previous?.metrics),
-    growthBaseline: previous?.growthBaseline ?? (system?.database ? { at: Date.now(), bytes: system.database.databaseBytes } : null),
+    // A quota measurement scope change must not look like sudden data growth.
+    // CPU and latency histories remain usable across this database-only change.
+    growthBaseline: previous?.databaseScope === DATABASE_SCOPE && previous.growthBaseline
+      ? previous.growthBaseline : (system?.database ? { at: Date.now(), bytes: system.database.databaseBytes } : null),
   };
   report.alerts = evaluate(report, previous);
   if (env.MONITOR_REQUIRE_BASELINE === 'true' && (!previous || report.resources.cpuUtilization === null)) report.alerts.push('MONITOR_BASELINE_UNAVAILABLE');

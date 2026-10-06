@@ -34,6 +34,7 @@ async function businessError(operation, message) {
 }
 async function bootstrap(database, roles = false) {
   await sql(`${roles ? 'create role anon; create role authenticated; create role service_role bypassrls;' : ''}
+    grant usage on schema public to anon,authenticated,service_role;
     create schema extensions; create extension pgcrypto with schema extensions;
     create schema auth; create table auth.users(id uuid primary key,email text);
     create schema storage; create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
@@ -71,6 +72,18 @@ try {
   let backfillChecked = false;
   let businessMetadataChecked = false;
   let domesticGuardChecked = false;
+  let monitorClusterChecked = false;
+  const monitorMetadataSQL = `select jsonb_build_object('oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig,'arguments',p.proargtypes::text,'definition',pg_get_functiondef(p.oid))::text
+    from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='pdd_monitor_status' and p.proargtypes='3802'::oidvector;`;
+  const monitorSizeSQL = `select jsonb_build_object('reported',(public.pdd_monitor_status('{}')->>'databaseBytes')::bigint,
+    'cluster',(select sum(pg_database_size(oid))::bigint from pg_database),
+    'current',pg_database_size(current_database()))::text;`;
+  const assertClusterSize = result => { assert.equal(result.reported, result.cluster); assert(result.reported > result.current); };
+  const tableDigest = async () => {
+    const names = (await sql("select tablename from pg_tables where schemaname='public' order by tablename;")).split('\n');
+    const quoteIdentifier = name => '"' + name.replaceAll('"','""') + '"';
+    return JSON.parse(await sql('select jsonb_build_object(' + names.flatMap(name => ["'" + name.replaceAll("'","''") + "'", `(select md5(coalesce(jsonb_agg(to_jsonb(t) order by to_jsonb(t)::text),'[]')::text) from public.${quoteIdentifier(name)} t)`]).join(',') + ')::text;'));
+  };
   const domesticMetadataSQL = `select jsonb_agg(jsonb_build_object('name',p.proname,'oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig) order by p.proname)::text
     from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('pdd_number','pdd_query_number','pdd_query_contact');`;
   const forwardingNumber = 'JTTH000990001';
@@ -87,6 +100,7 @@ try {
     const upgrade = name === '20261006141735_home_stats_notes_feedback.sql';
     const businessUpgrade = name.endsWith('_pdd_business_conflict_errors.sql');
     const domesticUpgrade = name.endsWith('_domestic_waybill_guard.sql');
+    const monitorClusterUpgrade = name.endsWith('_monitor_cluster_database_size.sql');
     const beforeBusinessMetadata = businessUpgrade ? JSON.parse(await sql(businessMetadataSQL)) : null;
     if (businessUpgrade) assert.equal(beforeBusinessMetadata.length, 6);
     if (upgrade) {
@@ -100,6 +114,15 @@ try {
       await rpc('pdd_query', evidence);
     }
     const migration = (await readFile(new URL(name, directory), 'utf8')).replace(/^create extension if not exists pg_net.*$/m, '').replace(/^create extension if not exists pg_cron.*$/m, '');
+    let beforeMonitorMetadata, beforeMonitorTables;
+    if (monitorClusterUpgrade) {
+      beforeMonitorMetadata = JSON.parse(await sql(monitorMetadataSQL));
+      beforeMonitorTables = await tableDigest();
+      const transactionSize = JSON.parse(await sql(`begin; ${migration} set local role service_role; ${monitorSizeSQL} rollback;`));
+      assertClusterSize(transactionSize);
+      assert.deepEqual(JSON.parse(await sql(monitorMetadataSQL)), beforeMonitorMetadata);
+      assert.deepEqual(await tableDigest(), beforeMonitorTables);
+    }
     if (domesticUpgrade) {
       forwardingMetadata = JSON.parse(await sql(domesticMetadataSQL));
       historicalRegistration = (await rpc('pdd_batch_register', batch(forwardingNumber, 'received', capA, 'fictional_forwarding_holder'))).items[0].registration;
@@ -112,6 +135,17 @@ try {
       forwardingBefore = await forwardingSnapshot();
     }
     await sql(migration);
+    if (monitorClusterUpgrade) {
+      const afterMonitorMetadata = JSON.parse(await sql(monitorMetadataSQL));
+      const { definition: oldDefinition, ...oldIdentity } = beforeMonitorMetadata;
+      const { definition: newDefinition, ...newIdentity } = afterMonitorMetadata;
+      assert.notEqual(newDefinition, oldDefinition);
+      assert.deepEqual(newIdentity, oldIdentity);
+      assert.deepEqual(await tableDigest(), beforeMonitorTables);
+      assertClusterSize(JSON.parse(await sql(`begin read only; set local role service_role; ${monitorSizeSQL} commit;`)));
+      monitorClusterChecked = true;
+      console.log('Cluster quota migration passed real transaction rollback, preserved RPC identity/owner/ACL/security and every public-table digest, and service-role read-only size equals all databases including templates.');
+    }
     if (domesticUpgrade) {
       assert.deepEqual(JSON.parse(await sql(domesticMetadataSQL)), forwardingMetadata);
       assert.deepEqual(await forwardingSnapshot(), forwardingBefore);
@@ -159,6 +193,7 @@ try {
   assert(backfillChecked, 'The statistics/notes/feedback upgrade migration was not exercised.');
   assert(businessMetadataChecked, 'The business conflict migration metadata was not exercised.');
   assert(domesticGuardChecked, 'The domestic-waybill guard upgrade was not exercised.');
+  assert(monitorClusterChecked, 'The cluster database-size migration was not exercised.');
   await sql(await readFile(new URL('../tests/db.sql', import.meta.url), 'utf8'));
   assert.equal((await rpc('runtime_config', {})).OCR_ENABLED, 'false');
   console.log('Legacy real PostgreSQL transaction regression and server-only OCR default passed.');
@@ -440,9 +475,11 @@ try {
   }
   const monitor = JSON.parse(await sql(`begin read only; set local role service_role; ${invoke('pdd_monitor_status', {})} commit;`));
   assert(monitor.databaseBytes > 0 && monitor.connections >= 1 && monitor.maxConnections > monitor.reservedConnections);
+  assertClusterSize(JSON.parse(await sql(`begin read only; set local role service_role; ${monitorSizeSQL} commit;`)));
   assert.equal(monitor.databaseSizeLimitBytes, null);
   assert(!JSON.stringify(monitor).includes('fictional_'));
   const monitorColumns = await sql("select string_agg(key,',' order by key) from jsonb_object_keys(public.pdd_monitor_status('{}')) key;");
+  const monitorDefinition = JSON.parse(await sql(monitorMetadataSQL)).definition;
   await sql("insert into public.pdd_telemetry_daily(day,event,page,event_count) values((now() at time zone 'UTC')::date-30,'pdd_page_view','help',2); insert into public.pdd_telemetry_budget(day,daily_limit) values((now() at time zone 'UTC')::date-30,50);");
   assert.deepEqual(await rpc('pdd_telemetry_cleanup', {}), { aggregateRows: 1, budgetRows: 1 });
   telemetrySummary = await rpc('pdd_telemetry_summary', { days: 30 });
@@ -468,9 +505,12 @@ try {
   await businessError(() => rpc('pdd_feedback_submit', { ...feedbackInput, body_hash: 'restored-changed-feedback' }, 'pdd404_restore_check'), 'IDEMPOTENCY_CONFLICT');
   assert.deepEqual(await rpc('pdd_telemetry_summary', { days: 30 }, 'pdd404_restore_check'), telemetrySummary);
   assert.equal(await sql("select string_agg(key,',' order by key) from jsonb_object_keys(public.pdd_monitor_status('{}')) key;", 'pdd404_restore_check'), monitorColumns);
+  assert.equal(JSON.parse(await sql(monitorMetadataSQL, 'pdd404_restore_check')).definition, monitorDefinition);
+  assertClusterSize(JSON.parse(await sql(`begin read only; set local role service_role; ${monitorSizeSQL} commit;`, 'pdd404_restore_check')));
   await assert.rejects(() => sql("set role anon; select public.pdd_telemetry_summary('{}');", 'pdd404_restore_check'), /permission denied/);
+  await assert.rejects(() => sql("set role anon; select public.pdd_monitor_status('{}');", 'pdd404_restore_check'), /permission denied/);
   await assert.rejects(() => sql("set role authenticated; select public.pdd_monitor_status('{}');", 'pdd404_restore_check'), /permission denied/);
-  console.log('Telemetry aggregates/budget and private monitor RPC survived encrypted independent restore with public privileges still denied.');
+  console.log('Telemetry aggregates/budget and private monitor RPC survived encrypted independent restore, with size matching the restored cluster total and public privileges still denied.');
   await assert.rejects(() => rpc('pdd_query', { ...historicalQuery, query_id: randomUUID() }, 'pdd404_restore_check'), /NON_DOMESTIC_WAYBILL/);
   await assert.rejects(() => rpc('pdd_batch_register', batch(forwardingNumber, 'lost', capA, 'fictional_restored_forwarding'), 'pdd404_restore_check'), /NON_DOMESTIC_WAYBILL/);
   console.log('Encrypted dump/decrypt and independent database restore passed, including lifetime stats, notes and feedback; restored RLS remains closed.');
