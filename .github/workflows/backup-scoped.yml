@@ -1,0 +1,42 @@
+name: Encrypted scoped daily backup
+on:
+  schedule:
+    # 02:30 Asia/Bangkok, after 02:17 retention. This is a non-atomic REST fallback.
+    - cron: '30 19 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: scoped-daily-backup
+  cancel-in-progress: false
+jobs:
+  scoped-backup:
+    if: vars.ENABLE_SCOPED_BACKUP == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PRODUCTION_PROJECT_ID }}
+      SUPABASE_URL: ${{ vars.SUPABASE_PRODUCTION_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_PRODUCTION_SERVICE_ROLE_KEY }}
+      BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD }}
+      APP_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Ensure local PostgreSQL verifier is installed
+        run: sudo apt-get update && sudo apt-get install -y postgresql-16
+      - name: Encrypt scoped rows and storage; reject changing table reads
+        run: node scripts/backup-scoped.mjs backups/pdd404-scoped.cmibak
+      - name: Restore rows offline and verify constraints, privacy and storage hashes
+        run: node scripts/verify-scoped-restore.mjs backups/pdd404-scoped.cmibak
+      - uses: actions/upload-artifact@v4
+        with:
+          name: encrypted-scoped-backup-${{ github.run_id }}
+          path: backups/pdd404-scoped.cmibak
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error

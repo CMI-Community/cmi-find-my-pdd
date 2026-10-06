@@ -20,9 +20,9 @@ try {
   await run('tar', ['-xzf', archive, '-C', temporary]);
   const manifest = JSON.parse(await readFile(path.join(temporary, 'manifest.json'), 'utf8'));
   if (manifest.product !== 'cmi-find-my-pdd') throw new Error('Wrong product backup.');
-  await run('psql', ['--set', 'ON_ERROR_STOP=1', '--dbname', 'postgres', '--command', "do $$begin if to_regclass('cron.job') is not null then perform cron.unschedule(jobid) from cron.job where jobname='cmi-durable-worker'; end if; end$$;"], { env: dbEnvironment });
+  await run('psql', ['--set', 'ON_ERROR_STOP=1', '--dbname', 'postgres', '--command', "do $$begin if to_regclass('cron.job') is not null then perform cron.unschedule(jobid) from cron.job where jobname in ('cmi-durable-worker','pdd404-retention'); end if; end$$;"], { env: dbEnvironment });
   await run('pg_restore', ['--no-owner', '--exit-on-error', '--clean', '--if-exists', '--dbname', 'postgres', path.join(temporary, 'database.dump')], { env: dbEnvironment });
-  const runtime = JSON.stringify({ APP_ENVIRONMENT: 'test', APP_PUBLIC_URL: required('APP_PUBLIC_URL'), ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS ?? required('APP_PUBLIC_URL'), ADMIN_USER_IDS: process.env.ADMIN_USER_IDS ?? '', APP_SHA: process.env.APP_SHA ?? 'restore-test' }).replace(/'/g, "''");
+  const runtime = JSON.stringify({ APP_ENVIRONMENT: 'test', APP_PUBLIC_URL: required('APP_PUBLIC_URL'), ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS ?? required('APP_PUBLIC_URL'), ADMIN_USER_IDS: process.env.ADMIN_USER_IDS ?? '', OCR_ENABLED: 'false', APP_SHA: process.env.APP_SHA ?? 'restore-test' }).replace(/'/g, "''");
   const isolate = path.join(temporary, 'isolate.sql');
   await writeFile(isolate, `begin;
 update public.scans set environment='test', state=case when state in ('queued','running','deferred') then 'failed' else state end;

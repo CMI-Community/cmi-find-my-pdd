@@ -141,7 +141,8 @@ Deno.serve(async (request: Request) => {
     await ensureRuntimeConfig();
     const secret = env('WORKER_SECRET');
     if (!sameSecret(request.headers.get('x-worker-secret') ?? '', secret)) return new Response('Unauthorized', { status: 401 });
-    EdgeRuntime.waitUntil(work().catch(() => {}));
-    return Response.json({ accepted: true }, { status: 202 });
+    const ocrEnabled = env('OCR_ENABLED') === 'true';
+    EdgeRuntime.waitUntil((ocrEnabled ? work() : cleanup()).catch(() => {}));
+    return Response.json({ accepted: true, mode: ocrEnabled ? 'ocr' : 'cleanup' }, { status: 202 });
   } catch { return Response.json({ accepted: false }, { status: 503 }); }
 });
