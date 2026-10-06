@@ -1,3 +1,5 @@
+import { preloadBarcodeReader, readWaybillBarcodes } from './pdd-barcode-reader';
+
 export type DecoderControls = { stop: () => void };
 export type BarcodeScanMode = 'realtime' | 'photo';
 export type BarcodeSnapshotResult = { result: 'decoded'; text: string } | { result: 'not_found' };
@@ -159,11 +161,9 @@ export function startBarcodeScanner(stream: MediaStream, video: HTMLVideoElement
   let stopped = false, initialized = false, loopRunning = false, pass = 0, revision = 0;
   let mode = options.mode ?? 'realtime';
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let cancelNative: (() => void) | undefined, cancelPhoto: (() => void) | undefined;
+  let cancelNative: (() => void) | undefined, cancelWasm: (() => void) | undefined, cancelPhoto: (() => void) | undefined;
   let photoPromise: Promise<BarcodeSnapshotResult> | undefined;
   let native: NativeDetector | undefined, nativeDisabled = false;
-  let reader: { decodeFromCanvas: (canvas: HTMLCanvasElement) => { getText: () => string } };
-  let code128Reader: typeof reader;
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d', { willReadFrequently: true });
   const aborted = () => new DOMException('相机已关闭、已切换，或识别方式已改变。', 'AbortError');
@@ -176,6 +176,7 @@ export function startBarcodeScanner(stream: MediaStream, video: HTMLVideoElement
     // A native detect promise cannot be cancelled. Disable that detector before
     // starting another operation, then ignore its late result without overlap.
     cancelNative?.(); cancelNative = undefined;
+    cancelWasm?.(); cancelWasm = undefined;
     cancelPhoto?.(); cancelPhoto = undefined;
   };
   const scheduleLive = (delay = 120) => {
@@ -202,12 +203,7 @@ export function startBarcodeScanner(stream: MediaStream, video: HTMLVideoElement
     const supportedFormats = formats.filter(format => supported.includes(format));
     if (!stopped && !nativeDisabled && supportedFormats.length) native = new Native({ formats: supportedFormats });
   }).catch(() => undefined) : Promise.resolve();
-  const readerReady = Promise.all([import('@zxing/browser'), import('@zxing/library')]).then(([browser, library]) => {
-    const hints = new Map();
-    hints.set(library.DecodeHintType.POSSIBLE_FORMATS, [library.BarcodeFormat.CODE_128, library.BarcodeFormat.CODE_39, library.BarcodeFormat.CODE_93, library.BarcodeFormat.ITF, library.BarcodeFormat.CODABAR]);
-    code128Reader = new browser.BrowserCodeReader(new library.Code128Reader());
-    reader = new browser.BrowserMultiFormatOneDReader(hints);
-  });
+  const readerReady = preloadBarcodeReader();
   void readerReady.catch(() => undefined); // ready still propagates failures to the scanner view.
 
   const drawFrame = (source: CanvasImageSource, width: number, height: number, framePass: number, maximumDimension = 1280) => {
@@ -223,8 +219,20 @@ export function startBarcodeScanner(stream: MediaStream, video: HTMLVideoElement
   };
   const decodeFrame = async (token: number) => {
     assertCurrent(token);
+    // Read original captured pixels before trying the optional native fallback.
+    // getImageData owns its buffer, so a cancelled frame cannot share pixels
+    // with a later frame waiting for the globally serialized WASM decoder.
+    const image = context!.getImageData(0, 0, canvas.width, canvas.height);
+    let cancel!: () => void;
+    const cancellation = new Promise<never>((_resolve, reject) => { cancel = () => reject(aborted()); });
+    cancelWasm = cancel;
     let text: string | undefined;
-    if (native) {
+    try {
+      const results = await Promise.race([readWaybillBarcodes(image, () => current(token)), cancellation]);
+      assertCurrent(token);
+      text = results.find(result => result.isValid && result.text && isValid(result.text))?.text;
+    } finally { if (cancelWasm === cancel) cancelWasm = undefined; }
+    if (!text && native) {
       let deadline: ReturnType<typeof setTimeout> | undefined;
       try {
         const timedOut = Symbol('timeout'), cancelled = Symbol('cancelled');
@@ -245,8 +253,6 @@ export function startBarcodeScanner(stream: MediaStream, video: HTMLVideoElement
       } finally { if (deadline !== undefined) clearTimeout(deadline); cancelNative = undefined; }
     }
     assertCurrent(token);
-    if (!text) { try { const candidate = code128Reader.decodeFromCanvas(canvas).getText(); if (candidate && isValid(candidate)) text = candidate; } catch { /* Try the other domestic label formats below. */ } }
-    if (!text) { try { const candidate = reader.decodeFromCanvas(canvas).getText(); if (candidate && isValid(candidate)) text = candidate; } catch { /* No readable barcode in this frame. */ } }
     return text;
   };
   const loop = async () => {
@@ -302,11 +308,11 @@ export function startBarcodeScanner(stream: MediaStream, video: HTMLVideoElement
     const run = (async (): Promise<BarcodeSnapshotResult> => {
       await Promise.race([ready, cancellation]);
       assertCurrent(token);
-      // Nine distinct, bounded attempts. Full-frame and vertical attempts lead;
-      // photo decoding retains up to 2048 pixels without upscaling small frames.
+      // Nine distinct, bounded attempts. The complete original-resolution photo
+      // leads; guide geometry and rotations are only additional local attempts.
       for (const framePass of [7, 9, 0, 1, 2, 3, 4, 5, 6]) {
         await yieldToUI(); assertCurrent(token);
-        if (drawFrame(photo, width, height, framePass, 2048)) {
+        if (drawFrame(photo, width, height, framePass, Math.max(width, height))) {
           const text = await decodeFrame(token); assertCurrent(token);
           if (text) {
             completed = true; onDecoded(text);

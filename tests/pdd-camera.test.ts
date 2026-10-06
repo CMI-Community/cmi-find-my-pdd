@@ -1,26 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 
 const decoder = vi.hoisted(() => ({
   loading: undefined as Promise<void> | undefined,
   decode: vi.fn(),
-  fastDecode: vi.fn(),
-  constructed: vi.fn(),
+  preload: vi.fn(),
 }));
 
-vi.mock('@zxing/browser', async () => {
-  await decoder.loading;
-  return { BrowserCodeReader: class {
-    decodeFromCanvas(canvas: HTMLCanvasElement) { return decoder.fastDecode(canvas); }
-  }, BrowserMultiFormatOneDReader: class {
-    constructor(hints: Map<number, unknown>) { decoder.constructed(hints); }
-    decodeFromCanvas(canvas: HTMLCanvasElement) { return decoder.decode(canvas); }
-  } };
-});
-vi.mock('@zxing/library', () => ({
-  DecodeHintType: { POSSIBLE_FORMATS: 2 },
-  BarcodeFormat: { CODE_128: 4, CODE_39: 2, CODE_93: 3, ITF: 8, CODABAR: 1 },
-  Code128Reader: class {},
+vi.mock('../src/pdd-barcode-reader', () => ({
+  preloadBarcodeReader: () => { decoder.preload(); return decoder.loading; },
+  readWaybillBarcodes: async (image: ImageData) => {
+    const result = await decoder.decode(image);
+    return Array.isArray(result) ? result : result ? [{ isValid: true, text: result.getText() }] : [];
+  },
 }));
 
 function deferred<T>() {
@@ -30,13 +23,13 @@ function deferred<T>() {
 }
 
 function fixtures(play: Promise<void> = Promise.resolve()) {
-  const context = { drawImage: vi.fn(), fillRect: vi.fn(), translate: vi.fn(), rotate: vi.fn(), imageSmoothingEnabled: true };
+  const context = { drawImage: vi.fn(), fillRect: vi.fn(), translate: vi.fn(), rotate: vi.fn(), imageSmoothingEnabled: true, getImageData: () => ({ width: canvas.width, height: canvas.height, data: new Uint8ClampedArray(4) }) };
   const canvas = { width: 0, height: 0, getContext: () => context } as unknown as HTMLCanvasElement;
   const photos: { canvas: HTMLCanvasElement; drawImage: ReturnType<typeof vi.fn> }[] = [];
   let created = false;
   vi.stubGlobal('document', { createElement: vi.fn(() => {
     if (!created) { created = true; return canvas; }
-    const drawImage = vi.fn(), photoContext = { drawImage, fillRect: vi.fn(), rotate: vi.fn(), translate: vi.fn(), imageSmoothingEnabled: true };
+    const drawImage = vi.fn(), photoContext = { drawImage, fillRect: vi.fn(), rotate: vi.fn(), translate: vi.fn(), imageSmoothingEnabled: true, getImageData: () => ({ width: photo.width, height: photo.height, data: new Uint8ClampedArray(4) }) };
     const photo = { width: 0, height: 0, getContext: () => photoContext } as unknown as HTMLCanvasElement;
     photos.push({ canvas: photo, drawImage }); return photo;
   }) });
@@ -53,9 +46,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.resetModules();
   decoder.loading = Promise.resolve();
-  decoder.constructed.mockReset();
-  decoder.decode.mockReset().mockImplementation(() => { throw new Error('Synthetic frame has no barcode'); });
-  decoder.fastDecode.mockReset().mockImplementation(() => { throw new Error('Synthetic frame has no Code128'); });
+  decoder.preload.mockReset();
+  decoder.decode.mockReset().mockResolvedValue([]);
   vi.stubGlobal('BarcodeDetector', undefined);
 });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -95,11 +87,11 @@ describe('barcode scanner scheduling and camera lifecycle', () => {
       detect = detect;
     });
     const { video, stream } = fixtures(), { startBarcodeScanner } = await import('../src/pdd-camera');
-    const controls = startBarcodeScanner(stream, video, vi.fn()); await controls.ready;
+    const controls = startBarcodeScanner(stream, video, vi.fn()); await controls.ready; await vi.advanceTimersByTimeAsync(0);
     expect(detect).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(100);
     expect(detect).toHaveBeenCalledOnce();
-    expect(decoder.decode).not.toHaveBeenCalled();
+    expect(decoder.decode).toHaveBeenCalledOnce();
     first.resolve([]); await vi.advanceTimersByTimeAsync(0);
     expect(decoder.decode).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(119); expect(detect).toHaveBeenCalledOnce();
@@ -115,11 +107,11 @@ describe('barcode scanner scheduling and camera lifecycle', () => {
     });
     const { video, stream } = fixtures(), onDecoded = vi.fn();
     const { startBarcodeScanner } = await import('../src/pdd-camera');
-    const controls = startBarcodeScanner(stream, video, onDecoded); await controls.ready;
+    const controls = startBarcodeScanner(stream, video, onDecoded); await controls.ready; await vi.advanceTimersByTimeAsync(0);
     controls.stop(); result.resolve([{ rawValue: '12345678901234' }]);
     await vi.advanceTimersByTimeAsync(1000);
     expect(onDecoded).not.toHaveBeenCalled();
-    expect(decoder.decode).not.toHaveBeenCalled();
+    expect(decoder.decode).toHaveBeenCalledOnce();
     expect(detect).toHaveBeenCalledOnce();
   });
 
@@ -131,12 +123,12 @@ describe('barcode scanner scheduling and camera lifecycle', () => {
     });
     const { video, stream } = fixtures(), onDecoded = vi.fn();
     const { startBarcodeScanner } = await import('../src/pdd-camera');
-    const controls = startBarcodeScanner(stream, video, onDecoded); await controls.ready;
+    const controls = startBarcodeScanner(stream, video, onDecoded); await controls.ready; await vi.advanceTimersByTimeAsync(0);
     expect(vi.getTimerCount()).toBe(1);
     controls.stop(); expect(vi.getTimerCount()).toBe(0);
     await vi.advanceTimersByTimeAsync(0);
     result.resolve([{ rawValue: '12345678901234' }]); await vi.advanceTimersByTimeAsync(1000);
-    expect(onDecoded).not.toHaveBeenCalled(); expect(decoder.decode).not.toHaveBeenCalled();
+    expect(onDecoded).not.toHaveBeenCalled(); expect(decoder.decode).toHaveBeenCalledOnce();
   });
 
   it('does not let an old scanner ready or stop clear the replacement video stream', async () => {
@@ -151,8 +143,7 @@ describe('barcode scanner scheduling and camera lifecycle', () => {
     old.stop(); playing.resolve(); await old.ready;
     expect(video.srcObject).toBe(next.stream);
     expect(context.drawImage).not.toHaveBeenCalled(); expect(photos[0].drawImage).toHaveBeenCalledOnce();
-    expect(decoder.constructed).toHaveBeenCalledTimes(2);
-    expect(decoder.fastDecode).toHaveBeenCalledOnce();
+    expect(decoder.preload).toHaveBeenCalledTimes(2);
     expect(decoder.decode).toHaveBeenCalledOnce(); current.stop();
   });
 
@@ -162,13 +153,13 @@ describe('barcode scanner scheduling and camera lifecycle', () => {
       static getSupportedFormats() { return Promise.resolve(['code_128']); }
       detect = detect;
     });
-    decoder.decode.mockReturnValue({ getText: () => '12345678901234' });
+    decoder.decode.mockResolvedValueOnce([]).mockResolvedValue({ getText: () => '12345678901234' });
     const { video, stream } = fixtures(), onDecoded = vi.fn();
     const { startBarcodeScanner } = await import('../src/pdd-camera');
     const controls = startBarcodeScanner(stream, video, onDecoded); await controls.ready;
     await vi.advanceTimersByTimeAsync(0);
-    expect(onDecoded).toHaveBeenCalledWith('12345678901234');
     await vi.advanceTimersByTimeAsync(120);
+    expect(onDecoded).toHaveBeenCalledWith('12345678901234');
     expect(detect).toHaveBeenCalledOnce();
     expect(decoder.decode).toHaveBeenCalledTimes(2);
     controls.stop();
@@ -201,7 +192,7 @@ describe('barcode scanner scheduling and camera lifecycle', () => {
     const { video, stream } = fixtures(), onDecoded = vi.fn();
     const { startBarcodeScanner } = await import('../src/pdd-camera');
     const controls = startBarcodeScanner(stream, video, onDecoded); await controls.ready;
-    await vi.advanceTimersByTimeAsync(299); expect(decoder.decode).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(299); expect(decoder.decode).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(1); expect(decoder.decode).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(120); expect(decoder.decode).toHaveBeenCalledTimes(2);
     expect(detect).toHaveBeenCalledOnce();
@@ -209,14 +200,16 @@ describe('barcode scanner scheduling and camera lifecycle', () => {
     expect(onDecoded).not.toHaveBeenCalled(); controls.stop();
   });
 
-  it('uses the Code128 fast path before the restricted multi-format fallback', async () => {
-    decoder.fastDecode.mockReturnValue({ getText: () => '12345678901234' });
+  it('uses WASM before the optional native fallback', async () => {
+    const detect = vi.fn();
+    vi.stubGlobal('BarcodeDetector', class { static getSupportedFormats() { return Promise.resolve(['code_128']); } detect = detect; });
+    decoder.decode.mockResolvedValue({ getText: () => '12345678901234' });
     const { video, stream } = fixtures(), onDecoded = vi.fn();
     const { startBarcodeScanner } = await import('../src/pdd-camera');
-    const controls = startBarcodeScanner(stream, video, onDecoded); await controls.ready;
+    const controls = startBarcodeScanner(stream, video, onDecoded); await controls.ready; await vi.advanceTimersByTimeAsync(0);
     expect(onDecoded).toHaveBeenCalledWith('12345678901234');
-    expect(decoder.decode).not.toHaveBeenCalled();
-    expect([...decoder.constructed.mock.calls[0][0].values()]).toEqual([[4, 2, 3, 8, 1]]);
+    expect(decoder.decode).toHaveBeenCalledOnce();
+    expect(detect).not.toHaveBeenCalled();
     controls.stop();
   });
 
@@ -232,24 +225,18 @@ describe('barcode scanner scheduling and camera lifecycle', () => {
     await controls.ready; await vi.advanceTimersByTimeAsync(0);
     expect(onDecoded).toHaveBeenCalledOnce();
     expect(onDecoded).toHaveBeenCalledWith('12345678901234');
-    expect(decoder.fastDecode).not.toHaveBeenCalled(); controls.stop();
+    expect(decoder.decode).toHaveBeenCalledOnce(); controls.stop();
   });
 
-  it('continues through invalid native and fast-path readings to a valid fallback barcode', async () => {
-    vi.stubGlobal('BarcodeDetector', class {
-      static getSupportedFormats() { return Promise.resolve(['code_128']); }
-      detect() { return Promise.resolve([{ rawValue: 'SKU' }]); }
-    });
-    decoder.fastDecode.mockReturnValue({ getText: () => 'SKU' });
-    decoder.decode.mockReturnValue({ getText: () => '12345678901234' });
+  it('skips invalid or errored WASM candidates and keeps complete leading zeroes', async () => {
+    decoder.decode.mockResolvedValue([{ isValid: true, text: 'SKU' }, { isValid: false, text: '999999999999' }, { isValid: true, text: '001234567890' }]);
     const { video, stream } = fixtures(), onDecoded = vi.fn();
     const { startBarcodeScanner } = await import('../src/pdd-camera');
-    const controls = startBarcodeScanner(stream, video, onDecoded, text => text === '12345678901234');
+    const controls = startBarcodeScanner(stream, video, onDecoded, text => /^\d{12}$/.test(text));
     await controls.ready; await vi.advanceTimersByTimeAsync(0);
-    expect(decoder.fastDecode).toHaveBeenCalledOnce();
     expect(decoder.decode).toHaveBeenCalledOnce();
     expect(onDecoded).toHaveBeenCalledOnce();
-    expect(onDecoded).toHaveBeenCalledWith('12345678901234'); controls.stop();
+    expect(onDecoded).toHaveBeenCalledWith('001234567890'); controls.stop();
   });
 
   it('reports decoder initialization failure without silently continuing an empty scan loop', async () => {
@@ -283,7 +270,7 @@ describe('explicit local photo barcode decoding', () => {
     const scanner = startBarcodeScanner(stream, video, vi.fn(), undefined, { mode: 'photo' });
     await scanner.ready; await vi.advanceTimersByTimeAsync(10000);
     expect(video.srcObject).toBe(stream); expect(video.play).toHaveBeenCalledOnce();
-    expect(decoder.fastDecode).not.toHaveBeenCalled(); expect(decoder.decode).not.toHaveBeenCalled();
+    expect(decoder.decode).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0); scanner.stop();
   });
 
@@ -291,7 +278,7 @@ describe('explicit local photo barcode decoding', () => {
     const { stream, video, photos, context } = fixtures(), { startBarcodeScanner } = await import('../src/pdd-camera');
     const onDecoded = vi.fn();
     const scanner = startBarcodeScanner(stream, video, onDecoded, undefined, { mode: 'photo' }); await scanner.ready;
-    decoder.decode.mockImplementationOnce(() => { throw new Error('Whole frame misses'); }).mockReturnValue({ getText: () => '12345678901234' });
+    decoder.decode.mockResolvedValueOnce([]).mockResolvedValue({ getText: () => '12345678901234' });
     const result = scanner.capture(); expect(scanner.capture()).toBe(result);
     expect(photos).toHaveLength(1); expect(photos[0].drawImage).toHaveBeenCalledExactlyOnceWith(video, 0, 0, 1280, 720);
     expect(decoder.decode).not.toHaveBeenCalled();
@@ -326,7 +313,7 @@ describe('explicit local photo barcode decoding', () => {
     const session = createCameraSession(async () => stream); await session.ready;
     const scanner = startBarcodeScanner(stream, video, () => session.stop(), undefined, { mode: 'photo' });
     session.attachDecoder(scanner); await scanner.ready;
-    decoder.fastDecode.mockReturnValue({ getText: () => '12345678901234' });
+    decoder.decode.mockResolvedValue({ getText: () => '12345678901234' });
     const result = scanner.capture(); await vi.advanceTimersByTimeAsync(16);
     await expect(result).resolves.toEqual({ result: 'decoded', text: '12345678901234' });
     expect(video.srcObject).toBeNull(); expect(video.pause).toHaveBeenCalledOnce();
@@ -352,15 +339,15 @@ describe('explicit local photo barcode decoding', () => {
     scanner.stop(); expect(vi.getTimerCount()).toBe(0); expect(await result).toMatchObject({ name: 'AbortError' });
     expect(photos[0].canvas.width).toBe(0);
     nativeResult.resolve([{ rawValue: '12345678901234' }]); await vi.advanceTimersByTimeAsync(1000);
-    expect(onDecoded).not.toHaveBeenCalled(); expect(decoder.decode).not.toHaveBeenCalled();
+    expect(onDecoded).not.toHaveBeenCalled(); expect(decoder.decode).toHaveBeenCalledOnce();
   });
 
   it('interrupts an old realtime native frame before capturing without overlapping native calls', async () => {
     const nativeResult = deferred<{ rawValue: string }[]>(), detect = vi.fn(() => nativeResult.promise);
     vi.stubGlobal('BarcodeDetector', class { static getSupportedFormats() { return Promise.resolve(['code_128']); } detect = detect; });
     const { stream, video } = fixtures(), onDecoded = vi.fn(), { startBarcodeScanner } = await import('../src/pdd-camera');
-    const scanner = startBarcodeScanner(stream, video, onDecoded); await scanner.ready; expect(detect).toHaveBeenCalledOnce();
-    decoder.fastDecode.mockReturnValue({ getText: () => '12345678901234' });
+    const scanner = startBarcodeScanner(stream, video, onDecoded); await scanner.ready; await vi.advanceTimersByTimeAsync(0); expect(detect).toHaveBeenCalledOnce();
+    decoder.decode.mockResolvedValue({ getText: () => '12345678901234' });
     const result = scanner.capture(); await vi.advanceTimersByTimeAsync(16);
     await expect(result).resolves.toEqual({ result: 'decoded', text: '12345678901234' });
     expect(detect).toHaveBeenCalledOnce(); expect(onDecoded).toHaveBeenCalledOnce();
@@ -375,6 +362,29 @@ describe('explicit local photo barcode decoding', () => {
     const result = scanner.capture().catch(error => error); scanner.stop();
     expect(await result).toMatchObject({ name: 'AbortError' }); expect(vi.getTimerCount()).toBe(0);
     loading.resolve(); await scanner.ready; expect(decoder.decode).not.toHaveBeenCalled();
+  });
+
+  it('cancels a running WASM photo immediately and discards its late number', async () => {
+    const decoding = deferred<unknown[]>(); decoder.decode.mockReturnValue(decoding.promise);
+    const { stream, video, photos } = fixtures(), onDecoded = vi.fn(), { startBarcodeScanner } = await import('../src/pdd-camera');
+    const scanner = startBarcodeScanner(stream, video, onDecoded, undefined, { mode: 'photo' }); await scanner.ready;
+    const result = scanner.capture().catch(error => error); await vi.advanceTimersByTimeAsync(16);
+    expect(decoder.decode).toHaveBeenCalledOnce(); scanner.stop();
+    expect(await result).toMatchObject({ name: 'AbortError' });
+    expect(photos[0].canvas.width).toBe(0); expect(vi.getTimerCount()).toBe(0);
+    decoding.resolve([{ isValid: true, text: '12345678901234' }]); await vi.advanceTimersByTimeAsync(1000);
+    expect(onDecoded).not.toHaveBeenCalled();
+  });
+
+  it('passes a portrait phone photo to WASM at its complete original resolution', async () => {
+    const { stream, video, photos } = fixtures(), { startBarcodeScanner } = await import('../src/pdd-camera');
+    Object.defineProperty(video, 'videoWidth', { value: 1080 }); Object.defineProperty(video, 'videoHeight', { value: 1920 });
+    decoder.decode.mockResolvedValue([{ isValid: true, text: '001234567890' }]);
+    const scanner = startBarcodeScanner(stream, video, vi.fn(), undefined, { mode: 'photo' }); await scanner.ready;
+    const result = scanner.capture(); await vi.advanceTimersByTimeAsync(16);
+    expect(photos[0].drawImage).toHaveBeenCalledExactlyOnceWith(video, 0, 0, 1080, 1920);
+    expect(decoder.decode.mock.calls[0][0]).toMatchObject({ width: 1080, height: 1920 });
+    await expect(result).resolves.toEqual({ result: 'decoded', text: '001234567890' }); scanner.stop();
   });
 
   it('cancels photo work when changing mode or replacing the scanner and retains the new preview', async () => {
@@ -547,19 +557,23 @@ describe('capability-limited camera selection and focus', () => {
   });
 });
 
-// Use the real installed CommonJS decoders, outside the lifecycle mocks above.
+// Use the real installed WASM decoder, outside the lifecycle mocks above.
 // These fixtures contain only a synthetic Code128 number and generated pixels.
 const require = createRequire(import.meta.url);
-const actualLibrary = require('@zxing/library') as typeof import('@zxing/library');
-const actualBrowser = require('@zxing/browser') as typeof import('@zxing/browser');
+const actualWasm = require('zxing-wasm/reader') as typeof import('zxing-wasm/reader');
+const wasmBinary = readFileSync(require.resolve('zxing-wasm/reader/zxing_reader.wasm'));
+const actualWasmReady = actualWasm.prepareZXingModule({ overrides: { wasmBinary: wasmBinary.buffer.slice(wasmBinary.byteOffset, wasmBinary.byteOffset + wasmBinary.byteLength) }, fireImmediately: true });
+const actualReaderOptions = (await vi.importActual<typeof import('../src/pdd-barcode-reader')>('../src/pdd-barcode-reader')).waybillReaderOptions;
 type GrayFrame = { width: number; height: number; pixels: Uint8ClampedArray };
 const fixtureNumber = '12345678901234';
 
-function syntheticCode128(angle: number, centerY = 240, invalidChecksum = false): GrayFrame {
-  const codes = [105, ...fixtureNumber.match(/../g)!.map(Number)];
+function syntheticCode128(angle: number, centerY = 240, invalidChecksum = false, number = fixtureNumber): GrayFrame {
+  const codes = [105, ...number.match(/../g)!.map(Number)];
   const checksum = codes.reduce((sum, code, index) => sum + code * (index || 1), 0) % 103;
   codes.push(invalidChecksum ? (checksum + 1) % 103 : checksum, 106);
-  const patterns = (actualLibrary.Code128Reader as unknown as { CODE_PATTERNS: Int32Array[] }).CODE_PATTERNS;
+  // Standard Code128 module runs needed by this fixed synthetic payload,
+  // including the deliberately invalid checksum variant.
+  const patterns: Record<number, number[]> = { 0: [2, 1, 2, 2, 2, 2], 12: [1, 1, 2, 2, 3, 2], 34: [1, 3, 1, 1, 2, 3], 56: [3, 3, 1, 1, 2, 1], 74: [1, 4, 2, 2, 1, 1], 75: [2, 4, 1, 2, 1, 1], 78: [2, 4, 1, 1, 1, 2], 86: [4, 1, 1, 2, 1, 2], 87: [4, 2, 1, 1, 1, 2], 90: [2, 1, 4, 1, 2, 1], 105: [2, 1, 1, 2, 3, 2], 106: [2, 3, 3, 1, 1, 1, 2] };
   const runs = codes.flatMap(code => Array.from(patterns[code]));
   const modules = runs.reduce((sum, value) => sum + value, 0) + 24;
   const bar = new Uint8ClampedArray(modules * 2).fill(255);
@@ -634,7 +648,7 @@ function frozenPixelFixtures(initial: GrayFrame) {
         const frame = frames.get(canvas)!;
         const rgba = new Uint8ClampedArray(frame.width * frame.height * 4);
         frame.pixels.forEach((value, index) => { rgba[index * 4] = rgba[index * 4 + 1] = rgba[index * 4 + 2] = value; rgba[index * 4 + 3] = 255; });
-        return { data: rgba };
+        return { data: rgba, width: frame.width, height: frame.height };
       },
     };
     return canvas;
@@ -642,33 +656,37 @@ function frozenPixelFixtures(initial: GrayFrame) {
   return { video, stream, frozen, changePreview(frame: GrayFrame) { preview = frame; } };
 }
 
-describe('real Code128 pixels and production capture geometry', () => {
-  const hints = new Map([[actualLibrary.DecodeHintType.POSSIBLE_FORMATS, [actualLibrary.BarcodeFormat.CODE_128, actualLibrary.BarcodeFormat.CODE_39, actualLibrary.BarcodeFormat.CODE_93, actualLibrary.BarcodeFormat.ITF, actualLibrary.BarcodeFormat.CODABAR]]]);
-  function decode(frame: GrayFrame, defaultFormats = false) {
-    try { return new actualBrowser.BrowserMultiFormatOneDReader(defaultFormats ? undefined : hints).decodeFromCanvas(pixelCanvas(frame)).getText(); }
-    catch { return undefined; }
+describe('real WASM Code128 pixels and production capture geometry', () => {
+  async function decode(frame: GrayFrame) {
+    await actualWasmReady;
+    const canvas = pixelCanvas(frame), image = { ...canvas.getContext('2d')!.getImageData(0, 0, frame.width, frame.height), width: frame.width, height: frame.height } as ImageData;
+    return (await actualWasm.readBarcodes(image, actualReaderOptions)).find(result => result.isValid)?.text;
   }
   it.each([
     ['top edge', 0, 48], ['bottom edge', 0, 432], ['clockwise tilt', 25, 240],
     ['counterclockwise tilt', -25, 240], ['vertical barcode', 90, 240],
-  ] as const)('recovers %s that the old default whole-frame scan misses', async (_name, angle, centerY) => {
+  ] as const)('recognizes %s using the original frame and geometric passes', async (_name, angle, centerY) => {
     const source = syntheticCode128(angle, centerY);
-    expect(decode(source, true)).toBeUndefined();
     const { barcodeFramePlan } = await import('../src/pdd-camera');
-    const results = Array.from({ length: 10 }, (_, pass) => decode(renderCapture(source, barcodeFramePlan(source.width, source.height, pass))));
+    const results: (string | undefined)[] = [await decode(source)];
+    for (let pass = 0; pass < 10; pass++) results.push(await decode(renderCapture(source, barcodeFramePlan(source.width, source.height, pass))));
     expect(results).toContain(fixtureNumber);
     expect(results.filter(Boolean).every(value => value === fixtureNumber)).toBe(true);
   });
 
   it('rejects a synthetic barcode with a damaged Code128 checksum', async () => {
     const source = syntheticCode128(0, 240, true), { barcodeFramePlan } = await import('../src/pdd-camera');
-    for (let pass = 0; pass < 10; pass++) expect(decode(renderCapture(source, barcodeFramePlan(source.width, source.height, pass)))).toBeUndefined();
+    for (let pass = 0; pass < 10; pass++) expect(await decode(renderCapture(source, barcodeFramePlan(source.width, source.height, pass)))).toBeUndefined();
+  });
+
+  it('keeps leading zeroes in a real WASM decoded Code128', async () => {
+    expect(await decode(syntheticCode128(0, 240, false, '00345678901234'))).toBe('00345678901234');
   });
 
   it.each([25, 90])('decodes an actual frozen %s-degree photo after the live preview changes', async angle => {
     const source = syntheticCode128(angle), { video, stream, frozen, changePreview } = frozenPixelFixtures(source);
-    decoder.fastDecode.mockImplementation(canvas => new actualBrowser.BrowserCodeReader(new actualLibrary.Code128Reader()).decodeFromCanvas(canvas));
-    decoder.decode.mockImplementation(canvas => new actualBrowser.BrowserMultiFormatOneDReader(hints).decodeFromCanvas(canvas));
+    await actualWasmReady;
+    decoder.decode.mockImplementation(image => actualWasm.readBarcodes(image, actualReaderOptions));
     const onDecoded = vi.fn(), { startBarcodeScanner } = await import('../src/pdd-camera');
     const scanner = startBarcodeScanner(stream, video, onDecoded, text => text === fixtureNumber, { mode: 'photo' }); await scanner.ready;
     const result = scanner.capture();
@@ -680,9 +698,9 @@ describe('real Code128 pixels and production capture geometry', () => {
     expect(vi.getTimerCount()).toBe(0); scanner.stop();
   });
 
-  it('retains more fine pixels for a high-resolution photo without upscaling a small camera frame', async () => {
+  it('retains original photo detail without upscaling a small camera frame', async () => {
     const { barcodeFramePlan } = await import('../src/pdd-camera');
-    expect(barcodeFramePlan(3840, 2160, 7, 2048)).toMatchObject({ targetWidth: 2048, targetHeight: 1152 });
-    expect(barcodeFramePlan(640, 480, 7, 2048)).toMatchObject({ targetWidth: 640, targetHeight: 480 });
+    expect(barcodeFramePlan(3840, 2160, 7, Math.max(3840, 2160))).toMatchObject({ targetWidth: 3840, targetHeight: 2160 });
+    expect(barcodeFramePlan(640, 480, 7, Math.max(640, 480))).toMatchObject({ targetWidth: 640, targetHeight: 480 });
   });
 });

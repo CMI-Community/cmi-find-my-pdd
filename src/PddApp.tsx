@@ -112,14 +112,20 @@ export function createScannerCameraController(getUserMedia: (constraints: MediaS
     stop() { const previous = current; current = null; previous?.stop(); },
   };
 }
-export function ScannerPreview({ videoRef, mirrored, onDimensions }: { videoRef: RefObject<HTMLVideoElement | null>; mirrored: boolean; onDimensions: () => void }) {
-  // CSS changes only the preview; the decoder still receives the original video.
-  return <video ref={videoRef} autoPlay playsInline muted data-preview-mirrored={mirrored ? 'true' : 'false'} aria-label="摄像头实时画面" onLoadedMetadata={onDimensions} onResize={onDimensions} />;
+export function ScannerPreview({ videoRef, mirrored }: { videoRef: RefObject<HTMLVideoElement | null>; mirrored: boolean }) {
+  // The horizontal window shows the center of the camera image. CSS changes
+  // only the preview; the decoder still receives the complete original video.
+  return <video ref={videoRef} autoPlay playsInline muted data-preview-mirrored={mirrored ? 'true' : 'false'} aria-label="摄像头中央取景画面" />;
 }
 type ScannerDevice = { deviceId: string; label: string };
+export function scannerReaderErrorMessage(exception: unknown) {
+  return exception instanceof Error && exception.name === 'BarcodeReaderUnavailableError'
+    ? '条形码识别组件未能加载。请刷新页面重试，或关闭扫码并手动输入单号。'
+    : null;
+}
 export function scannerFailureCanEnumerate(exception: unknown) {
   const name = exception instanceof Error || exception instanceof DOMException ? exception.name : '';
-  return !['NotAllowedError', 'SecurityError', 'AbortError'].includes(name);
+  return !['NotAllowedError', 'SecurityError', 'AbortError', 'BarcodeReaderUnavailableError'].includes(name);
 }
 export async function refreshScannerDevices(mediaDevices: Pick<MediaDevices, 'enumerateDevices'>, isCurrent: () => boolean, onDevices: (devices: ScannerDevice[]) => void) {
   try {
@@ -157,14 +163,15 @@ function Scanner({ onDecoded, onClose }: { onDecoded: (number: string) => void; 
   const [scanMode, setScanMode] = useState<BarcodeScanMode>('photo'), [photoBusy, setPhotoBusy] = useState(false), [photoNotice, setPhotoNotice] = useState('');
   const [request, setRequest] = useState<{ deviceId?: string; revision: number }>({ revision: 0 });
   const [error, setError] = useState(''), [phase, setPhase] = useState<'permission' | 'opening' | 'switching' | 'scanning' | 'error'>('permission');
-  const [helpStage, setHelpStage] = useState(0), [videoAspect, setVideoAspect] = useState('4 / 3'), [devices, setDevices] = useState<ScannerDevice[]>([]), [camera, setCamera] = useState<CameraDescription | null>(null), [mirrored, setMirrored] = useState(false);
+  const [readerUnavailable, setReaderUnavailable] = useState(false);
+  const [helpStage, setHelpStage] = useState(0), [devices, setDevices] = useState<ScannerDevice[]>([]), [camera, setCamera] = useState<CameraDescription | null>(null), [mirrored, setMirrored] = useState(false);
   const [manualFocus, setManualFocus] = useState(false), [focusValue, setFocusValue] = useState(0), [focusBusy, setFocusBusy] = useState(false), [focusError, setFocusError] = useState(''), [focusMessage, setFocusMessage] = useState('');
   const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null), focusSequence = useRef(0), cameraSequence = useRef(0), onDecodedRef = useRef(onDecoded), onCloseRef = useRef(onClose);
   onDecodedRef.current = onDecoded; onCloseRef.current = onClose;
   const clearFocusTimer = () => { if (focusTimer.current) clearTimeout(focusTimer.current); focusTimer.current = null; };
   const stopCurrent = () => { clearFocusTimer(); focusSequence.current++; captureSequence.current++; streamRef.current = null; scannerRef.current = null; captureBusy.current = false; controller.current?.stop(); };
   const close = () => { cameraSequence.current++; stopCurrent(); onCloseRef.current(); };
-  const changeCamera = (deviceId?: string) => { cameraSequence.current++; stopCurrent(); setPhotoBusy(false); setPhotoNotice(''); setPhase('switching'); setError(''); setRequest(value => ({ deviceId, revision: value.revision + 1 })); };
+  const changeCamera = (deviceId?: string) => { cameraSequence.current++; stopCurrent(); setPhotoBusy(false); setPhotoNotice(''); setPhase('switching'); setError(''); setReaderUnavailable(false); setRequest(value => ({ deviceId, revision: value.revision + 1 })); };
   const changeReadMode = (mode: BarcodeScanMode) => { if (mode === scanModeRef.current) return; scanModeRef.current = mode; captureSequence.current++; scannerRef.current?.setMode(mode); captureBusy.current = false; setScanMode(mode); setPhotoBusy(false); setPhotoNotice(''); setError(''); };
   const capturePhoto = async () => {
     const controls = scannerRef.current, stream = streamRef.current, revision = cameraSequence.current;
@@ -184,12 +191,13 @@ function Scanner({ onDecoded, onClose }: { onDecoded: (number: string) => void; 
       if (result.result === 'not_found') setPhotoNotice('这张照片未识别到条形码。请让黑白线条清楚后再拍，或手动输入单号。');
     } catch (exception) {
       if (scannerRef.current !== controls || streamRef.current !== stream || revision !== cameraSequence.current || attempt !== captureSequence.current) return;
-      if (!(exception instanceof Error && exception.name === 'AbortError')) setError('这次拍照识别没有完成。请等画面清楚后重新拍照；也可手动输入单号。');
+      const readerError = scannerReaderErrorMessage(exception);
+      if (readerError) { stopCurrent(); setPhotoBusy(false); setReaderUnavailable(true); setError(readerError); setPhase('error'); }
+      else if (!(exception instanceof Error && exception.name === 'AbortError')) setError('这次拍照识别没有完成。请等画面清楚后重新拍照；也可手动输入单号。');
     } finally {
       if (scannerRef.current === controls && streamRef.current === stream && revision === cameraSequence.current && attempt === captureSequence.current) { captureBusy.current = false; setPhotoBusy(false); void video.current?.play().catch(() => { if (scannerRef.current === controls && streamRef.current === stream && revision === cameraSequence.current && attempt === captureSequence.current) setError('相机画面未恢复。请关闭后重新扫码，或手动输入单号。'); }); }
     }
   };
-  const updateVideoAspect = () => { const element = video.current; if (element?.videoWidth && element.videoHeight) setVideoAspect(`${element.videoWidth} / ${element.videoHeight}`); };
   const adjustFocus = async (mode: CameraFocusMode, distance?: number) => {
     const stream = streamRef.current;
     if (!stream) return;
@@ -256,7 +264,9 @@ function Scanner({ onDecoded, onClose }: { onDecoded: (number: string) => void; 
         const current = ownsSession(); stop();
         if (!activeRequest() || decoded || (!current && session)) return;
         const name = exception instanceof DOMException || exception instanceof Error ? exception.name : '';
-        setError(name === 'NotAllowedError' || name === 'SecurityError' ? '摄像头权限未开启。请在浏览器或系统设置中允许本网站使用相机，再重新扫码；也可手动输入单号。' : name === 'NotFoundError' || name === 'OverconstrainedError' ? '没有找到这台摄像头。请重新选择其他摄像头，或直接输入单号。' : name === 'NotReadableError' ? '摄像头被占用或暂时无法启动。请关闭其他使用相机的应用，再重新扫码；也可手动输入单号。' : !navigator.mediaDevices?.getUserMedia ? '当前浏览器无法使用摄像头。请用 Safari 或其他浏览器打开，也可以直接输入单号。' : '相机未能启动。请重新开启相机；仍无法使用时可直接输入单号。');
+        const readerError = scannerReaderErrorMessage(exception);
+        setReaderUnavailable(!!readerError);
+        setError(readerError || (name === 'NotAllowedError' || name === 'SecurityError' ? '摄像头权限未开启。请在浏览器或系统设置中允许本网站使用相机，再重新扫码；也可手动输入单号。' : name === 'NotFoundError' || name === 'OverconstrainedError' ? '没有找到这台摄像头。请重新选择其他摄像头，或直接输入单号。' : name === 'NotReadableError' ? '摄像头被占用或暂时无法启动。请关闭其他使用相机的应用，再重新扫码；也可手动输入单号。' : !navigator.mediaDevices?.getUserMedia ? '当前浏览器无法使用摄像头。请用 Safari 或其他浏览器打开，也可以直接输入单号。' : '相机未能启动。请重新开启相机；仍无法使用时可直接输入单号。'));
         setPhase('error');
         if (scannerFailureCanEnumerate(exception) && typeof navigator.mediaDevices?.enumerateDevices === 'function') void refreshScannerDevices(navigator.mediaDevices, activeRequest, setDevices);
       }
@@ -264,15 +274,14 @@ function Scanner({ onDecoded, onClose }: { onDecoded: (number: string) => void; 
     return () => { active = false; document.removeEventListener('visibilitychange', hidden); stop(); };
   }, [request]);
   const status = phase === 'permission' ? '正在申请摄像头权限…' : phase === 'switching' ? '正在切换摄像头…' : phase === 'opening' ? '相机已开启，正在准备识别…' : photoBusy ? '已拍下画面，正在本机识别…' : scanMode === 'photo' ? '对准完整条码，点击下方“拍照识别”。' : '正在自动扫描；也可以直接拍照识别。';
-  const guidance = helpStage === 0 ? '把整个条码和两端白边放入框内，慢慢调整距离，让黑白线条清晰。稳住片刻，避开反光。' : helpStage === 1 ? '还没识别到？先把面单移远，直到黑白线条清楚，不要继续靠近。清晰后稳住片刻。' : '仍在扫描。请调整光线、避开反光；电脑画面仍模糊时，用手机扫码更方便。';
-  const videoRatio = Number(videoAspect.split('/')[0]) / Number(videoAspect.split('/')[1]);
+  const guidance = helpStage === 0 ? '把完整条码横向放入框内，两端白边不要切掉。慢慢调整距离，让黑白线条清晰。稳住片刻，避开反光。' : helpStage === 1 ? '还没识别到？先把面单移远，直到黑白线条清楚，不要继续靠近。清晰后稳住片刻。' : '仍在扫描。请调整光线、避开反光；电脑画面仍模糊时，用手机扫码更方便。';
   return <Dialog title="扫描国内快递单号" onClose={close} className="pdd-scanner-dialog">
     <div className="pdd-scanner-view">
       <div className="pdd-scanner-scroll">
-      <p className="pdd-scanner-intro">对准国内运输条形码，保留两端白边。</p>
-      <div className="pdd-scanner" data-phase={phase} data-portrait={videoRatio < 1 ? 'true' : 'false'} style={{ aspectRatio: videoAspect, maxWidth: `calc(30dvh * ${videoRatio})` }}>
-        <ScannerPreview videoRef={video} mirrored={mirrored} onDimensions={updateVideoAspect} />
-        {phase === 'scanning' ? <><div className="pdd-scan-frame" aria-hidden="true"><span /><span /><span /><span /></div><div className="pdd-scan-caption" aria-hidden="true"><ScanLine size={19} />整个条码放入框内</div></> : <div className="pdd-camera-stage" aria-hidden="true">{phase === 'error' ? <Camera size={32} /> : <LoaderCircle size={30} className="pdd-spin" />}<strong>{phase === 'error' ? '摄像头已关闭' : status}</strong>{phase === 'permission' && <span>请在浏览器提示中选择“允许”。</span>}{(phase === 'opening' || phase === 'switching') && <span>准备好后可以拍照，也可以切换实时扫码。</span>}</div>}
+      <p className="pdd-scanner-intro">把完整运输条码横向放入框内，两端白边不要切掉。</p>
+      <div className="pdd-scanner" data-phase={phase}>
+        <ScannerPreview videoRef={video} mirrored={mirrored} />
+        {phase === 'scanning' ? <><div className="pdd-scan-frame" aria-hidden="true"><span /><span /><span /><span /></div><div className="pdd-scan-caption" aria-hidden="true"><ScanLine size={19} />整个条码放入框内</div></> : <div className="pdd-camera-stage" aria-hidden="true">{phase === 'error' ? readerUnavailable ? <ScanLine size={32} /> : <Camera size={32} /> : <LoaderCircle size={30} className="pdd-spin" />}<strong>{phase === 'error' ? readerUnavailable ? '识别组件未能加载' : '摄像头已关闭' : status}</strong>{phase === 'permission' && <span>请在浏览器提示中选择“允许”。</span>}{(phase === 'opening' || phase === 'switching') && <span>准备好后可以拍照，也可以切换实时扫码。</span>}</div>}
         {photoBusy && <div className="pdd-photo-feedback" aria-hidden="true"><LoaderCircle size={26} className="pdd-spin" /><strong>已拍照 · 正在识别</strong></div>}
       </div>
       {scanMode === 'realtime' && phase === 'scanning' && helpStage > 0 && <p className="pdd-scan-help">{guidance}</p>}
@@ -284,7 +293,7 @@ function Scanner({ onDecoded, onClose }: { onDecoded: (number: string) => void; 
       </div>
       <div className="pdd-scanner-actions">
         <div className={'pdd-camera-status' + (error || photoNotice ? ' pdd-capture-notice' : '')} role="status" aria-live="polite" aria-atomic="true">{photoBusy || phase === 'permission' || phase === 'opening' || phase === 'switching' ? <LoaderCircle size={20} className="pdd-spin" /> : <Camera size={20} />}<span>{error || photoNotice || status}</span></div>
-        {phase === 'error' && <button className="pdd-button pdd-secondary pdd-full pdd-camera-retry" onClick={() => changeCamera(request.deviceId)}>重新开启相机</button>}
+        {phase === 'error' && <button className="pdd-button pdd-secondary pdd-full pdd-camera-retry" onClick={() => { if (readerUnavailable) { close(); window.location.reload(); } else changeCamera(request.deviceId); }}>{readerUnavailable ? '刷新页面重试' : '重新开启相机'}</button>}
         <ScannerReadControls mode={scanMode} ready={phase === 'scanning'} busy={photoBusy} onMode={changeReadMode} onCapture={() => void capturePhoto()} onClose={close} />
       </div>
     </div>
