@@ -16,6 +16,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+        env:
+          RUN_SCOPED_POSTGRES_TEST: 'true'
       - run: npm run build
       - name: Real PostgreSQL transaction and encrypted restore verification
         env:

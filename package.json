@@ -17,7 +17,9 @@
     "preview": "vite preview --host 127.0.0.1",
     "ops:backup": "node scripts/backup.mjs",
     "ops:restore": "node scripts/restore.mjs",
-    "ops:deploy": "node scripts/deploy.mjs"
+    "ops:deploy": "node scripts/deploy.mjs",
+    "ops:backup:scoped": "node scripts/backup-scoped.mjs",
+    "ops:verify:scoped": "node scripts/verify-scoped-restore.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

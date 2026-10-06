@@ -87,6 +87,10 @@ node --env-file=.private/production.env scripts/backup.mjs
 
 本轮已有的范围限定备份覆盖迁移前 14 张 public 业务表和 3 个存储 bucket，已加密并完成隔离恢复检查；Auth 仅有部分元数据。它不包含完整原生 public/Auth dump，不构成完整灾难恢复证明。完整 `scripts/backup.mjs` 备份仍需私有 `SUPABASE_DB_URL`，随后重新做全量恢复；具体归档与检查结果写入发布记录，不在公开文档披露资料或密钥。
 
+范围备份命令为 `npm run ops:backup:scoped -- backups/filename.cmibak` 与 `npm run ops:verify:scoped -- backups/filename.cmibak`。它覆盖20张固定业务表和3个存储 bucket，直接写 AES-GCM 密文；运行配置只保留安全字段，不读取 Auth/Vault。两轮完整业务表读取必须一致，变更时失败并要求在安静时段重试；即使两轮一致，也不保证数据库快照隔离或期间存储不变。恢复只用独立本机 PostgreSQL，验证全部约束、RLS、行值和存储哈希。
+
+`backup-scoped.yml` 定于曼谷02:30执行，避开每小时第17分钟清理；只有 `ENABLE_SCOPED_BACKUP=true` 才运行。恢复验证通过后上传7天保留的加密 artifact。启用前配置其中的项目 vars、服务端密钥和单独备份密码，完成一次实际执行与下载恢复；不要只因 YAML 存在就称自动备份可用。
+
 GitHub backup workflow 定于曼谷 02:15 执行，只有 `ENABLE_ENCRYPTED_BACKUP=true` 才运行。先配置工作流列出的 secrets/vars，实际执行、下载、独立恢复后才能记录自动备份已启用；本地数据库恢复不冒充此工作流已运行或云端全量备份已完成。
 
 `scripts/restore.mjs` 只接受 `APP_ENVIRONMENT=test`、明确 `RESTORE_TARGET_CONFIRM` 和 `RESTORE_OFFLINE_CONFIRMED=true` 的隔离恢复目标。不得将已转换生产的 `fogncjjsnakbhfdbfvdi` 作为可清空测试目标。没有独立恢复云项目时，只运行本地验证器，不绕过脚本保护把备份回灌生产。
