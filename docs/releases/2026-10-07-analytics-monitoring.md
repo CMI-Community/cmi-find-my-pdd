@@ -55,6 +55,10 @@
 
 后续实际Usage UI核查：Vercel团队All Projects的Last30Days窗口显示9月6日12:00至10月6日12:00（页面时区未核实），传输294.37MB/100GB、CDN6,388/1,000,000、WebAnalytics7/50,000、Speed6/10,000；不冒称单项目或账期数值。Supabase组织All projects当前账期9月19日至10月19日，Edge1,849/500,000、缓存出站0.052/5GB、非缓存出站0.012/5GB，最多一小时刷新延迟，均未接近额度。平台数据库大小28.62MB包含模板库；只读SQL全部数据库30,011,253 bytes=28.62MiB，其中业务postgres为14,735,027 bytes。单库空间快照不能当作整项目配额占用。
 
+为校准容量告警，[PR #38](https://github.com/CMI-Community/cmi-find-my-pdd/pull/38)将私有资源RPC改为全部数据库大小之和，包含模板库，与平台配额口径一致。235项Vitest、44项Edge、构建，以及真实PG迁移事务回滚、函数OID/owner/ACL/security与全部业务表摘要保持、service_role只读RPC、加密独立恢复与公开权限拒绝均通过；[CI 37511535971](https://github.com/CMI-Community/cmi-find-my-pdd/actions/runs/37511535971)同样通过。
+
+18:29:19 UTC通过官方Supabase迁移工具应用修正，实际注册版本为`20261006182919_monitor_cluster_database_size`；源码文件随后对齐服务器生成的真实版号，没有重写生产迁移历史。18:29:50 UTC写入`pdd404_monitoring_scope_release`审计。迁移先于新版监控脚本启用，`cluster-v1`重新建立容量增长基线，保留CPU历史。18:29:55 UTC实际探测：集群30,027,637 bytes，约500MB预算的6.0%，连接7/57、无等待/死锁；CPU约2.3%、内存约60.0%，服务736ms，无告警。后端运行源码仍为`90a23bce...`，前端仍为上述`a85c6d7`，本次只部署数据库函数修正，没有重新发布API/worker或前端，也没有创建运行标签。
+
 按已测首页两张公共图片179,122 bytes，Free 5GB缓存出站额度、预留30%计算，约19,500次全冷图片对加载/月、平均650次/天。这是预算模型，不是保证PV或同时在线人数。精确未命中后的模糊扫描随登记数增长，隔离本机合成实验不能折算为 Nano 的生产 RPS。没有进行生产压测，也没有证据保证成百上千人同时查询。
 
 集中推广前优先处理图片出站、模糊查询成本及 Supabase 配额，并考虑独立同规格云环境阶梯测试；Supabase Pro基础从USD25/月起，Vercel Pro是另一个独立决定。详细平台口径、测量及建议在 [CAPACITY.md](../CAPACITY.md)，操作和规则在 [MONITORING.md](../MONITORING.md)。
