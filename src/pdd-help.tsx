@@ -6,7 +6,6 @@ export function HelpPage() {
   return <div className="pdd-page pdd-help">
     <Link to="/" className="pdd-help-back"><ArrowLeft size={18} aria-hidden="true" />返回查询</Link>
     <header className="pdd-help-heading">
-      <span>CMI Community · 公益包裹互助</span>
       <h1>如何使用 PDD404</h1>
       <p>丢了包裹，或多收了别人的包裹？不用注册，凭国内快递单号找到线索。</p>
     </header>
