@@ -17,3 +17,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run build
+      - name: Real PostgreSQL transaction and encrypted restore verification
+        env:
+          PDD_PG_BIN: /usr/lib/postgresql/16/bin
+        run: node scripts/verify-postgres.mjs

@@ -1,15 +1,17 @@
 {
-  "name": "cmi-find-my-pdd",
-  "version": "0.1.0",
+  "name": "pdd404",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.12.0" },
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "setup": "node scripts/local-setup.mjs",
     "typecheck": "tsc --noEmit && deno check --config supabase/functions/deno.json supabase/functions/api/index.ts supabase/functions/worker/index.ts",
     "test": "vitest run",
-    "test:edge": "deno test --allow-env=APP_PUBLIC_URL,ALLOWED_ORIGINS --config supabase/functions/deno.json supabase/functions/_shared/security_test.ts",
+    "test:edge": "deno test --allow-env=APP_PUBLIC_URL,ALLOWED_ORIGINS --config supabase/functions/deno.json supabase/functions/_shared/security_test.ts supabase/functions/_shared/waybill-api_test.ts",
     "check": "npm run typecheck && npm run test && npm run test:edge",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
@@ -19,6 +21,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
+    "@zxing/browser": "0.1.5",
+    "@zxing/library": "0.21.3",
     "idb-keyval": "^6.2.2",
     "lucide-react": "^0.468.0",
     "qrcode.react": "^4.2.0",
@@ -28,6 +32,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.3.14",
     "@types/node": "^22.18.6",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
@@ -35,7 +40,6 @@
     "deno": "^2.5.2",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
-    "vitest": "^4.1.11",
-    "@electric-sql/pglite": "^0.3.14"
+    "vitest": "^4.1.11"
   }
 }

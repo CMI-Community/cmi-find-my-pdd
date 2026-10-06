@@ -5,6 +5,7 @@ import { publicSummary } from '../../../shared/domain.ts';
 import { ApiError, body, candidateRequest, corsHeaders, failure, json, onlyKeys, stringValue, uuid, version } from '../_shared/http.ts';
 import { bearer, capability, canonicalJson, contact, dimensions, fingerprint, sha256, withoutMetadata } from '../_shared/security.ts';
 import { ensureRuntimeConfig, getRuntime } from '../_shared/runtime.ts';
+import { pddRoute } from '../_shared/waybill-api.ts';
 
 type Row = Record<string, any>;
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
@@ -22,8 +23,12 @@ async function rpc(db: SupabaseClient, name: string, payload: Row): Promise<Row>
   const { data, error } = await db.rpc(name, { p_payload: payload });
   if (error) {
     const raw = String(error.message ?? '');
-    const recognized = ['VERSION_CONFLICT', 'SCAN_EXPIRED', 'RATE_LIMITED', 'FORBIDDEN', 'INVALID_IMAGE', 'UPLOAD_INCOMPLETE', 'NEEDS_PHOTO', 'OCR_DEFERRED', 'INVALID_REQUEST', 'IDEMPOTENCY_CONFLICT', 'RECORD_NOT_FOUND', 'SCAN_NOT_FOUND'].find((code) => raw.includes(code));
-    if (recognized === 'RECORD_NOT_FOUND' || recognized === 'SCAN_NOT_FOUND') throw new ApiError('NOT_FOUND', '记录不存在。', 404);
+    const recognized = ['VERSION_CONFLICT', 'SCAN_EXPIRED', 'QUERY_EXPIRED', 'RATE_LIMITED', 'FORBIDDEN', 'INVALID_IMAGE', 'UPLOAD_INCOMPLETE', 'NEEDS_PHOTO', 'OCR_DEFERRED', 'INVALID_REQUEST', 'INVALID_CONTACT', 'INVALID_WAYBILL', 'IDEMPOTENCY_CONFLICT', 'RECORD_NOT_FOUND', 'SCAN_NOT_FOUND', 'WAYBILL_NOT_FOUND', 'QUERY_NOT_FOUND', 'OWNERSHIP_LOCKED', 'NEEDS_RECEIVED', 'INVALID_ADMIN_STATE'].find((code) => raw.includes(code));
+    if (recognized === 'RECORD_NOT_FOUND' || recognized === 'SCAN_NOT_FOUND' || recognized === 'WAYBILL_NOT_FOUND' || recognized === 'QUERY_NOT_FOUND') throw new ApiError('NOT_FOUND', '记录不存在。', 404);
+    if (recognized === 'OWNERSHIP_LOCKED') throw new ApiError('OWNERSHIP_LOCKED', '包裹已确认归属，撤回请联系小助手处理。', 409);
+    if (recognized === 'NEEDS_RECEIVED') throw new ApiError('NEEDS_RECEIVED', '需有有效的多收件登记才能确认实际包裹归属。', 409);
+    if (recognized === 'INVALID_ADMIN_STATE') throw new ApiError('INVALID_ADMIN_STATE', '当前状态不能执行此操作，请先核实并确认归属。', 409);
+    if (recognized === 'QUERY_EXPIRED') throw new ApiError('QUERY_EXPIRED', '这次查询已过期，请重新查询后留下联系方式。', 410);
     if (error.code === '40001' || error.code === '23505' || recognized === 'VERSION_CONFLICT' || recognized === 'IDEMPOTENCY_CONFLICT') throw new ApiError(recognized ?? 'VERSION_CONFLICT', '内容已更新或请求重复，请刷新后重试。', 409);
     if (recognized === 'SCAN_EXPIRED') throw new ApiError('SCAN_EXPIRED', '本次查询已过期，请重新上传。', 410);
     if (recognized === 'RATE_LIMITED') throw new ApiError('RATE_LIMITED', '操作过于频繁，请稍后再试。', 429, true);
@@ -151,7 +156,15 @@ async function matchResults(db: SupabaseClient, rawMatches: Row[]): Promise<Scan
 }
 
 async function scanProgress(db: SupabaseClient, id: string): Promise<ScanProgress> {
-  const source = await rpc(db, 'get_scan_status', { scan_id: id });
+  // Legacy status RPC performs matching writes. The retired photo flow stays read-only.
+  let source: Row;
+  if (getRuntime('OCR_ENABLED') === 'true') source = await rpc(db, 'get_scan_status', { scan_id: id });
+  else {
+    const { data: scan, error } = await db.from('scans').select('*').eq('id', id).maybeSingle();
+    if (error || !scan) throw new ApiError('NOT_FOUND', '旧图片草稿不存在。', 404);
+    const { data: record } = await db.from('records').select('public_code').eq('scan_id', id).maybeSingle();
+    source = { ...scan, intent: scan.intent, imageVersion: scan.input_version, publicCode: record?.public_code, results: [], errorCode: 'OCR_DISABLED' };
+  }
   const state = source.state;
   const intent = source.intent ?? source.kind;
   const imageVersion = source.imageVersion ?? source.version ?? source.input_version;
@@ -174,7 +187,13 @@ async function scanProgress(db: SupabaseClient, id: string): Promise<ScanProgres
 }
 
 async function privateDto(db: SupabaseClient, code: string): Promise<PrivateRecord> {
-  const source = await rpc(db, 'admin_record', { public_code: code });
+  let source: Row;
+  if (getRuntime('OCR_ENABLED') === 'true') source = await rpc(db, 'admin_record', { public_code: code });
+  else {
+    const { data: record, error } = await db.from('records').select('*').eq('public_code', code).maybeSingle();
+    if (error || !record) throw new ApiError('NOT_FOUND', '旧登记不存在。', 404);
+    source = record;
+  }
   const record = source.record ?? source;
   const scanId = source.scanId ?? source.scan_id ?? record.scan_id;
   const progress = await scanProgress(db, scanId);
@@ -231,13 +250,24 @@ async function route(request: Request, db: SupabaseClient, headers: Record<strin
   const method = request.method;
   if (path === '/health' && method === 'GET') {
     let ready = false, ok = false;
-    try { const community = await settings(db); ready = community.ready && community.submissionsEnabled && Boolean(getRuntime('OPENAI_API_KEY') && getRuntime('WORKER_SECRET') && getRuntime('ADMIN_USER_IDS')); ok = true; } catch { /* configuration pending */ }
-    return json({ service: 'cmi-find-my-pdd', version: APP_VERSION, sha: getRuntime('DEPLOY_SHA') ?? getRuntime('APP_SHA') ?? 'unknown', environment: getRuntime('APP_ENVIRONMENT') ?? 'test', ok, ready }, 200, headers);
+    try { const community = await settings(db); await rpc(db, 'pdd_stats', {}); ready = community.ready && community.submissionsEnabled && Boolean(getRuntime('ADMIN_USER_IDS')); ok = true; } catch { /* configuration pending */ }
+    return json({ service: 'pdd404', version: APP_VERSION, sha: getRuntime('DEPLOY_SHA') ?? getRuntime('APP_SHA') ?? 'unknown', environment: getRuntime('APP_ENVIRONMENT') ?? 'test', ok, ready }, 200, headers);
   }
   await limited(db, request, parts[0] ?? 'root', method === 'GET' ? 120 : 20);
+  const pddResponse = await pddRoute(request, parts, headers, {
+    rpc: (name, payload) => rpc(db, name, payload), admin: () => admin(db, request),
+    canRegister: async () => { const community = await settings(db); return community.ready && community.submissionsEnabled && Boolean(getRuntime('ADMIN_USER_IDS')); },
+  });
+  if (pddResponse) return pddResponse;
+  const legacyScope = ['scans', 'trackers', 'manage'].includes(parts[0]) ||
+    parts[0] === 'admin' && ['scans', 'tasks', 'records', 'duplicates', 'recognition'].includes(parts[1]);
+  if (getRuntime('OCR_ENABLED') !== 'true' && legacyScope &&
+      (method !== 'GET' || parts[0] === 'scans' && parts[2] === 'candidates')) {
+    throw new ApiError('SERVICE_UNAVAILABLE', '图片识别入口已暂停，请在首页输入或扫描国内快递单号。', 503, false);
+  }
   if (path === '/community' && method === 'GET') return json(await settings(db), 200, headers);
   if (path === '/stats' && method === 'GET') {
-    const result = await rpc(db, 'public_stats', {});
+    const result = await rpc(db, 'pdd_stats', {});
     const success = Object.hasOwn(result, 'successfulHandoverCount') ? result.successfulHandoverCount : result.successful_handover_count;
     const recorded = result.recordedPackageCount ?? result.recorded_package_count;
     const seekers = result.activeSeekerCount ?? result.active_seeker_count;
@@ -245,6 +275,7 @@ async function route(request: Request, db: SupabaseClient, headers: Record<strin
     return json({ recordedPackageCount: recorded, activeSeekerCount: seekers, successfulHandoverCount: typeof success === 'number' && success > 5 ? success : null }, 200, headers);
   }
   if (path === '/scans' && method === 'POST') {
+    if (getRuntime('OCR_ENABLED') !== 'true') throw new ApiError('SERVICE_UNAVAILABLE', '图片识别入口已暂停，请在首页输入或扫描国内快递单号。', 503, false);
     const input = await body(request); onlyKeys(input, ['requestId', 'intent', 'imageRoles']);
     const id = uuid(input.requestId);
     if (input.intent !== 'received' && input.intent !== 'search') throw new ApiError('INVALID_REQUEST', '请选择登记或查询。');
@@ -259,6 +290,7 @@ async function route(request: Request, db: SupabaseClient, headers: Record<strin
     return json(await reserve(db, id, scan.input_version, roles), 201, headers);
   }
   if (parts[0] === 'scans' && parts[1]) {
+    if (method !== 'GET' && getRuntime('OCR_ENABLED') !== 'true') throw new ApiError('SERVICE_UNAVAILABLE', '图片识别入口已暂停，请使用国内快递单号查询。', 503, false);
     const scan = await scanAccess(db, request, parts[1]);
     if (parts.length === 2 && method === 'GET') return json(await scanProgress(db, scan.id), 200, headers);
     if (parts[2] === 'candidates' && parts.length === 3 && method === 'GET') {

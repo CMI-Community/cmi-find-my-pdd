@@ -1,4 +1,4 @@
-export const APP_VERSION = '0.1.0';
+export const APP_VERSION = '0.2.0';
 export type Intent = 'received' | 'search';
 export type ImageRole = 'label' | 'item' | 'logistics' | 'product';
 export type IdentifierType = 'domestic_waybill' | 'consolidation_waybill' | 'last_mile_waybill' | 'order_id' | 'unknown_id';
@@ -50,4 +50,4 @@ export interface AdminTask {
 }
 export interface ApiError { code: string; message: string; requestId: string; retryable: boolean }
 export type ApiResponse<T> = { data: T } | { error: ApiError };
-export interface Health { service: 'cmi-find-my-pdd'; version: string; sha: string; ok: boolean; ready: boolean; environment: string }
+export interface Health { service: 'pdd404'; version: string; sha: string; ok: boolean; ready: boolean; environment: string }

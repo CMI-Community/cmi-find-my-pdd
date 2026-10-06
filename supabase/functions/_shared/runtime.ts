@@ -1,5 +1,5 @@
 /** Vault fallback kept in memory. Hosted Edge runtimes may forbid env mutation. */
-const keys = ['OPENAI_API_KEY', 'WORKER_SECRET', 'ADMIN_USER_IDS', 'APP_PUBLIC_URL', 'ALLOWED_ORIGINS', 'APP_SHA', 'APP_ENVIRONMENT'] as const;
+const keys = ['OPENAI_API_KEY', 'WORKER_SECRET', 'ADMIN_USER_IDS', 'APP_PUBLIC_URL', 'ALLOWED_ORIGINS', 'APP_SHA', 'APP_ENVIRONMENT', 'OCR_ENABLED'] as const;
 export type RuntimeLoader = () => Promise<Record<string, unknown>>;
 
 export function createRuntimeCache(readEnvironment: (name: string) => string | undefined = (name) => Deno.env.get(name), now: () => number = Date.now) {
