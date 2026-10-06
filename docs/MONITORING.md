@@ -6,10 +6,10 @@
 
 ## 配置
 
-- 构建前端时设置 `VITE_FIRST_PARTY_ANALYTICS_ENABLED=true`，服务端 `TELEMETRY_ENABLED=true`；预览保持关闭或使用隔离假API。
+- 前端的 `VITE_FIRST_PARTY_ANALYTICS_ENABLED`、`VITE_WEB_ANALYTICS_ENABLED`、`VITE_SPEED_INSIGHTS_ENABLED` 未设置或为空时，仅在生产构建且实际主机为 `pdd404.app` / `www.pdd404.app` 时默认启用，避免并发静态发布遗漏构建标志而丢失采集。开发环境、预览域名和其他域名默认关闭；显式 `true` 可为隔离测试启用，显式 `false` 始终关闭。`.env.example` 的三个示例值均为 `false`，复制到生产配置会覆盖上述默认值，应按真实部署意图设置。服务端仍需 `TELEMETRY_ENABLED=true`；预览测试使用隔离假API。
 - `TELEMETRY_DAILY_LIMIT` 为每日事件数量上限，最高100000；生产初始采用20000。另有每日20000批硬上限。每次页面文档最多四批，最多每60秒或离开/隐藏时批量发送，不重试。超过预算不写入、返回明确 `accepted=false`，不假报成功。
 - `MONITOR_SECRET` 为32随机字节hex，仅服务器/维护者私有环境保存，调用时使用 `x-monitor-secret` 请求头；`MONITOR_DATABASE_LIMIT_BYTES=500000000` 为目前Free套餐保守空间阈值，升级后按实际限制修改。
-- Vercel Web Analytics、Speed Insights分别要求项目开关和相应 `VITE_*_ENABLED` 构建标志。Vercel自定义事件要求Pro；站内汇总不要求Pro。保留这些可选适配，不因代码存在就称平台采集已启用。
+- Vercel Web Analytics、Speed Insights还要求对应项目服务可用；前端启用遵循上述主机/构建标志规则。`VITE_ANALYTICS_CUSTOM_EVENTS` 始终要求显式 `true`，只用于支持自定义事件的Vercel Pro；站内动作与停留汇总不要求Pro。代码默认值不能证明平台成功收到数据，每次生产发布仍需以真实公开页面访问验收脚本及采集请求。
 
 原生Web Analytics的项目开关已通过官方API启用。Speed Insights脚本在当前Hobby上返回有效JavaScript；官方切换接口尝试开启Plus返回402（要求Pro/Enterprise），因此未开启Plus或购买升级。免费性能采集是否有数据需在发布后以实际请求和平台状态验收。
 
@@ -48,6 +48,6 @@ Hobby账户的月用量查询受到平台功能限制。Vercel账单接口显示
 
 每日范围备份要求两次读取相同。新增统计汇总也受该检查保护；持续流量可能造成备份失败。定时监控应同时检查最近备份工作流成功时间，失败时告警，并安排安静窗口或受审查的维护方案；不能把失败备份称为已保存。
 
-关闭 `TELEMETRY_ENABLED` 和前端标志即可停止采集，保留既有汇总。生产数据库不reset。站内匿名采集预算与注册/匹配统计完全独立；每日上限不是整个平台月调用额度的保证，被限流/拒绝的Edge请求仍可能计费。
+设置 `TELEMETRY_ENABLED=false` 可停止站内写入；将上述三个前端标志显式设为 `false` 并重新构建发布可停止对应浏览器采集，保留既有汇总。删除生产前端标志会恢复正式域名默认采集。生产数据库不reset。站内匿名采集预算与注册/匹配统计完全独立；每日上限不是整个平台月调用额度的保证，被限流/拒绝的Edge请求仍可能计费。
 
 公开配置与统计有实例内30秒缓存，管理员配置修改清除当前实例缓存。它减少数据库读取/限流写入，不减少到达Edge的调用次数，也不是全局缓存。容量模型及尚未实测的并发见 [CAPACITY.md](CAPACITY.md)。
