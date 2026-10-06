@@ -6,7 +6,7 @@
 
 - `/admin` 的“数据与监控”显示真实收到的页面/动作计数、每日浏览图、可见停留区间、采集日预算与数据库压力。汇总按 UTC 日保留30天，没有访客身份、UV、留存或跨访问路径。
 - 公共页面只发送固定枚举及计数；不发送单号、联系、备注、原始 URL、查询参数、fragment 或管理凭证。管理/分享/未知路由不采集，遵守 DNT/GPC。每文档最多四个8KiB批次，不持续心跳、不重试；生产初始每日事件预算20000，独立于业务计数。
-- Vercel Web Analytics 原生页面流量与 Speed Insights 免费性能采集已验收。付费自定义事件、Speed Insights Plus、Observability Plus 与原生付费 Alerts 未启用。Hobby 平台本月实际账单流量/请求用量未能读取，不能写成零。
+- Vercel Web Analytics 原生页面流量与 Speed Insights 免费性能采集已验收。付费自定义事件、Speed Insights Plus、Observability Plus 与原生付费 Alerts 未启用。Hobby账期用量接口不可用，后续已只读核查标准Usage页面；范围与实际用量见下文，不能将接口缺失写成零。
 - 私有服务探测验证业务就绪、数据库真实空间/连接/锁等待/长事务/死锁及采集预算；数据库/配置失效时 health 返回503。公众无法读取监控资源。固定结构日志记录安全路由、状态及耗时，成功采样10%，错误和慢请求全部记录。
 - 三个允许公开的配置/计数 DTO 使用实例内30秒缓存，减少数据库读取及限流写入；该缓存不减少 Edge 请求次数，不是全局 CDN 缓存。
 
@@ -31,10 +31,12 @@
 后续国内运单保护静态发布省略了可选统计构建标志，18:06左右实际公开页面未加载采集脚本。没有补造该窗口的历史访问。[PR #36](https://github.com/CMI-Community/cmi-find-my-pdd/pull/36) 修复为仅在生产构建的两个正式主机默认采集，显式false仍关闭，开发/预览/其他主机默认关闭，付费自定义事件仍单独opt-in；隐私和批预算边界保持。
 
 - PR CI [37509001987](https://github.com/CMI-Community/cmi-find-my-pdd/actions/runs/37509001987)、合并main CI [37509188046](https://github.com/CMI-Community/cmi-find-my-pdd/actions/runs/37509188046) 成功；本机完整检查234项Vitest、44项Edge及构建通过，一项既有可选恢复测试条件性跳过，真实迁移/恢复检查见前述结果。
-- 最终前端源码 `6bc97521e92bff7f905c35daefefc16fbe0457ea`，包含已合入的运单保护与首页双模式改动。不提供三个可选统计标志重新构建，公开端点为独立生产项目，服务端密钥扫描通过。部署 `dpl_GAEfX9pNs9y4kLaBCEFBFc8eFRFZ`，18:11:49.117 UTC READY，主域与www绑定；JS `index-CLrbj8j8.js`、CSS `index-B9Lzqg-U.css`。六个线上文件HTTP200，大小与SHA-1逐一符合本机构建。
+- 本次采集修复前端源码 `6bc97521e92bff7f905c35daefefc16fbe0457ea`，包含已合入的运单保护与首页双模式改动。不提供三个可选统计标志重新构建，公开端点为独立生产项目，服务端密钥扫描通过。部署 `dpl_GAEfX9pNs9y4kLaBCEFBFc8eFRFZ`，18:11:49.117 UTC READY，主域与www绑定；JS `index-CLrbj8j8.js`、CSS `index-B9Lzqg-U.css`。当时六个线上文件HTTP200，大小与SHA-1逐一符合本机构建。
 - 最终真实首页→帮助页访问：两个SDK脚本HTTP200，Web Analytics两次POST200，第一方三事件批POST202，管理员配额从19增至22，确认入库。DNT新隐私文档不加载SDK、不新增采集请求。本次10%性能抽样未看到vitals POST，不强制或伪造样本；部署平台metadata确认Web Analytics及Speed Insights均`hasData=true`，此前真实vitals200证据保留。
 - 后端保持独立运单保护运行SHA `90a23bce538518e85311fa7bd8db3572f822c714`，API26 bundle `92d2d90f684b117a91b3d32fda7173d1189564b05ce2a3ec91338cdc55299340`、worker25 bundle与前述监控worker相同。本次默认采集修复没有重新部署后端代码，也未回退并行修复；前端与后端源码标识分别记录，不冒称同一部署。
 - 18:12:36 UTC最终探测网站200、服务就绪、697ms；数据库14,735,027 bytes、连接7/57、无等待/死锁，CPU采样约3.2%、内存约57.7%、无告警。记录及通知设置说明的后续文档提交不是新运行部署，未创建运行标签。
+
+18:14:07 UTC并行首页任务发布了保留显式统计构建开关的前端`a85c6d71c0088e42d1136914a880783851f8cddf`（部署`dpl_6r64BXmwTPKzxByAxzw6fof5MAWU`），成为正式域名当前版本，详见[首页发布记录](2026-10-07-home-mode-entries.md)。18:21–18:23实际再验收该版本：页面meta及JS与该版本吻合、两个原生SDK HTTP200、Web Analytics首页/帮助POST200，第一方固定三事件批POST202；DNT新文档关闭所有采集，本轮10%性能采样未抽中vitals。随后独立只读SQL显示当天已接受36事件/13批（含后台及并行维护者验收，不能把全部增量归给本轮）。因此当前显式开关版本仍正常采集；PR #36的正式域名默认启用修复已合入main，下一次构建应使用包含它的最新main，不回退到旧源码。未为核查再部署或提交业务资料。
 
 ## 定时检查、通知及备份
 
@@ -42,7 +44,7 @@
 - GitHub `ENABLE_SERVICE_MONITOR=true`；[首次独立云检查 37507252437](https://github.com/CMI-Community/cmi-find-my-pdd/actions/runs/37507252437) 成功，检查网站、就绪、数据库及 Supabase Metrics API。计划每五分钟执行，GitHub schedule 可能排队。
 - Codex 当前线程心跳 `pdd404` ACTIVE，每五分钟执行私有采样并核查云监控/备份；新增或升级告警、恢复、监控失败才通知，并向认证 Gmail `me` 发送同一安全摘要。邮箱通道测试实际发送成功；发送成功不代表用户已经阅读。健康及相同持续告警不反复发信。
 - 17:56:21 UTC两次服务探测约2.49/2.88秒触发 `SERVICE_SLOW`，真实告警信已发送；17:57:19 UTC探测回落至576ms并发送恢复信。该时段无锁等待/死锁、CPU约2.5%，没有证据认定数据库过载。一次沙盒网络阻断的探测被标记为本机检查故障并立即联网复核，没有对外误报网站停机。
-- Codex/Gmail详细告警与恢复通知依赖本机与应用运行；独立云工作流不依赖本机。已只读核查当前GitHub账户设置：Actions Email及Failed workflows only均开启，原生失败邮件走GitHub默认通知邮箱（与Gmail可能不同）。没有修改账户设置；实际失败邮件收件仍未验证，不承诺本机关闭时详细Gmail即时送达。平台月额度尚无可用自动读取，需要核查 Usage 页，不能用数据库网卡字节冒充账单出站流量。
+- Codex/Gmail详细告警与恢复通知依赖本机与应用运行；独立云工作流不依赖本机。已只读核查当前GitHub账户设置：Actions Email及Failed workflows only均开启，原生失败邮件走GitHub默认通知邮箱（与Gmail可能不同）。没有修改账户设置；实际失败邮件收件仍未验证，不承诺本机关闭时详细Gmail即时送达。平台月额度已通过Usage页面核查，Codex每天在本机可用时继续检查；尚无独立全天候自动账单接口，不能用数据库网卡字节冒充账单出站流量。
 - 迁移前加密范围备份离线恢复通过：21表、2023行、4个 Storage 哈希。上线后的[云端范围备份及恢复 37507407414](https://github.com/CMI-Community/cmi-find-my-pdd/actions/runs/37507407414) 成功：23表、2128行、4个 Storage 哈希；两次读取一致，加密 artifact 保留7天。该工作流快照使用并行已合入的 main `90a23bce538518e85311fa7bd8db3572f822c714`，不代表本记录的前端/后端已重新发布该版本。范围备份不是原生 Auth/Vault 全库恢复；持续统计写入可能打破安静窗口，失败必须告警。
 
 ## 容量判断与已知边界
@@ -50,6 +52,8 @@
 18:02:48 UTC复查服务运行标识已经由独立的国内运单保护发布推进至 `90a23bce538518e85311fa7bd8db3572f822c714`，监控接口继续就绪，探测438ms、CPU采样约4.9%、内存约59.1%、无告警；本记录未回退该后续版本。
 
 当前计划实核为 Vercel Hobby + Supabase Free/Nano（最多0.5GB内存、60数据库连接）。17:57:19 UTC快照数据库14,726,835 bytes，约500MB阈值的2.9%；客户端连接9，可用非保留上限57；没有锁等待或死锁。
+
+后续实际Usage UI核查：Vercel团队All Projects的Last30Days窗口显示9月6日12:00至10月6日12:00（页面时区未核实），传输294.37MB/100GB、CDN6,388/1,000,000、WebAnalytics7/50,000、Speed6/10,000；不冒称单项目或账期数值。Supabase组织All projects当前账期9月19日至10月19日，Edge1,849/500,000、缓存出站0.052/5GB、非缓存出站0.012/5GB，最多一小时刷新延迟，均未接近额度。平台数据库大小28.62MB包含模板库；只读SQL全部数据库30,011,253 bytes=28.62MiB，其中业务postgres为14,735,027 bytes。单库空间快照不能当作整项目配额占用。
 
 按已测首页两张公共图片179,122 bytes，Free 5GB缓存出站额度、预留30%计算，约19,500次全冷图片对加载/月、平均650次/天。这是预算模型，不是保证PV或同时在线人数。精确未命中后的模糊扫描随登记数增长，隔离本机合成实验不能折算为 Nano 的生产 RPS。没有进行生产压测，也没有证据保证成百上千人同时查询。
 
