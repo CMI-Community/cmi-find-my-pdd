@@ -116,6 +116,39 @@ describe('barcode scanner scheduling and camera lifecycle', () => {
     expect(detect).toHaveBeenCalledOnce();
   });
 
+  it('clears a pending native deadline immediately on close', async () => {
+    const result = deferred<{ rawValue: string }[]>();
+    vi.stubGlobal('BarcodeDetector', class {
+      static getSupportedFormats() { return Promise.resolve(['code_128']); }
+      detect() { return result.promise; }
+    });
+    const { video, stream } = fixtures(), onDecoded = vi.fn();
+    const { startBarcodeScanner } = await import('../src/pdd-camera');
+    const controls = startBarcodeScanner(stream, video, onDecoded); await controls.ready;
+    expect(vi.getTimerCount()).toBe(1);
+    controls.stop(); expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(0);
+    result.resolve([{ rawValue: '12345678901234' }]); await vi.advanceTimersByTimeAsync(1000);
+    expect(onDecoded).not.toHaveBeenCalled(); expect(decoder.decode).not.toHaveBeenCalled();
+  });
+
+  it('does not let an old scanner ready or stop clear the replacement video stream', async () => {
+    const playing = deferred<void>(), { video, stream, context } = fixtures(playing.promise), next = focusCamera();
+    vi.mocked(video.play).mockReturnValueOnce(playing.promise).mockResolvedValue(undefined);
+    const { startBarcodeScanner } = await import('../src/pdd-camera');
+    const old = startBarcodeScanner(stream, video, vi.fn());
+    // Let the module finish loading while the old video.play stays pending.
+    await vi.advanceTimersByTimeAsync(0);
+    const current = startBarcodeScanner(next.stream, video, vi.fn()); await current.ready;
+    expect(video.srcObject).toBe(next.stream);
+    old.stop(); playing.resolve(); await old.ready;
+    expect(video.srcObject).toBe(next.stream);
+    expect(context.drawImage).toHaveBeenCalledOnce();
+    expect(decoder.constructed).toHaveBeenCalledTimes(2);
+    expect(decoder.fastDecode).toHaveBeenCalledOnce();
+    expect(decoder.decode).toHaveBeenCalledOnce(); current.stop();
+  });
+
   it('keeps ZXing working if native detection throws and disables the failing native path', async () => {
     const detect = vi.fn().mockRejectedValue(new Error('Unsupported native source'));
     vi.stubGlobal('BarcodeDetector', class {
@@ -222,7 +255,7 @@ describe('barcode scanner scheduling and camera lifecycle', () => {
     expect(decoder.decode).not.toHaveBeenCalled(); controls.stop();
   });
 
-  it('requests autofocus only when supported and preserves the original camera constraints', async () => {
+  it('keeps the camera default focus without automatically forcing continuous autofocus', async () => {
     const oldConstraints = { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: { ideal: 'environment' } };
     const track = {
       stop: vi.fn(), getCapabilities: () => ({ focusMode: ['manual', 'continuous'] }),
@@ -232,9 +265,157 @@ describe('barcode scanner scheduling and camera lifecycle', () => {
     const { createCameraSession } = await import('../src/pdd-camera');
     const session = createCameraSession(vi.fn().mockResolvedValue(stream));
     await expect(session.ready).resolves.toBe(stream);
-    expect(track.applyConstraints).toHaveBeenCalledOnce();
-    expect(track.applyConstraints.mock.calls[0][0]).toMatchObject(oldConstraints);
+    expect(track.applyConstraints).not.toHaveBeenCalled();
     session.stop(); expect(track.stop).toHaveBeenCalledOnce();
+  });
+});
+
+function focusCamera() {
+  const capabilities = { focusMode: ['continuous', 'single-shot', 'manual'], focusDistance: { min: 0, max: 10, step: .5 } };
+  const settings = { deviceId: 'actual-camera', facingMode: 'user', focusMode: 'continuous', focusDistance: 3 };
+  const constraints = {
+    width: { ideal: 1280 }, height: { ideal: 720 }, deviceId: { exact: 'actual-camera' },
+    focusMode: { exact: 'continuous' }, focusDistance: { exact: 2 },
+    advanced: [{ exposureMode: 'continuous', focusMode: 'continuous' }, { torch: false }],
+  };
+  const track = {
+    readyState: 'live', stop: vi.fn(() => { track.readyState = 'ended'; }),
+    getCapabilities: vi.fn(() => capabilities), getSettings: vi.fn(() => settings), getConstraints: vi.fn(() => constraints),
+    applyConstraints: vi.fn(async (value: MediaTrackConstraints & { focusMode?: { exact: string }; focusDistance?: { exact: number } }) => {
+      if (value.focusMode) settings.focusMode = value.focusMode.exact;
+      if (value.focusDistance) settings.focusDistance = value.focusDistance.exact;
+    }),
+  };
+  const stream = { getTracks: () => [track], getVideoTracks: () => [track] } as unknown as MediaStream;
+  return { stream, track, capabilities, settings, constraints };
+}
+
+describe('capability-limited camera selection and focus', () => {
+  it('selects an explicit device without conflicting with the default rear-camera preference', async () => {
+    const { cameraConstraintsForDevice, createCameraSession } = await import('../src/pdd-camera');
+    const selected = cameraConstraintsForDevice('usb-camera');
+    expect(selected).toMatchObject({ audio: false, video: { deviceId: { exact: 'usb-camera' }, width: { ideal: 1280 }, height: { ideal: 720 } } });
+    expect(selected.video).not.toHaveProperty('facingMode');
+    expect(cameraConstraintsForDevice()).toMatchObject({ video: { facingMode: { ideal: 'environment' } } });
+    const { stream } = focusCamera(), request = vi.fn().mockResolvedValue(stream);
+    const session = createCameraSession(request, selected);
+    expect(request).toHaveBeenCalledWith(selected); await session.ready; session.stop();
+  });
+
+  it('describes only the actual device settings and supported focus range', async () => {
+    const { stream } = focusCamera(), { describeCamera } = await import('../src/pdd-camera');
+    expect(describeCamera(stream)).toEqual({
+      deviceId: 'actual-camera', facingMode: 'user', focusMode: 'continuous',
+      focusModes: ['continuous', 'single-shot', 'manual'], focusDistance: { min: 0, max: 10, step: .5, current: 3 },
+    });
+    const hidden = { getVideoTracks: () => [{ getCapabilities: () => { throw new Error('Not available'); }, getSettings: () => ({}) }] } as unknown as MediaStream;
+    expect(describeCamera(hidden)).toEqual({ focusModes: [] });
+    const fixed = { getVideoTracks: () => [{ getCapabilities: () => ({ focusMode: ['none'], focusDistance: { min: 0, max: 5 } }), getSettings: () => ({}) }] } as unknown as MediaStream;
+    expect(describeCamera(fixed)).toEqual({ focusModes: [], focusDistance: { min: 0, max: 5 } });
+  });
+
+  it('atomically applies manual mode and distance while preserving unrelated constraints', async () => {
+    const { stream, track, constraints } = focusCamera(), { setCameraFocus } = await import('../src/pdd-camera');
+    const result = await setCameraFocus(stream, 'manual', 4.5);
+    expect(track.applyConstraints).toHaveBeenCalledOnce();
+    expect(track.applyConstraints.mock.calls[0][0]).toEqual({
+      width: constraints.width, height: constraints.height, deviceId: constraints.deviceId,
+      focusMode: { exact: 'manual' }, focusDistance: { exact: 4.5 },
+      advanced: [{ exposureMode: 'continuous', focusMode: 'manual', focusDistance: 4.5 }, { torch: false }],
+    });
+    expect(constraints.advanced[0].focusMode).toBe('continuous');
+    expect(result.focusMode).toBe('manual'); expect(result.focusDistance?.current).toBe(4.5);
+  });
+
+  it('removes an old manual distance when returning to automatic focus', async () => {
+    const { stream, track } = focusCamera(), { setCameraFocus } = await import('../src/pdd-camera');
+    await setCameraFocus(stream, 'single-shot');
+    expect(track.applyConstraints.mock.calls[0][0].focusMode).toEqual({ exact: 'single-shot' });
+    expect(track.applyConstraints.mock.calls[0][0]).not.toHaveProperty('focusDistance');
+    expect(track.applyConstraints.mock.calls[0][0].advanced?.[0]).toMatchObject({ exposureMode: 'continuous', focusMode: 'single-shot' });
+    expect(track.applyConstraints.mock.calls[0][0].advanced?.[0]).not.toHaveProperty('focusDistance');
+  });
+
+  it('supports a driver that reads focus controls only from the first advanced set', async () => {
+    const { stream, track, settings } = focusCamera(), { setCameraFocus } = await import('../src/pdd-camera');
+    track.applyConstraints.mockImplementationOnce(async constraints => {
+      const first = constraints.advanced?.[0] as { focusMode?: string; focusDistance?: number };
+      if (first.focusMode) settings.focusMode = first.focusMode;
+      if (first.focusDistance !== undefined) settings.focusDistance = first.focusDistance;
+    });
+    const result = await setCameraFocus(stream, 'manual', 5);
+    expect(track.applyConstraints).toHaveBeenCalledOnce();
+    expect(result.focusMode).toBe('manual'); expect(result.focusDistance?.current).toBe(5);
+  });
+
+  it('refuses unsupported modes and invalid manual values before touching the camera', async () => {
+    const { stream, track, capabilities } = focusCamera(), { setCameraFocus } = await import('../src/pdd-camera');
+    capabilities.focusMode = ['continuous'];
+    await expect(setCameraFocus(stream, 'manual', 3)).rejects.toMatchObject({ name: 'NotSupportedError' });
+    capabilities.focusMode = ['continuous', 'manual'];
+    await expect(setCameraFocus(stream, 'manual', 11)).rejects.toThrow('范围');
+    await expect(setCameraFocus(stream, 'manual', Number.NaN)).rejects.toThrow('范围');
+    await expect(setCameraFocus(stream, 'manual', 3.25)).rejects.toThrow('步长');
+    await expect(setCameraFocus(stream, 'continuous', 3)).rejects.toMatchObject({ name: 'NotSupportedError' });
+    expect(track.applyConstraints).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a real applyConstraints rejection and retains the observed settings', async () => {
+    const { stream, track } = focusCamera(), { setCameraFocus, describeCamera } = await import('../src/pdd-camera');
+    const denied = new DOMException('Driver refused focus mode', 'OverconstrainedError');
+    track.applyConstraints.mockRejectedValueOnce(denied);
+    await expect(setCameraFocus(stream, 'manual', 3)).rejects.toBe(denied);
+    expect(describeCamera(stream).focusMode).toBe('continuous');
+    expect(track.readyState).toBe('live');
+  });
+
+  it('serializes in-flight lens changes and replaces intermediate queued slider values', async () => {
+    const { stream, track, settings } = focusCamera(), { setCameraFocus } = await import('../src/pdd-camera');
+    const applying = deferred<void>();
+    track.applyConstraints.mockImplementationOnce(() => applying.promise);
+    const first = setCameraFocus(stream, 'continuous').catch(error => error);
+    await vi.advanceTimersByTimeAsync(0); expect(track.applyConstraints).toHaveBeenCalledOnce();
+    const middle = setCameraFocus(stream, 'manual', 4).catch(error => error);
+    const latest = setCameraFocus(stream, 'manual', 7);
+    await vi.advanceTimersByTimeAsync(0); expect(track.applyConstraints).toHaveBeenCalledOnce();
+    applying.resolve();
+    expect(await first).toMatchObject({ name: 'AbortError' });
+    expect(await middle).toMatchObject({ name: 'AbortError' });
+    expect((await latest).focusDistance?.current).toBe(7);
+    expect(track.applyConstraints).toHaveBeenCalledTimes(2);
+    expect(settings.focusMode).toBe('manual');
+  });
+
+  it('discards an in-flight focus result after session stop and rejects later controls', async () => {
+    const { stream, track } = focusCamera(), { setCameraFocus, createCameraSession } = await import('../src/pdd-camera');
+    const applying = deferred<void>(); track.applyConstraints.mockImplementationOnce(() => applying.promise);
+    const session = createCameraSession(async () => stream); await session.ready;
+    const pending = setCameraFocus(stream, 'manual', 3).catch(error => error);
+    await vi.advanceTimersByTimeAsync(0); session.stop();
+    expect(await pending).toMatchObject({ name: 'AbortError' });
+    await expect(setCameraFocus(stream, 'continuous')).rejects.toMatchObject({ name: 'AbortError' });
+    expect(track.applyConstraints).toHaveBeenCalledOnce(); expect(track.stop).toHaveBeenCalledOnce();
+    applying.resolve(); await vi.advanceTimersByTimeAsync(0);
+  });
+
+  it('stops a late old-device grant without stopping the new device session', async () => {
+    const oldGrant = deferred<MediaStream>(), old = focusCamera(), next = focusCamera();
+    const { createCameraSession, cameraConstraintsForDevice } = await import('../src/pdd-camera');
+    const oldSession = createCameraSession(() => oldGrant.promise, cameraConstraintsForDevice('old'));
+    oldSession.stop();
+    const nextSession = createCameraSession(async () => next.stream, cameraConstraintsForDevice('next'));
+    await nextSession.ready; oldGrant.resolve(old.stream);
+    await expect(oldSession.ready).rejects.toMatchObject({ name: 'AbortError' });
+    expect(old.track.stop).toHaveBeenCalledOnce(); expect(next.track.stop).not.toHaveBeenCalled();
+    nextSession.stop();
+  });
+
+  it('stops all camera tracks even if decoder cleanup fails', async () => {
+    const { stream, track } = focusCamera(), { createCameraSession } = await import('../src/pdd-camera');
+    const session = createCameraSession(async () => stream); await session.ready;
+    session.attachDecoder({ stop() { throw new Error('Decoder cleanup failed'); } });
+    expect(() => session.stop()).toThrow('Decoder cleanup failed');
+    expect(track.stop).toHaveBeenCalledOnce(); session.stop();
   });
 });
 
