@@ -19,7 +19,8 @@ describe('PDD404 help page', () => {
   it('explains photo/manual query and separates local queued numbers from confirmed registration', () => {
     const html = help();
     expect(html).toContain('拍照识别');
-    expect(html).toContain('实时扫码');
+    expect(html).toContain('开启自动扫码');
+    expect(html).toContain('已拍照，正在识别');
     expect(html).toContain('核对填入的单号，再手动点击');
     expect(html).toContain('待提交列表');
     expect(html).toContain('页面确认登记成功后，才算正式保存');

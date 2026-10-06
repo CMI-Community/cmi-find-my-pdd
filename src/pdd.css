@@ -76,3 +76,28 @@
 .pdd-home{padding-top:48px}
 .pdd-heading{margin-bottom:32px}
 @media(max-width:560px){.pdd-home{padding-top:30px}.pdd-heading{margin-bottom:26px}}
+/* Scanner actions and feedback never share the scrollable camera settings. */
+.pdd-scanner-dialog{display:flex;flex-direction:column;width:620px;height:min(740px,calc(100dvh - 30px));max-height:calc(100dvh - 30px);padding:0;overflow:hidden}
+.pdd-scanner-dialog>h2{flex-shrink:0;padding:18px 60px 16px 20px;margin:0;font-size:23px}
+.pdd-scanner-dialog>.pdd-close{top:10px;right:12px;z-index:2}
+.pdd-scanner-view{display:flex;flex-direction:column;min-height:0;flex:1}
+.pdd-scanner-scroll{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:0 20px 12px}
+.pdd-scanner-dialog .pdd-scanner{margin:0 auto;min-height:0;max-height:none}
+.pdd-scanner-intro{margin:0 0 10px}
+.pdd-scanner-actions{flex-shrink:0;background:#fff;border-top:1px solid var(--pdd-line);padding:12px 20px calc(14px + env(safe-area-inset-bottom))}
+.pdd-scanner-actions .pdd-camera-status{margin:0 0 10px;align-items:flex-start;line-height:1.45}
+.pdd-scanner-actions .pdd-camera-status svg{margin-top:2px}
+.pdd-scanner-actions .pdd-capture-notice{background:#f7f3fa;border:1px solid #e7ddec;padding:9px 11px;border-radius:8px}
+.pdd-scanner-actions .pdd-scan-read-controls{margin:0}
+.pdd-scanner-actions .pdd-capture-button{margin:0;min-height:52px}
+.pdd-scan-secondary-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.pdd-scan-secondary-actions .pdd-button{min-height:44px;padding:8px 5px;font-size:16px;gap:5px}
+.pdd-camera-settings{margin-top:10px;border:1px solid var(--pdd-line);border-radius:9px;background:#fbf9fc}
+.pdd-camera-settings>summary{cursor:pointer;min-height:44px;padding:10px 12px;font-size:16px;color:#54465f}
+.pdd-camera-settings .pdd-camera-controls{margin:0;border:0;border-top:1px solid var(--pdd-line);border-radius:0;background:transparent}
+.pdd-scanner-dialog .pdd-scanner-privacy{margin:10px 0 0;line-height:1.45}
+.pdd-photo-feedback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:10px;color:#fff;background:#211b28b3;font-size:18px;pointer-events:none}
+.pdd-scanner[data-portrait="true"] .pdd-scan-caption,.pdd-scanner[data-portrait="true"] .pdd-photo-feedback strong{display:none}
+.pdd-scanner-actions .pdd-camera-retry{margin:0 0 9px}
+@media(max-width:560px){.pdd-scanner-dialog{height:calc(100dvh - 24px);max-height:calc(100dvh - 24px);border-radius:14px}.pdd-scanner-dialog>h2{font-size:21px;padding:16px 55px 12px 14px}.pdd-scanner-scroll{padding:0 14px 10px}.pdd-scanner-actions{padding:10px 14px calc(12px + env(safe-area-inset-bottom))}.pdd-scan-secondary-actions .pdd-button{font-size:16px}}
+@media(max-height:540px){.pdd-scanner-dialog>h2{padding-top:10px;padding-bottom:9px}.pdd-scanner-actions{padding-top:8px;padding-bottom:calc(8px + env(safe-area-inset-bottom))}.pdd-scanner-actions .pdd-camera-status{margin-bottom:7px}.pdd-scanner-actions .pdd-capture-button{min-height:44px}.pdd-scan-secondary-actions{margin-top:6px}}
