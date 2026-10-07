@@ -113,6 +113,33 @@ Deno.test('request logs use static routes and discard private path, query, body,
   assert(observedError(new ApiError('private-error-value', 'private-message')) === 'INTERNAL_ERROR');
 });
 
+Deno.test('recipient request diagnostics keep only static route/error categories', () => {
+  const routes = [
+    ['/recipient-queries', 'recipient.query'],
+    ['/recipient-queries/PRIVATE-QUERY-ID/pages', 'recipient.query.page'],
+    ['/recipient-batches', 'recipient.batch'],
+    ['/recipient-manage/PRIVATE-REGISTRATION-CODE', 'recipient.manage'],
+    ['/recipient-manage/PRIVATE-REGISTRATION-CODE/withdraw', 'recipient.manage.withdraw'],
+    ['/admin/recipients', 'admin.recipient.list'],
+    ['/admin/recipients/PRIVATE-REGISTRATION-CODE', 'admin.recipient.detail'],
+    ['/admin/recipients/PRIVATE-REGISTRATION-CODE/actions', 'admin.recipient.action'],
+    ['/admin/recipient-queries', 'admin.recipient.query.list'],
+  ];
+  for (const [path, route] of routes) {
+    const request = new Request('https://example.test/v1' + path + '?recipientName=PRIVATE-NAME&phone=PRIVATE-PHONE', {
+      method: 'POST', headers: { Authorization: 'Bearer PRIVATE-CAPABILITY', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipientName: 'PRIVATE-NAME', contact: 'PRIVATE-CONTACT', note: 'PRIVATE-NOTE' }),
+    });
+    assert(observedRoute(request) === route);
+    for (const errorCode of ['INVALID_RECIPIENT_NAME', 'DUPLICATE_RECIPIENT']) {
+      assert(observedError(new ApiError(errorCode, 'PRIVATE-ERROR-MESSAGE')) === errorCode);
+      const log = requestObservation(request, 'synthetic-request-id', 409, 2, databaseTiming(), errorCode)!;
+      assert(log.route === route && log.errorCategory === errorCode);
+      assert(!JSON.stringify(log).includes('PRIVATE-'));
+    }
+  }
+});
+
 Deno.test('healthy logs are sampled, errors/slow calls retained and fetch failures counted without SQL details', async () => {
   const normal = request('/v1/community');
   assert(requestObservation(normal, 'id', 200, 5, databaseTiming(), null, 0.1, () => 0.9) === null);

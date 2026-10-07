@@ -16,6 +16,9 @@ export function observedRoute(request: Request): string {
   if (first === 'waybill-batches') return 'waybill.batch';
   if (first === 'waybill-manage') return third === 'withdraw' ? 'waybill.manage.withdraw' : 'waybill.manage';
   if (first === 'waybills') return 'waybill.public';
+  if (first === 'recipient-queries') return third === 'pages' ? 'recipient.query.page' : 'recipient.query';
+  if (first === 'recipient-batches') return 'recipient.batch';
+  if (first === 'recipient-manage') return third === 'withdraw' ? 'recipient.manage.withdraw' : 'recipient.manage';
   if (first === 'feedback') return 'feedback.submit';
   if (first === 'scans') return ['candidates', 'submit', 'select', 'revisions', 'retry'].includes(third) ? `legacy.scan.${third}` : 'legacy.scan';
   if (first === 'trackers') return 'legacy.tracker';
@@ -26,13 +29,15 @@ export function observedRoute(request: Request): string {
     if (second === 'analytics') return 'admin.analytics';
     if (second === 'waybills') return fourth === 'actions' ? 'admin.waybill.action' : third ? 'admin.waybill.detail' : 'admin.waybill.list';
     if (second === 'waybill-queries') return 'admin.query.list';
+    if (second === 'recipients') return fourth === 'actions' ? 'admin.recipient.action' : third ? 'admin.recipient.detail' : 'admin.recipient.list';
+    if (second === 'recipient-queries') return 'admin.recipient.query.list';
     if (second === 'feedback') return third ? 'admin.feedback.update' : 'admin.feedback.list';
     if (['community', 'scans', 'tasks', 'records', 'duplicates', 'recognition', 'audit'].includes(second)) return `admin.legacy.${second}`;
   }
   return 'unknown';
 }
 
-const ERROR_CODES = new Set(['INTERNAL_ERROR', 'SERVICE_UNAVAILABLE', 'FORBIDDEN', 'NOT_FOUND', 'INVALID_REQUEST', 'INVALID_WAYBILL', 'INVALID_CONTACT', 'INVALID_NOTE', 'RATE_LIMITED', 'VERSION_CONFLICT', 'IDEMPOTENCY_CONFLICT', 'QUERY_TIMEOUT', 'QUERY_EXPIRED', 'SCAN_EXPIRED', 'OWNERSHIP_LOCKED', 'NEEDS_RECEIVED', 'INVALID_ADMIN_STATE', 'INVALID_IMAGE', 'UPLOAD_INCOMPLETE', 'NEEDS_PHOTO', 'OCR_DEFERRED']);
+const ERROR_CODES = new Set(['INTERNAL_ERROR', 'SERVICE_UNAVAILABLE', 'FORBIDDEN', 'NOT_FOUND', 'INVALID_REQUEST', 'INVALID_WAYBILL', 'INVALID_RECIPIENT_NAME', 'DUPLICATE_RECIPIENT', 'INVALID_CONTACT', 'INVALID_NOTE', 'RATE_LIMITED', 'VERSION_CONFLICT', 'IDEMPOTENCY_CONFLICT', 'QUERY_TIMEOUT', 'QUERY_EXPIRED', 'SCAN_EXPIRED', 'OWNERSHIP_LOCKED', 'NEEDS_RECEIVED', 'INVALID_ADMIN_STATE', 'INVALID_IMAGE', 'UPLOAD_INCOMPLETE', 'NEEDS_PHOTO', 'OCR_DEFERRED']);
 export function observedError(error: unknown): string {
   return error instanceof ApiError && ERROR_CODES.has(error.code) ? error.code : 'INTERNAL_ERROR';
 }

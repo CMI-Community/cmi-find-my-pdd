@@ -1,9 +1,11 @@
-import { HandHeart, Search } from 'lucide-react';
-import type { PddMode, PddRegistration } from '../shared/waybill';
+import { Barcode, ContactRound, HandHeart, Search } from 'lucide-react';
+import type { PddLookupType, PddMode, PddRegistration } from '../shared/waybill';
 import lostDesktopScene from './assets/home-detectives-lost-desktop.webp';
 import receivedDesktopScene from './assets/home-detectives-received-desktop.webp';
 import lostMobileScene from './assets/home-detectives-lost-mobile.webp';
 import receivedMobileScene from './assets/home-detectives-received-mobile.webp';
+import waybillDetective from './assets/lookup-detective-waybill.webp';
+import recipientDetective from './assets/lookup-detective-recipient.webp';
 
 export const homeModeContent = {
   lost: {
@@ -51,6 +53,18 @@ export function HomeModeControls({ mode, disabled, onChange }: { mode: PddMode; 
         <span>{homeModeContent[value].label}</span>
       </button>;
     })}
+  </div>;
+}
+
+export function LookupModeControls({ lookupType, disabled, onChange }: { lookupType: PddLookupType; disabled: boolean; onChange: (type: PddLookupType) => void }) {
+  return <div className="pdd-lookup-picker" data-lookup={lookupType}>
+    <div className="pdd-lookup-scene" aria-hidden="true">
+      <img className="pdd-lookup-detective pdd-lookup-waybill" src={waybillDetective} alt="" decoding="async" /><img className="pdd-lookup-detective pdd-lookup-recipient" src={recipientDetective} alt="" decoding="async" />
+      <div className="pdd-clue-label"><span className={'pdd-clue-name' + (lookupType === 'recipient' ? ' highlighted' : '')}><ContactRound size={11} /><span>收件人</span></span><i /><div className={'pdd-clue-barcode' + (lookupType === 'waybill' ? ' highlighted' : '')}><Barcode size={42} strokeWidth={1.5} /><span>国内快递单号</span></div></div>
+    </div>
+    <div className="pdd-lookup-tools"><div className="pdd-lookup-modes" role="group" aria-label="选择查找线索">
+      {(['waybill', 'recipient'] as const).map(type => <button key={type} type="button" aria-pressed={lookupType === type} disabled={disabled} onClick={() => onChange(type)}>{type === 'waybill' ? '快递单号' : '收件人名'}</button>)}
+    </div><p>{lookupType === 'waybill' ? '看条码下方的完整国内单号' : '看面单上的收件人名'}</p></div>
   </div>;
 }
 

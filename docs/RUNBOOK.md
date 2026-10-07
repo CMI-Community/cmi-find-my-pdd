@@ -75,7 +75,7 @@ node --env-file=.private/production.env scripts/deploy.mjs production
 
 业务冲突用普通 `P0001` 异常保留白名单错误名称，Edge 将版本冲突及幂等冲突映射为 HTTP 409。不得把这些固定业务拒绝写成 SQLSTATE `40001`：PostgREST 14 会反复重试，造成接口超时。真实数据库事务的序列化失败不被吞掉。诊断与处理依据 [Supabase 官方说明](https://supabase.com/docs/guides/troubleshooting/high-cpu-and-infinite-transaction-retries-when-using-custom-error-codes-in-rpc-functions-77326b)；只对照日志中的进程编号和活动事务处理明确的故障连接，不为此重启整个生产项目。
 
-查询日志和幂等元数据保留 30 天；正式登记活跃时保留。结案/撤回 30 天后清除联系方式、管理凭证、关联私密备注；保留必要匿名状态和交还统计。清理使用与登记相同的有序单号锁，撤销凭证时递增版本；不得跳过锁或把清理后的字段用旧请求写回。旧图片流程的既有清理规则继续保留，不混为本版查询日志周期。
+查询日志和原单号幂等元数据保留30天；正式登记活跃时保留。结案/撤回30天后清除姓名、规范姓名、联系方式、管理凭证和私密备注；保留必要匿名状态和交还统计。姓名批次回执在30天后清空，保留请求编号及摘要用于拒绝旧请求重放，不保留姓名副本。姓名查询、姓名变更、附姓名的单号登记及清理先取得同一注册表事务锁，再取得已有单号锁；撤销凭证时递增版本，不得将清理字段用旧请求写回。旧图片流程的既有清理规则继续保留，不混为本版查询日志周期。
 
 ## 加密备份与恢复
 
@@ -87,9 +87,11 @@ node --env-file=.private/production.env scripts/backup.mjs
 
 备份包含 public/Auth schema、两个保留的私有图片 bucket 和社区 bucket；新增 `pdd_*` 表随 public schema 自动纳入。打包后使用 scrypt 派生 AES-256-GCM 密钥，保留最近 7 份，临时明文结束或失败后删除。`backups/` 不进入 Git；密文和密码分别保管，密文还应存放到独立可靠位置。兼容归档 manifest 的 product 标识仍为 `cmi-find-my-pdd`，不是部署到旧站。
 
-范围限定备份在新增反馈迁移后覆盖21张public业务表及3个存储bucket，保留新备注与首次匹配统计字段；旧20表快照按原迁移manifest仍可恢复。脚本拒绝新迁移缺少反馈表的快照，通过两次一致读取及AES-256-GCM验证后，在隔离PostgreSQL核对恢复数据。Auth元数据不含凭据；该快照不包含完整原生public/Auth dump、Vault或角色，不构成完整灾难恢复证明。完整 `scripts/backup.mjs` 备份仍需私有 `SUPABASE_DB_URL`，随后重新做全量恢复；实际生产归档与检查结果写入发布记录，不在公开文档披露资料或密钥。
+范围限定备份按迁移覆盖20张旧表、反馈迁移后的21张、统计迁移后的23张及姓名迁移后的26张public业务表，另有3个存储bucket。旧快照按原迁移manifest恢复；声明新迁移的快照必须包含对应新表，即使为空。姓名新列、新表、备注、首次匹配统计字段都纳入恢复核对。Auth元数据不含凭据；该快照不包含完整原生public/Auth dump、Vault或角色，不构成完整灾难恢复证明。完整 `scripts/backup.mjs` 备份仍需私有 `SUPABASE_DB_URL`，随后重新做全量恢复；实际生产归档与检查结果写入发布记录，不在公开文档披露资料或密钥。
 
-范围备份命令为 `npm run ops:backup:scoped -- backups/filename.cmibak` 与 `npm run ops:verify:scoped -- backups/filename.cmibak`。它按迁移版本覆盖21张业务表（旧版本为20张）和3个存储 bucket，直接写 AES-GCM 密文；运行配置只保留安全字段，不读取 Auth/Vault。两轮完整业务表读取必须一致，变更时失败并要求在安静时段重试；即使两轮一致，也不保证数据库快照隔离或期间存储不变。恢复只用独立本机 PostgreSQL，验证全部约束、RLS、行值和存储哈希。
+范围备份命令为 `npm run ops:backup:scoped -- backups/filename.cmibak` 与 `npm run ops:verify:scoped -- backups/filename.cmibak`。迁移manifest来自所用checkout，备份前须确认它与实际数据库一致：姓名迁移之前用23表旧revision，不能用26表清单导出尚未升级的库。脚本直接写AES-GCM密文；运行配置只保留安全字段，不读取Auth/Vault。两轮完整业务表读取必须一致，变更时失败并要求在安静时段重试；即使两轮一致，也不保证数据库快照隔离或期间存储不变。恢复只用独立本机PostgreSQL，验证全部约束、RLS、行值和存储哈希。
+
+姓名发布先部署两项兼容迁移及完整API依赖，再核验服务就绪、旧单号兼容、姓名端点权限与固定埋点；之后才发布前端到独立PDD404项目。回滚前端或API时保留新增表、姓名列和登记资料；不删除生产数据来回退迁移。记录数据库、API、前端各自的真实版本及验收，不以主线合并代替上线。
 
 `backup-scoped.yml` 定于曼谷02:30执行，避开每小时第17分钟清理；只有 `ENABLE_SCOPED_BACKUP=true` 才运行。恢复验证通过后上传7天保留的加密 artifact。启用前配置其中的项目 vars、服务端密钥和单独备份密码，完成一次实际执行与下载恢复；不要只因 YAML 存在就称自动备份可用。
 

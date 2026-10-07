@@ -10,6 +10,7 @@ import { projectGuard, required } from './ops.mjs';
 export const FORMAT = 'pdd404-scoped-row-snapshot-v1';
 export const FEEDBACK_MIGRATION = '20261006141735';
 export const TELEMETRY_MIGRATION = '20261006173511';
+export const RECIPIENT_MIGRATION = '20261007083319';
 export const TABLES = Object.freeze([
   ['scans', ['id']], ['images', ['id']], ['records', ['id']], ['evidence', ['id']],
   ['jobs', ['id']], ['matches', ['id']], ['followups', ['id']], ['handovers', ['id']],
@@ -21,6 +22,8 @@ export const TABLES = Object.freeze([
   ['pdd_feedback', ['id']],
   ['pdd_telemetry_daily', ['day', 'event', 'page', 'mode', 'source', 'scan_mode', 'batch_bucket', 'dwell_bucket']],
   ['pdd_telemetry_budget', ['day']],
+  ['pdd_recipient_leads', ['id']], ['pdd_recipient_query_events', ['id']],
+  ['pdd_recipient_audit_events', ['id']],
 ].map(([name, order]) => Object.freeze({ name, order: Object.freeze(order) })));
 // Older encrypted snapshots must reconstruct their original schema. A snapshot
 // declaring a table's migration must include that table, even when empty.
@@ -28,8 +31,10 @@ export function tablesForMigrations(migrations) {
   if (!Array.isArray(migrations) || !migrations.length) throw new Error('Invalid scoped migration manifest.');
   const hasFeedback = migrations.some(entry => entry?.version === FEEDBACK_MIGRATION);
   const hasTelemetry = migrations.some(entry => entry?.version === TELEMETRY_MIGRATION);
+  const hasRecipient = migrations.some(entry => entry?.version === RECIPIENT_MIGRATION);
   return TABLES.filter(table => (hasFeedback || table.name !== 'pdd_feedback') &&
-    (hasTelemetry || !['pdd_telemetry_daily', 'pdd_telemetry_budget'].includes(table.name)));
+    (hasTelemetry || !['pdd_telemetry_daily', 'pdd_telemetry_budget'].includes(table.name)) &&
+    (hasRecipient || !['pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events'].includes(table.name)));
 }
 export const BUCKETS = Object.freeze(['parcel-originals', 'parcel-public', 'community-assets']);
 export const RUNTIME_KEYS = Object.freeze(['APP_ENVIRONMENT', 'APP_PUBLIC_URL', 'ALLOWED_ORIGINS', 'ADMIN_USER_IDS', 'APP_SHA', 'OCR_ENABLED']);

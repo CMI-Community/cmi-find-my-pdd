@@ -7,10 +7,10 @@ the implementation contract. Record genuine deployment state in docs/releases/.
 - Code and synthetic fixtures are MIT; local 资料/, production data, photos,
   contact details, credentials, .env files and backups must never enter Git.
 - Public DTOs are explicit allowlists. The dedicated complete domestic-waybill
-  POST query may return the opposite registrant's supplied WeChat/phone, as
-  explicitly authorized for PDD404. Registration explains this disclosure.
+  POST query and dedicated complete-recipient-name POST queries may return the
+  opposite registrant's supplied contact and note, as authorized for PDD404. Registration explains this disclosure.
   Public codes, tails, share pages and alternate query flags never grant this
-  lookup or expose private evidence, addresses or management capabilities.
+  lookup or expose recipient names, private evidence, addresses or management capabilities.
 - Browser users have no account or direct database access. Capabilities are
   random 32-byte secrets in headers; management URLs keep them in fragments.
 - PDD404 accepts manual or locally barcode-decoded domestic waybills. Do not
@@ -23,14 +23,22 @@ the implementation contract. Record genuine deployment state in docs/releases/.
 - Approximate queries are suggestions only: normalized character similarity
   must exceed 70% and stay below 100%, with unreadable ?/* characters penalized.
   Return at most five allowlisted masked references, never contact or note;
-  instruct screenshot and CMI assistant follow-up. Registration remains full
-  waybill only; approximate suggestions never increment matched-parcel counts.
+  instruct screenshot and CMI assistant follow-up. Waybill registration remains
+  full-number only; independent exact-name leads are a separate resource.
+  Approximate suggestions never increment matched-parcel counts.
+- Recipient names use NFC, trimmed/collapsed whitespace and ASCII case folding,
+  preserve word spaces and symbols, and reject controls. Same-name people remain
+  independent; only active independent name+side+validated-contact duplicates
+  are suppressed. Name leads never increment parcel registration/match/return
+  statistics. Do not infer names from legacy images or backfill private data.
 - Worker calls require atomic budget reservation. Unknown cost retains the
   reservation. Do not loosen daily limits or retry indefinitely.
 - No fabricated community QR, contacts, recognition output, progress or counters.
   Missing configuration is a visible service state.
-- Only exact opposite-side waybill matches may disclose self-submitted contact
-  and registration note. Public/share DTOs never return either. Homepage counts
+- Only dedicated exact opposite-side waybill or complete-name POST queries may
+  disclose self-submitted contact and registration note. Public/share DTOs never
+  return names, contacts or notes. Name hits are leads, never parcel matches.
+  Homepage counts
   derive from formal registrations and unique successful matching facts;
   successful matching does not increment actual-return statistics.
 - Community feedback is administrator-only. Public submission returns only its

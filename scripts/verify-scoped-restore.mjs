@@ -77,7 +77,7 @@ export async function restoreAndCompare(snapshot, sql) {
   await sql(BOOTSTRAP_SQL);
   for (const migration of migrations) await sql(migration);
   const actorIds = new Set();
-  for (const name of ['audit_events', 'handovers', 'pdd_audit_events', 'pdd_handovers']) for (const row of tables.get(name)) {
+  for (const name of ['audit_events', 'handovers', 'pdd_audit_events', 'pdd_handovers', 'pdd_recipient_audit_events']) for (const row of tables.get(name) ?? []) {
     if (row.actor_id != null) {
       if (!uuid.test(row.actor_id)) throw new Error('Invalid audit actor UUID.');
       actorIds.add(row.actor_id);
@@ -101,8 +101,10 @@ export async function restoreAndCompare(snapshot, sql) {
     const permissions = JSON.parse(await sql(`select jsonb_build_object('rls',relrowsecurity,'anon',has_table_privilege('anon',oid,'SELECT,INSERT,UPDATE,DELETE'),'authenticated',has_table_privilege('authenticated',oid,'SELECT,INSERT,UPDATE,DELETE'))::text from pg_class where oid='public.${table.name}'::regclass;`));
     if (!permissions.rls || permissions.anon || permissions.authenticated) throw new Error(`Restored table access is not private for ${table.name}.`);
   }
-  const rpcPermissions = JSON.parse(await sql(`select jsonb_build_object('anon',has_function_privilege('anon','public.pdd_query(jsonb)','EXECUTE'),'authenticated',has_function_privilege('authenticated','public.pdd_query(jsonb)','EXECUTE'))::text;`));
-  if (rpcPermissions.anon || rpcPermissions.authenticated) throw new Error('Restored private query RPC has browser access.');
+  const rpcPermissions = JSON.parse(await sql(`select coalesce(jsonb_agg(jsonb_build_object('signature',p.oid::regprocedure::text,
+    'anon',has_function_privilege('anon',p.oid,'EXECUTE'),'authenticated',has_function_privilege('authenticated',p.oid,'EXECUTE'))),'[]')::text
+    from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname like 'pdd_%';`));
+  if (!rpcPermissions.length || rpcPermissions.some(permission => permission.anon || permission.authenticated)) throw new Error('Restored private PDD RPC has browser access.');
   if (Number(await sql('select count(*) from auth.users;')) !== actorIds.size) throw new Error('Audit actor placeholders were not restored.');
   // Storage bytes have authenticated size/hash verification in memory. There is
   // no Supabase endpoint or disk extraction; actual bucket restore is separate.

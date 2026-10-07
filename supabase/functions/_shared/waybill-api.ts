@@ -1,3 +1,4 @@
+import { optionalRecipientName } from '../../../shared/recipient.ts';
 import { ApiError, body, json, onlyKeys, stringValue, uuid, version } from './http.ts';
 import { capability, canonicalJson, sha256 } from './security.ts';
 import { DOMESTIC_WAYBILL_MESSAGE, normalizeWaybill, validatePddContact, validatePddNote, validateWaybill, validateWaybillQuery, type PddMode, type PddSource, type PddContact, type PddHomeStats, type PddPossibleCandidate, type PddPublicRecord, type PddQueryResult, type PddRegistration, type PddBatchResultItem } from '../../../shared/waybill.ts';
@@ -35,6 +36,9 @@ export function pddContact(value: unknown): PddContact {
 export function pddNote(value: unknown): string | null {
   try { return validatePddNote(value); }
   catch { throw new ApiError('INVALID_NOTE', '备注最多五百字，请勿使用特殊控制字符。', 422); }
+}
+export function pddOptionalRecipientName(value: unknown): string | null {
+  try { return optionalRecipientName(value); } catch { throw new ApiError('INVALID_RECIPIENT_NAME', '收件人名须为1至80字，请勿使用控制字符。', 422); }
 }
 function mode(value: unknown): PddMode {
   if (value !== 'lost' && value !== 'received') throw new ApiError('INVALID_REQUEST', '请选择丢件或错收件。');
@@ -80,7 +84,7 @@ export function pddRegistration(raw: Row): PddRegistration {
   if (!raw || typeof raw.registrationCode !== 'string' || !Number.isSafeInteger(raw.revision) || !['active', 'withdrawn'].includes(raw.visibility)) unavailable();
   return { registrationCode: raw.registrationCode, number: pddStoredNumber(raw.number), mode: mode(raw.mode), source: source(raw.source),
     contact: raw.contact ? pddContact(raw.contact) : null, note: pddNote(raw.note), revision: raw.revision, visibility: raw.visibility,
-    createdAt: String(raw.createdAt), updatedAt: String(raw.updatedAt), record: pddPublic(raw.record) };
+    createdAt: String(raw.createdAt), updatedAt: String(raw.updatedAt), record: pddPublic(raw.record), recipientName: pddOptionalRecipientName(raw.recipientName) };
 }
 export function pddBatchItem(raw: Row): PddBatchResultItem {
   if (!raw || !['registered', 'matched', 'duplicate', 'closed'].includes(raw.result)) unavailable();
@@ -88,7 +92,7 @@ export function pddBatchItem(raw: Row): PddBatchResultItem {
     registration: raw.registration ? pddRegistration(raw.registration) : null,
     contact: raw.result === 'matched' && raw.contact ? pddContact(raw.contact) : null,
     note: raw.result === 'matched' ? pddNote(raw.note) : null,
-    registeredAt: raw.registeredAt ? String(raw.registeredAt) : null };
+    registeredAt: raw.registeredAt ? String(raw.registeredAt) : null, recipientNameSaved: raw.recipientNameSaved === true };
 }
 
 export async function pddRoute(request: Request, parts: string[], headers: Record<string, string>, context: PddRouteContext): Promise<Response | null> {
@@ -118,8 +122,8 @@ export async function pddRoute(request: Request, parts: string[], headers: Recor
     if (!Array.isArray(input.items) || !input.items.length || input.items.length > 50) throw new ApiError('INVALID_REQUEST', '每次请提交一至五十个单号。');
     const items = input.items.map((item: unknown) => {
       if (!item || typeof item !== 'object' || Array.isArray(item)) throw new ApiError('INVALID_REQUEST', '待提交单号格式不正确。');
-      const row = item as Row; onlyKeys(row, ['requestId', 'number', 'source']);
-      return { request_id: uuid(row.requestId), number: pddNumber(row.number), source: source(row.source) };
+      const row = item as Row; onlyKeys(row, ['requestId', 'number', 'source', 'recipientName']);
+      return { request_id: uuid(row.requestId), number: pddNumber(row.number), source: source(row.source), ...(Object.prototype.hasOwnProperty.call(row, 'recipientName') ? { recipient_name: pddOptionalRecipientName(row.recipientName) } : {}) };
     });
     const result = await call('pdd_batch_register', { request_id: key(request), mode: mode(input.mode), contact: pddContact(input.contact),
       ...(Object.prototype.hasOwnProperty.call(input, 'note') ? { note: pddNote(input.note) } : {}),
@@ -131,8 +135,10 @@ export async function pddRoute(request: Request, parts: string[], headers: Recor
     const payload = { registration_code: stringValue(parts[1], '登记编号', 64), capability_hash: await capHash() };
     if (parts.length === 2 && method === 'GET') return json(pddRegistration(await call('pdd_manage', payload)), 200, headers);
     if (parts.length === 2 && method === 'PATCH') {
-      const input = await body(request); onlyKeys(input, ['revision', 'contact']);
-      return json(pddRegistration(await call('pdd_manage_update', { ...payload, revision: version(input.revision), action: 'contact', contact: pddContact(input.contact) })), 200, headers);
+      const input = await body(request); onlyKeys(input, ['revision', 'contact', 'recipientName']);
+      if (!('contact' in input) && !('recipientName' in input)) throw new ApiError('INVALID_REQUEST', '请提交需要更新的资料。');
+      return json(pddRegistration(await call('pdd_manage_update', { ...payload, revision: version(input.revision), action: 'contact',
+        ...('contact' in input ? { contact: pddContact(input.contact) } : {}), ...('recipientName' in input ? { recipient_name: pddOptionalRecipientName(input.recipientName) } : {}) })), 200, headers);
     }
     if (parts.length === 3 && parts[2] === 'withdraw' && method === 'POST') {
       const input = await body(request); onlyKeys(input, ['revision']);
