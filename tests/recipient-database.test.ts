@@ -20,6 +20,7 @@ beforeAll(async()=>{
 },30_000);
 beforeEach(async()=>{await db.exec('begin;');});afterEach(async()=>{await db.exec('rollback; reset role;');});afterAll(async()=>{await db?.close();});
 async function rpc<T=Record<string,any>>(name:string,payload:Record<string,unknown>={}):Promise<T>{return(await db.query<{value:T}>(`select public.${name}($1::jsonb) value`,[JSON.stringify(payload)])).rows[0].value;}
+async function parcelStats(){const {lostRegistered,receivedRegistered,matchedParcels}=await rpc('pdd_home_stats');return {lostRegistered,receivedRegistered,matchedParcels};}
 const payload=(name:string,mode='received',cap=capA,value=contact.value)=>({request_id:randomUUID(),mode,contact:{...contact,value},note:'Synthetic private note',capability_hash:cap,body_hash:randomUUID(),items:[{request_id:randomUUID(),recipient_name:name}]});
 async function register(name:string,mode='received',cap=capA,value=contact.value){return(await rpc<PddRecipientBatchResult>('pdd_recipient_batch_register',payload(name,mode,cap,value))).items[0].registration!;}
 const queryPayload=(name:string,mode='lost',cap=capB)=>({query_id:randomUUID(),recipient_name:name,mode,capability_hash:cap,body_hash:randomUUID()});
@@ -35,10 +36,10 @@ describe('recipient leads transactional boundaries',()=>{
   for(const name of ['', ' ', '小明\n','小明\u0085','😀'.repeat(81)])await error('pdd_recipient_query',queryPayload(name),'INVALID_RECIPIENT_NAME','22023');
  });
  it('does not manufacture parcels, ownership, match or return statistics from same names',async()=>{
-  const before=await rpc('pdd_home_stats');
+  const before=await parcelStats();
   await register('合成小明');await register('合成小明','lost',capB);
   expect((await query('合成小明')).result).toBe('leads_found');
-  expect(await rpc('pdd_home_stats')).toEqual(before);
+  expect(await parcelStats()).toEqual(before);
   expect((await db.query('select * from public.pdd_waybills')).rows).toHaveLength(0);
   expect((await db.query('select * from public.pdd_handovers')).rows).toHaveLength(0);
  });
@@ -49,7 +50,7 @@ describe('recipient leads transactional boundaries',()=>{
   for(const lead of found.leads)expect(Object.keys(lead).sort()).toEqual(['contact','note','recipientName','registeredAt']);
   expect(JSON.stringify(found)).not.toContain('SYNTHNAME001');expect(JSON.stringify(found)).not.toContain('PDD-');expect(JSON.stringify(found)).not.toContain(capA);
   expect(wb.items[0]).toMatchObject({recipientNameSaved:true,registration:{recipientName:'Synthetic Alex'}});
-  expect(await rpc('pdd_home_stats')).toEqual({lostRegistered:0,receivedRegistered:1,matchedParcels:0});
+  expect(await parcelStats()).toEqual({lostRegistered:0,receivedRegistered:1,matchedParcels:0});
   expect(await query('Alex')).toMatchObject({result:'not_found',leads:[]});
   await db.exec("update public.pdd_waybills set resolution='resolved',closed_at=now();");
   expect((await query('Synthetic Alex')).leads).toHaveLength(1);

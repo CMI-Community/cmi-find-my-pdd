@@ -35,7 +35,11 @@ async function batch(number: string, mode: PddMode, contact = lostContact, cap =
     items: [{ request_id: randomUUID(), number, source: 'manual' }] });
 }
 type HomeStats = { lostRegistered: number; receivedRegistered: number; matchedParcels: number };
-const homeStats = () => rpc<HomeStats>('pdd_home_stats');
+// These checks assert that parcel statistics remain independent of name leads.
+const homeStats = async (): Promise<HomeStats> => {
+  const { lostRegistered, receivedRegistered, matchedParcels } = await rpc<HomeStats>('pdd_home_stats');
+  return { lostRegistered, receivedRegistered, matchedParcels };
+};
 async function businessError(name: string, payload: Record<string, unknown>, message: string) {
   await db.exec('savepoint expected_business_error;');
   try { await expect(rpc(name, payload)).rejects.toMatchObject({ code: 'P0001', message: expect.stringContaining(message) }); }

@@ -4,6 +4,7 @@ import { databaseTiming, observedError, observedFetch, observedRoute, requestObs
 import { createPublicCache } from './public-cache.ts';
 import { configuredTelemetryLimit, createTelemetryLimiter, createTelemetryRoutes, telemetryBody, type TelemetryContext } from './telemetry-api.ts';
 import { TELEMETRY_EVENTS, validateTelemetryRows } from '../../../shared/telemetry.ts';
+import type { PddHomeStats } from '../../../shared/waybill.ts';
 
 function assert(condition: unknown, message = 'assertion failed'): asserts condition { if (!condition) throw new Error(message); }
 function throws(fn: () => unknown, code: string) {
@@ -156,11 +157,12 @@ Deno.test('healthy logs are sampled, errors/slow calls retained and fetch failur
 Deno.test('public cache coalesces traffic, expires and never preserves failed or invalidated loads', async () => {
   let now = 0, loads = 0;
   const cache = createPublicCache(30_000, () => now);
-  const load = () => { loads++; return Promise.resolve({ lostRegistered: loads }); };
+  const load = (): Promise<PddHomeStats> => { loads++; return Promise.resolve({ lostRegistered: loads, receivedRegistered: 0, matchedParcels: 0,
+    lostRecipientRegistered: loads, receivedRecipientRegistered: 0, matchedRecipientLeads: 0 }); };
   const values = await Promise.all(Array.from({ length: 40 }, () => cache.get('waybill-stats', load)));
-  assert(loads === 1 && values.every(value => value.lostRegistered === 1));
+  assert(loads === 1 && values.every(value => value.lostRegistered === 1 && value.lostRecipientRegistered === 1));
   now = 29_999; await cache.get('waybill-stats', load); assert(loads === 1);
-  now = 30_000; const refreshed = await cache.get('waybill-stats', load); assert(refreshed.lostRegistered === 2);
+  now = 30_000; const refreshed = await cache.get('waybill-stats', load); assert(refreshed.lostRegistered === 2 && refreshed.lostRecipientRegistered === 2);
   cache.clear();
   try { await cache.get('community', () => Promise.reject(new Error('DB down'))); } catch { /* expected */ }
   assert((await cache.get('community', () => Promise.resolve({ ready: true }))).ready === true);

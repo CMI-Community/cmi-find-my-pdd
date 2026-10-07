@@ -43,6 +43,14 @@ async function bootstrap(database, roles = false) {
 }
 const batch = (number, mode, capability, person, requestId = randomUUID(), note) => ({ request_id: requestId, mode, note, contact: { kind: 'wechat', value: person },
   items: [{ request_id: randomUUID(), number, source: 'manual' }], capability_hash: capability, body_hash: randomBytes(32).toString('hex') });
+const parcelStats = ({ lostRegistered, receivedRegistered, matchedParcels }) => ({ lostRegistered, receivedRegistered, matchedParcels });
+const recipientBatch = (name, mode = 'received', capability = capA, person = 'fictional_name_holder', note = 'Synthetic name note') => ({
+  request_id: randomUUID(), mode, contact: { kind: 'wechat', value: person }, note,
+  items: [{ request_id: randomUUID(), recipient_name: name }], capability_hash: capability, body_hash: randomBytes(32).toString('hex'),
+});
+const recipientQuery = (name, mode = 'lost', capability = capB) => ({
+  query_id: randomUUID(), recipient_name: name, mode, capability_hash: capability, body_hash: randomBytes(32).toString('hex'),
+});
 async function verifyRecipientTelemetry(database = 'postgres') {
   const names = ['pdd_lookup_waybill_selected', 'pdd_lookup_recipient_selected',
     'pdd_recipient_query_started', 'pdd_recipient_query_invalid', 'pdd_recipient_query_leads_found', 'pdd_recipient_query_not_found', 'pdd_recipient_query_error',
@@ -72,6 +80,81 @@ async function verifyRecipientTelemetry(database = 'postgres') {
   }
   assert.deepEqual(await rpc('pdd_telemetry_summary', { days: 30 }, database), before);
   assert.deepEqual(await rpc('pdd_home_stats', {}, database), businessBefore);
+}
+async function verifyRecipientLifetimeStats() {
+  const initial = await rpc('pdd_home_stats', {});
+  const returnsBefore = await sql('select count(*) from public.pdd_handovers;');
+  const name = '六项统计双来源收件人';
+  const namedBatch = (number, mode, capability, person) => {
+    const input = batch(number, mode, capability, person);
+    input.items[0].recipient_name = name;
+    return input;
+  };
+  const lostInput = namedBatch('STATREGISTRY99001', 'lost', capA, 'fictional_stats_lost_number');
+  const receivedInput = namedBatch('STATREGISTRY99002', 'received', capA, 'fictional_stats_received_number');
+  const lostWaybill = (await rpc('pdd_batch_register', lostInput)).items[0].registration;
+  const receivedWaybill = (await rpc('pdd_batch_register', receivedInput)).items[0].registration;
+  const lostNameInput = recipientBatch(name, 'lost', capA, 'fictional_stats_lost_name');
+  const receivedNameInput = recipientBatch(name, 'received', capA, 'fictional_stats_received_name');
+  const lostName = (await rpc('pdd_recipient_batch_register', lostNameInput)).items[0].registration;
+  const receivedName = (await rpc('pdd_recipient_batch_register', receivedNameInput)).items[0].registration;
+  const registered = { ...initial, lostRegistered: initial.lostRegistered + 1, receivedRegistered: initial.receivedRegistered + 1,
+    lostRecipientRegistered: initial.lostRecipientRegistered + 2, receivedRecipientRegistered: initial.receivedRecipientRegistered + 2 };
+  assert.deepEqual(await rpc('pdd_home_stats', {}), registered);
+  await rpc('pdd_batch_register', lostInput); await rpc('pdd_recipient_batch_register', receivedNameInput);
+  assert.equal((await rpc('pdd_recipient_batch_register', recipientBatch(name, 'received', capB, 'fictional_stats_received_name'))).items[0].result, 'duplicate');
+  assert.deepEqual(await rpc('pdd_home_stats', {}), registered);
+
+  // Both sides disclose both sources. Competing/repeated queries mark each row once.
+  for (const mode of ['lost', 'received']) {
+    const input = recipientQuery(name, mode);
+    const results = await Promise.all(Array.from({ length: 8 }, () => rpc('pdd_recipient_query', input)));
+    assert(results.every(result => result.leads.length === 2 && !('returnedRefs' in result)));
+    await Promise.all(Array.from({ length: 4 }, () => rpc('pdd_recipient_query', recipientQuery(name, mode))));
+  }
+  const matched = { ...registered, matchedRecipientLeads: registered.matchedRecipientLeads + 4 };
+  assert.deepEqual(await rpc('pdd_home_stats', {}), matched);
+  assert.equal(await sql('select count(*) from public.pdd_handovers;'), returnsBefore);
+
+  const late = (await rpc('pdd_batch_register', batch('STATREGISTRY99003', 'received', capA, 'fictional_stats_late_name'))).items[0].registration;
+  const beforeLateName = { ...matched, receivedRegistered: matched.receivedRegistered + 1 };
+  assert.deepEqual(await rpc('pdd_home_stats', {}), beforeLateName);
+  let lateCurrent = await rpc('pdd_manage_update', { registration_code: late.registrationCode, capability_hash: capA, revision: late.revision, action: 'contact', recipient_name: '统计后补姓名' });
+  const afterLateName = { ...beforeLateName, receivedRecipientRegistered: beforeLateName.receivedRecipientRegistered + 1 };
+  assert.deepEqual(await rpc('pdd_home_stats', {}), afterLateName);
+  const lateMarker = await sql(`select recipient_registered_at::text from public.pdd_registrations where registration_code='${late.registrationCode}';`);
+  assert(lateMarker);
+  lateCurrent = await rpc('pdd_manage_update', { registration_code: late.registrationCode, capability_hash: capA, revision: lateCurrent.revision, action: 'contact', recipient_name: '统计更正姓名' });
+  lateCurrent = await rpc('pdd_manage_update', { registration_code: late.registrationCode, capability_hash: capA, revision: lateCurrent.revision, action: 'contact', recipient_name: null });
+  assert.equal(await sql(`select recipient_registered_at::text from public.pdd_registrations where registration_code='${late.registrationCode}';`), lateMarker);
+  assert.deepEqual(await rpc('pdd_home_stats', {}), afterLateName);
+
+  // Every independent record remains cumulative, even a same-name replacement.
+  await rpc('pdd_recipient_manage_update', { registration_code: receivedName.registrationCode, capability_hash: capA, revision: receivedName.revision, action: 'withdraw' });
+  const replacement = (await rpc('pdd_recipient_batch_register', recipientBatch(name, 'received', capB, 'fictional_stats_received_name'))).items[0].registration;
+  assert(replacement);
+  const replacementStats = { ...afterLateName, receivedRecipientRegistered: afterLateName.receivedRecipientRegistered + 1 };
+  assert.deepEqual(await rpc('pdd_home_stats', {}), replacementStats);
+  await rpc('pdd_manage_update', { registration_code: receivedWaybill.registrationCode, capability_hash: capA, revision: receivedWaybill.revision, action: 'withdraw' });
+  await sql(`update public.pdd_registrations set closed_at=now()-interval '31 days' where registration_code='${receivedWaybill.registrationCode}';
+    update public.pdd_waybills set resolution='resolved',closed_at=now()-interval '31 days' where number='STATREGISTRY99002';
+    update public.pdd_recipient_leads set closed_at=now()-interval '31 days' where registration_code='${receivedName.registrationCode}';`);
+  await rpc('pdd_cleanup', {});
+  const cleanedWaybill = JSON.parse(await sql(`select jsonb_build_object('name',recipient_name,'contact',contact,'note',note,'registered',recipient_registered_at is not null,'matched',recipient_matched_at is not null)::text from public.pdd_registrations where registration_code='${receivedWaybill.registrationCode}';`));
+  assert.deepEqual(cleanedWaybill, { name: null, contact: null, note: null, registered: true, matched: true });
+  const cleanedName = JSON.parse(await sql(`select jsonb_build_object('name',recipient_name,'contact',contact,'note',note,'matched',recipient_matched_at is not null)::text from public.pdd_recipient_leads where registration_code='${receivedName.registrationCode}';`));
+  assert.deepEqual(cleanedName, { name: null, contact: null, note: null, matched: true });
+  assert.deepEqual(await rpc('pdd_home_stats', {}), replacementStats);
+
+  const rolledBackNumber = namedBatch('STATROLLBACK99001', 'lost', capA, 'fictional_stats_rolledback');
+  await sql(`begin; ${invoke('pdd_batch_register', rolledBackNumber)} ${invoke('pdd_recipient_batch_register', recipientBatch('统计回滚姓名'))} ${invoke('pdd_recipient_query', recipientQuery(name))} rollback;`);
+  assert.deepEqual(await rpc('pdd_home_stats', {}), replacementStats);
+  assert.equal(await sql(`select recipient_matched_at is null from public.pdd_recipient_leads where registration_code='${replacement.registrationCode}';`), 't');
+  assert.equal(await sql("select count(*) from public.pdd_waybills where number='STATROLLBACK99001';"), '0');
+  assert.equal(await sql('select count(*) from public.pdd_handovers;'), returnsBefore);
+  assert.equal(await sql(`select recipient_matched_at is not null from public.pdd_registrations where registration_code='${lostWaybill.registrationCode}';`), 't');
+  assert.equal(await sql(`select recipient_matched_at is not null from public.pdd_recipient_leads where registration_code='${lostName.registrationCode}';`), 't');
+  console.log('Six-statistics real transactions passed: both sources/sides, per-record cumulative totals, duplicate/replay isolation, late-name marking, rename/clear retention, concurrent first-hit deduplication, privacy cleanup preserving markers, and registration/hit rollback with parcel/return isolation.');
 }
 function transactionSession() {
   const child = spawn(path.join(bin, 'psql'), ['-X', '-A', '-t', '-q', '--set', 'ON_ERROR_STOP=1', '--set', 'VERBOSITY=verbose'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -103,6 +186,12 @@ try {
   let businessMetadataChecked = false;
   let domesticGuardChecked = false;
   let monitorClusterChecked = false;
+  let recipientStatsUpgradeChecked = false;
+  let recipientUpgradeFixture, recipientUpgradeBefore, recipientUpgradeDigest, recipientUpgradeMetadata;
+  const recipientStatsMetadataSQL = `select jsonb_agg(jsonb_build_object('name',p.proname,'oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig,'arguments',p.proargtypes::text) order by p.proname)::text
+    from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('pdd_home_stats','pdd_recipient_lookup','pdd_recipient_query_response');`;
+  const recipientMarkerColumnsSQL = `select table_name||'.'||column_name from information_schema.columns where table_schema='public'
+    and table_name in ('pdd_registrations','pdd_recipient_leads') and column_name in ('recipient_registered_at','recipient_matched_at') order by table_name,column_name;`;
   const monitorMetadataSQL = `select jsonb_build_object('oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig,'arguments',p.proargtypes::text,'definition',pg_get_functiondef(p.oid))::text
     from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='pdd_monitor_status' and p.proargtypes='3802'::oidvector;`;
   const monitorSizeSQL = `select jsonb_build_object('reported',(public.pdd_monitor_status('{}')->>'databaseBytes')::bigint,
@@ -131,6 +220,7 @@ try {
     const businessUpgrade = name.endsWith('_pdd_business_conflict_errors.sql');
     const domesticUpgrade = name.endsWith('_domestic_waybill_guard.sql');
     const monitorClusterUpgrade = name.endsWith('_monitor_cluster_database_size.sql');
+    const recipientStatsUpgrade = name.endsWith('_home_recipient_stats.sql');
     const beforeBusinessMetadata = businessUpgrade ? JSON.parse(await sql(businessMetadataSQL)) : null;
     if (businessUpgrade) assert.equal(beforeBusinessMetadata.length, 6);
     if (upgrade) {
@@ -144,6 +234,51 @@ try {
       await rpc('pdd_query', evidence);
     }
     const migration = (await readFile(new URL(name, directory), 'utf8')).replace(/^create extension if not exists pg_net.*$/m, '').replace(/^create extension if not exists pg_cron.*$/m, '');
+    if (recipientStatsUpgrade) {
+      const withName = (number, mode, recipientName) => {
+        const input = batch(number, mode, capA, 'fictional_stats_upgrade');
+        input.items[0].recipient_name = recipientName;
+        return input;
+      };
+      const retainedInput = withName('STATBACKFILL99001', 'received', '统计升级保留姓名');
+      const receiptInput = withName('STATBACKFILL99002', 'lost', '统计升级回执姓名');
+      const unprovenInput = withName('STATBACKFILL99003', 'received', '统计升级无证据姓名');
+      const retained = (await rpc('pdd_batch_register', retainedInput)).items[0].registration;
+      const receiptOnly = (await rpc('pdd_batch_register', receiptInput)).items[0].registration;
+      const unproven = (await rpc('pdd_batch_register', unprovenInput)).items[0].registration;
+      const noName = (await rpc('pdd_batch_register', batch('STATBACKFILL99004', 'lost', capA, 'fictional_stats_upgrade'))).items[0].registration;
+      const independent = (await rpc('pdd_recipient_batch_register', recipientBatch('统计升级独立姓名', 'lost'))).items[0].registration;
+      // Historical query events retain no row references and cannot prove a hit marker.
+      assert.equal((await rpc('pdd_recipient_query', recipientQuery(retained.recipientName))).leads.length, 1);
+      assert.equal((await rpc('pdd_recipient_query', recipientQuery(independent.recipientName, 'received'))).leads.length, 1);
+      await sql(`update public.pdd_registrations set recipient_name=null,recipient_name_key=null where registration_code in ('${receiptOnly.registrationCode}','${unproven.registrationCode}');
+        update public.pdd_registrations set created_at=now()-interval '10 days' where registration_code='${retained.registrationCode}';
+        update public.pdd_write_requests set receipt=receipt #- '{0,recipientNameSaved}' where scope='batch' and key in ('${retainedInput.request_id}','${unprovenInput.request_id}');
+        update public.pdd_write_requests set created_at=now()-interval '5 days' where scope='batch' and key='${receiptInput.request_id}';`);
+      recipientUpgradeFixture = { retained, receiptOnly, unproven, noName, independent };
+      recipientUpgradeBefore = await rpc('pdd_home_stats', {});
+      recipientUpgradeDigest = await tableDigest();
+      recipientUpgradeMetadata = JSON.parse(await sql(recipientStatsMetadataSQL));
+      const expected = { ...recipientUpgradeBefore, lostRecipientRegistered: 2, receivedRecipientRegistered: 1, matchedRecipientLeads: 0 };
+      const trial = JSON.parse(await sql(`begin; ${migration} ${invoke('pdd_home_stats', {})} rollback;`));
+      assert.deepEqual(trial, expected);
+      assert.equal(await sql(recipientMarkerColumnsSQL), '', 'Rollback left new marker columns behind.');
+      assert.deepEqual(await tableDigest(), recipientUpgradeDigest);
+      assert.deepEqual(JSON.parse(await sql(recipientStatsMetadataSQL)), recipientUpgradeMetadata);
+      // An encrypted pre-upgrade pg_dump is restored before applying the new migration.
+      const oldDump = path.join(root, 'pre-recipient-stats.dump'), oldSealed = path.join(root, 'pre-recipient-stats.cmibak'), oldReopened = path.join(root, 'pre-recipient-stats-restored.dump');
+      await run(path.join(bin, 'pg_dump'), ['--format=custom', '--no-owner', '--schema=public', '--schema=auth', '--file', oldDump, '--dbname', 'postgres'], { env });
+      const oldPassword = randomBytes(32).toString('base64url');
+      await encryptFile(oldDump, oldSealed, oldPassword); await decryptFile(oldSealed, oldReopened, oldPassword);
+      await sql('create database pdd404_old_stats_restore;');
+      await bootstrap('pdd404_old_stats_restore');
+      await run(path.join(bin, 'pg_restore'), ['--no-owner', '--exit-on-error', '--clean', '--if-exists', '--dbname', 'pdd404_old_stats_restore', oldReopened], { env, maxBuffer: 2 * 1024 * 1024 });
+      assert.equal(await sql(recipientMarkerColumnsSQL, 'pdd404_old_stats_restore'), '');
+      assert.deepEqual(await rpc('pdd_home_stats', {}, 'pdd404_old_stats_restore'), recipientUpgradeBefore);
+      await sql(migration, 'pdd404_old_stats_restore');
+      assert.deepEqual(await rpc('pdd_home_stats', {}, 'pdd404_old_stats_restore'), expected);
+      await assert.rejects(() => sql('set role anon; select * from public.pdd_recipient_leads;', 'pdd404_old_stats_restore'), /permission denied/);
+    }
     let beforeMonitorMetadata, beforeMonitorTables;
     if (monitorClusterUpgrade) {
       beforeMonitorMetadata = JSON.parse(await sql(monitorMetadataSQL));
@@ -165,6 +300,25 @@ try {
       forwardingBefore = await forwardingSnapshot();
     }
     await sql(migration);
+    if (recipientStatsUpgrade) {
+      assert.deepEqual(JSON.parse(await sql(recipientStatsMetadataSQL)), recipientUpgradeMetadata);
+      assert.deepEqual(await rpc('pdd_home_stats', {}), { ...recipientUpgradeBefore, lostRecipientRegistered: 2, receivedRecipientRegistered: 1, matchedRecipientLeads: 0 });
+      assert.equal(await sql(recipientMarkerColumnsSQL), 'pdd_recipient_leads.recipient_matched_at\npdd_registrations.recipient_matched_at\npdd_registrations.recipient_registered_at');
+      const evidence = JSON.parse(await sql(`select jsonb_object_agg(registration_code,recipient_registered_at is not null)::text from public.pdd_registrations;`));
+      assert.equal(evidence[recipientUpgradeFixture.retained.registrationCode], true);
+      assert.equal(evidence[recipientUpgradeFixture.receiptOnly.registrationCode], true);
+      assert.equal(evidence[recipientUpgradeFixture.unproven.registrationCode], false);
+      assert.equal(evidence[recipientUpgradeFixture.noName.registrationCode], false);
+      assert.equal(await sql(`select recipient_registered_at>created_at from public.pdd_registrations where registration_code='${recipientUpgradeFixture.retained.registrationCode}';`), 't', 'A current name without a save receipt must use migration time, not parcel creation time.');
+      assert.equal(await sql(`select r.recipient_registered_at=w.created_at from public.pdd_registrations r join public.pdd_write_requests w on w.scope='batch'
+        and exists(select 1 from jsonb_array_elements(w.receipt) item where item->>'registrationCode'=r.registration_code and item->'recipientNameSaved'='true'::jsonb)
+        where r.registration_code='${recipientUpgradeFixture.receiptOnly.registrationCode}';`), 't', 'An explicit save receipt must retain its proven save time.');
+      assert.equal(await sql('select count(*) from public.pdd_registrations where recipient_matched_at is not null;'), '0');
+      assert.equal(await sql('select count(*) from public.pdd_recipient_leads where recipient_matched_at is not null;'), '0');
+      await sql('truncate public.pdd_waybills,public.pdd_registrations,public.pdd_query_events,public.pdd_write_requests,public.pdd_audit_events,public.pdd_handovers,public.pdd_recipient_leads,public.pdd_recipient_query_events,public.pdd_recipient_audit_events cascade;');
+      recipientStatsUpgradeChecked = true;
+      console.log('Six-statistics migration passed real rollback, retained-name/explicit-receipt-only backfill, zero historical hit inference, RPC identity/ACL preservation, and encrypted pre-upgrade dump restore plus migration.');
+    }
     if (monitorClusterUpgrade) {
       const afterMonitorMetadata = JSON.parse(await sql(monitorMetadataSQL));
       const { definition: oldDefinition, ...oldIdentity } = beforeMonitorMetadata;
@@ -224,6 +378,7 @@ try {
   assert(businessMetadataChecked, 'The business conflict migration metadata was not exercised.');
   assert(domesticGuardChecked, 'The domestic-waybill guard upgrade was not exercised.');
   assert(monitorClusterChecked, 'The cluster database-size migration was not exercised.');
+  assert(recipientStatsUpgradeChecked, 'The recipient statistics migration was not exercised.');
   await sql(await readFile(new URL('../tests/db.sql', import.meta.url), 'utf8'));
   assert.equal((await rpc('runtime_config', {})).OCR_ENABLED, 'false');
   console.log('Legacy real PostgreSQL transaction regression and server-only OCR default passed.');
@@ -515,13 +670,7 @@ try {
   telemetrySummary = await rpc('pdd_telemetry_summary', { days: 30 });
   console.log('Telemetry real transactions/concurrency passed: invalid/rolled-back batches wrote nothing, 12 competing batches stayed at exactly 50 events, no registration stats changed; monitor RPC passed a service-role read-only transaction and public access was denied.');
 
-  const recipientBatch = (name, mode = 'received', capability = capA, person = 'fictional_name_holder', note = 'Synthetic name note') => ({
-    request_id: randomUUID(), mode, contact: { kind: 'wechat', value: person }, note,
-    items: [{ request_id: randomUUID(), recipient_name: name }], capability_hash: capability, body_hash: randomBytes(32).toString('hex'),
-  });
-  const recipientQuery = (name, mode = 'lost', capability = capB) => ({
-    query_id: randomUUID(), recipient_name: name, mode, capability_hash: capability, body_hash: randomBytes(32).toString('hex'),
-  });
+  await verifyRecipientLifetimeStats();
   const nameNumber = 'RECIPIENT990001';
   const numberWithName = batch(nameNumber, 'received', capA, 'fictional_name_number', randomUUID(), 'Synthetic numbered recipient note');
   numberWithName.items[0].recipient_name = '  Jose\u0301  示例  ';
@@ -631,21 +780,38 @@ try {
   const pageRegistrations = [];
   for (let index = 0; index < 22; index++) pageRegistrations.push((await rpc('pdd_recipient_batch_register', recipientBatch(pageName, 'received', capA, `fictional_page_holder_${index}`, `Synthetic page note ${index}`))).items[0].registration);
   const pageInput = recipientQuery(pageName);
-  const firstNamePage = await rpc('pdd_recipient_query', pageInput);
+  const beforeNamePages = await rpc('pdd_home_stats', {});
+  const firstPages = await Promise.all(Array.from({ length: 8 }, () => rpc('pdd_recipient_query', pageInput)));
+  const firstNamePage = firstPages[0];
+  assert(firstPages.every(page => JSON.stringify(page) === JSON.stringify(firstNamePage)));
   assert.equal(firstNamePage.leads.length, 20); assert(firstNamePage.nextCursor);
+  const afterFirstPage = { ...beforeNamePages, matchedRecipientLeads: beforeNamePages.matchedRecipientLeads + 20 };
+  assert.deepEqual(await rpc('pdd_home_stats', {}), afterFirstPage);
+  assert.equal(await sql(`select count(*) from public.pdd_recipient_leads where recipient_name='${pageName}' and recipient_matched_at is not null;`), '20');
   const notYetShown = pageRegistrations.filter(registration => !firstNamePage.leads.some(lead => lead.contact.value === registration.contact.value));
   assert.equal(notYetShown.length, 2);
+  for (const registration of notYetShown) assert.equal(await sql(`select recipient_matched_at is null from public.pdd_recipient_leads where registration_code='${registration.registrationCode}';`), 't', 'Pagination probes or unseen rows must not be counted.');
   await rpc('pdd_recipient_manage_update', { registration_code: notYetShown[0].registrationCode, capability_hash: capA, revision: notYetShown[0].revision, action: 'withdraw' });
+  assert.deepEqual(await rpc('pdd_home_stats', {}), afterFirstPage);
   const pagePayload = { query_id: pageInput.query_id, cursor: firstNamePage.nextCursor, capability_hash: capB };
-  const secondNamePage = await rpc('pdd_recipient_query_page', pagePayload);
+  const secondPages = await Promise.all(Array.from({ length: 8 }, () => rpc('pdd_recipient_query_page', pagePayload)));
+  const secondNamePage = secondPages[0];
+  assert(secondPages.every(page => JSON.stringify(page) === JSON.stringify(secondNamePage)));
   assert.equal(secondNamePage.leads.length, 1); assert.equal(secondNamePage.nextCursor, null);
   assert.equal(secondNamePage.leads[0].contact.value, notYetShown[1].contact.value);
+  const afterSecondPage = { ...afterFirstPage, matchedRecipientLeads: afterFirstPage.matchedRecipientLeads + 1 };
+  assert.deepEqual(await rpc('pdd_home_stats', {}), afterSecondPage);
+  assert.equal(await sql(`select recipient_matched_at is null from public.pdd_recipient_leads where registration_code='${notYetShown[0].registrationCode}';`), 't', 'A row withdrawn before its page was returned is never a successful name hit.');
   await assert.rejects(() => rpc('pdd_recipient_query_page', { ...pagePayload, capability_hash: capA }), /FORBIDDEN/);
   const unrelatedPageQuery = await rpc('pdd_recipient_query', recipientQuery('José 示例'));
   await assert.rejects(() => rpc('pdd_recipient_query_page', { ...pagePayload, query_id: unrelatedPageQuery.queryId }), /INVALID_CURSOR|INVALID_REQUEST|FORBIDDEN/);
   await rpc('pdd_recipient_manage_update', { registration_code: notYetShown[1].registrationCode, capability_hash: capA, revision: notYetShown[1].revision, action: 'withdraw' });
   assert.equal((await rpc('pdd_recipient_query_page', pagePayload)).leads.length, 0, 'An opaque page replay must not disclose a withdrawn contact snapshot.');
-  assert.deepEqual(await rpc('pdd_home_stats', {}), beforeNameOnly);
+  // The unrelated query may match a row already seen; compare to its live baseline.
+  const afterPageWithdraw = await rpc('pdd_home_stats', {});
+  await rpc('pdd_recipient_query_page', pagePayload);
+  assert.deepEqual(await rpc('pdd_home_stats', {}), afterPageWithdraw);
+  assert.deepEqual(parcelStats(await rpc('pdd_home_stats', {})), parcelStats(beforeNameOnly));
   const recipientAudits = await sql('select coalesce(jsonb_agg(to_jsonb(a)),\'[]\')::text from public.pdd_recipient_audit_events a;');
   assert(!recipientAudits.includes('fictional_')); assert(!recipientAudits.includes('Synthetic name note'));
   for (const table of ['pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events']) {
@@ -681,12 +847,13 @@ try {
     const cleaned = JSON.parse(await sql(`select jsonb_build_object('recipientName',recipient_name,'nameKey',recipient_name_key,'contact',contact,'note',note,'capabilityHash',capability_hash,'revision',revision)::text from public.pdd_recipient_leads where registration_code='${retentionName.registrationCode}';`));
     assert.deepEqual(cleaned, { recipientName: null, nameKey: null, contact: null, note: null, capabilityHash: '', revision: closedNameRegistration.revision + 1 });
   } finally { await nameLockHolder.close(); if (nameWaiter) await nameWaiter; }
-  assert.deepEqual(await rpc('pdd_home_stats', {}), beforeNameOnly);
+  assert.deepEqual(parcelStats(await rpc('pdd_home_stats', {})), parcelStats(beforeNameOnly));
   await verifyRecipientTelemetry();
   console.log('Recipient real PostgreSQL checks passed: NFC/multilingual exact lookup, both sources, post-hit registration, independent counts, duplicate ownership, rename/withdraw races, live opaque pagination, cleanup revocation barrier and old duplicate tombstones preventing recreation.');
   console.log('Recipient telemetry real PostgreSQL checks passed: all 14 fixed events accepted under the unchanged synthetic cap; private metadata, scanner/source flags and unknown events rejected atomically.');
 
   const dumped = path.join(root, 'database.dump'), sealed = path.join(root, 'database.cmibak'), reopened = path.join(root, 'restored.dump');
+  const beforeRestoreStats = await rpc('pdd_home_stats', {});
   await run(path.join(bin, 'pg_dump'), ['--format=custom', '--no-owner', '--schema=public', '--schema=auth', '--file', dumped, '--dbname', 'postgres'], { env });
   const password = randomBytes(32).toString('base64url');
   await encryptFile(dumped, sealed, password); await decryptFile(sealed, reopened, password);
@@ -696,6 +863,7 @@ try {
   assert.equal(await sql('select count(*) from public.pdd_handovers;', 'pdd404_restore_check'), '1');
   assert.equal((await rpc('pdd_public', { public_code: code }, 'pdd404_restore_check')).resolution, 'resolved');
   assert.deepEqual(await rpc('pdd_home_stats', {}, 'pdd404_restore_check'), await rpc('pdd_home_stats', {}));
+  assert.equal(await sql(recipientMarkerColumnsSQL, 'pdd404_restore_check'), await sql(recipientMarkerColumnsSQL));
   for (const table of ['pdd_waybills', 'pdd_registrations', 'pdd_feedback', 'pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events', 'pdd_write_requests']) {
     const order = table === 'pdd_write_requests' ? 'r.scope,r.key' : 'r.id';
     const statement = `select coalesce(jsonb_agg(to_jsonb(r) order by ${order}),'[]'::jsonb)::text from public.${table} r;`;
@@ -705,7 +873,8 @@ try {
   await assert.rejects(() => sql('set role authenticated; select * from public.pdd_feedback;', 'pdd404_restore_check'), /permission denied/);
   const restoredNames = await rpc('pdd_recipient_query', recipientRestoreQuery, 'pdd404_restore_check');
   assert.deepEqual(restoredNames.leads, (await rpc('pdd_recipient_query', recipientRestoreQuery)).leads);
-  assert.deepEqual(await rpc('pdd_home_stats', {}, 'pdd404_restore_check'), beforeNameOnly);
+  assert.deepEqual(await rpc('pdd_home_stats', {}, 'pdd404_restore_check'), beforeRestoreStats);
+  assert.deepEqual(parcelStats(await rpc('pdd_home_stats', {}, 'pdd404_restore_check')), parcelStats(beforeNameOnly));
   await assert.rejects(() => sql('set role anon; select * from public.pdd_recipient_leads;', 'pdd404_restore_check'), /permission denied/);
   await assert.rejects(() => sql("set role authenticated; select public.pdd_recipient_query('{}');", 'pdd404_restore_check'), /permission denied/);
   await businessError(() => rpc('pdd_recipient_batch_register', duplicateTombstoneInput, 'pdd404_restore_check'), 'IDEMPOTENCY_CONFLICT');

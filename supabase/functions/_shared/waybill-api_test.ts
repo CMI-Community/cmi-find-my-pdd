@@ -93,14 +93,28 @@ Deno.test('admin queries require administrator verification before DB access', a
 });
 
 Deno.test('home statistics allowlist is anonymous, genuine, and separate from registration availability', async () => {
+  const stats = { lostRegistered: 0, receivedRegistered: 7, matchedParcels: 2, lostRecipientRegistered: 4, receivedRecipientRegistered: 5, matchedRecipientLeads: 3 };
   const result = await pddRoute(new Request('https://pdd404.app/v1/waybill-stats'), ['waybill-stats'], {}, ctx(async (name, payload) => {
     assert(name === 'pdd_home_stats' && Object.keys(payload).length === 0);
-    return { lostRegistered: 0, receivedRegistered: 7, matchedParcels: 2, contacts: ['private'], handoverCount: 3 };
+    return { ...stats, contacts: ['private'], recipientNames: ['private'], handoverCount: 3 };
   }, false));
   const value = (await result!.json()).data;
-  assert(JSON.stringify(value) === JSON.stringify({ lostRegistered: 0, receivedRegistered: 7, matchedParcels: 2 }));
-  for (const count of [-1, 1.5, '4', null, Number.MAX_SAFE_INTEGER + 1]) {
-    await rejects(async () => pddHomeStats({ lostRegistered: count, receivedRegistered: 0, matchedParcels: 0 }), 'SERVICE_UNAVAILABLE');
+  assert(JSON.stringify(value) === JSON.stringify(stats));
+  for (const key of Object.keys(stats)) {
+    for (const count of [-1, 1.5, '4', null, undefined, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+      await rejects(async () => pddHomeStats({ ...stats, [key]: count }), 'SERVICE_UNAVAILABLE');
+    }
+    const missing = { ...stats } as Record<string, number>;
+    delete missing[key];
+    await rejects(async () => pddHomeStats(missing), 'SERVICE_UNAVAILABLE');
+  }
+  await rejects(async () => pddHomeStats({ lostRegistered: 0, receivedRegistered: 7, matchedParcels: 2 }), 'SERVICE_UNAVAILABLE');
+});
+
+Deno.test('home statistics accept real zero and the maximum safe integer for all six fields', () => {
+  for (const count of [0, Number.MAX_SAFE_INTEGER]) {
+    const stats = { lostRegistered: count, receivedRegistered: count, matchedParcels: count, lostRecipientRegistered: count, receivedRecipientRegistered: count, matchedRecipientLeads: count };
+    assert(JSON.stringify(pddHomeStats(stats)) === JSON.stringify(stats));
   }
 });
 
