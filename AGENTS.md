@@ -54,3 +54,19 @@ the implementation contract. Record genuine deployment state in docs/releases/.
   formal registration. Recheck each number transactionally at batch submission.
 - The primary service does not depend on OpenAI. OCR writes stay disabled for
   this release; no automatic offsite notifications are promised.
+
+## Versioned UI snapshots
+
+- Before changing an interface or releasing runtime code, apply
+  `docs/skills/release-ui-snapshots/SKILL.md` automatically. Archive the current
+  runtime's complete applicable UI-state matrix before the first UI edit;
+  archive the candidate before deployment, then the accepted production view.
+- Save immutable, version/SHA/phase-specific archives in
+  `output/playwright/releases/`. Include screenshots, coverage, source identity,
+  an HTML gallery and hashes. Incomplete coverage must stay visibly incomplete;
+  do not proceed with the dependent interface change/release or call it complete.
+- Use isolated synthetic data for queries, registration, private management,
+  admin and camera states. Never write production data merely to obtain a shot.
+  Screenshots and private runtime metadata stay outside Git. Record sanitized
+  archive references and real deployment changes in `docs/releases/` and
+  `CHANGELOG.md`; document-only commits are not runtime releases.

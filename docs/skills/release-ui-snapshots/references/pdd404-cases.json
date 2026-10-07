@@ -1,0 +1,4302 @@
+{
+  "viewports": [
+    {
+      "id": "mobile-320",
+      "width": 320,
+      "height": 844
+    },
+    {
+      "id": "mobile-390",
+      "width": 390,
+      "height": 844
+    },
+    {
+      "id": "desktop-1280",
+      "width": 1280,
+      "height": 900
+    }
+  ],
+  "cases": [
+    {
+      "id": "home-lost-waybill-initial",
+      "title": "找包裹 · 快递单号 · 初始页",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-input",
+      "title": "找包裹 · 快递单号 · 输入已填写",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-querying",
+      "title": "找包裹 · 快递单号 · 正在查找与模式禁用",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-queue-single",
+      "title": "找包裹 · 快递单号 · 单条待提交",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-queue-multiple",
+      "title": "找包裹 · 快递单号 · 多条待提交",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-queue-wechat",
+      "title": "找包裹 · 快递单号 · 微信联系方式",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-queue-phone",
+      "title": "找包裹 · 快递单号 · 电话联系方式",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-queue-note",
+      "title": "找包裹 · 快递单号 · 补充说明及字数",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-submitting",
+      "title": "找包裹 · 快递单号 · 正在确认登记与禁用",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-pending-retry",
+      "title": "找包裹 · 快递单号 · 原批次等待确认与重试",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-registration-error",
+      "title": "找包裹 · 快递单号 · 登记失败保留草稿",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-restored",
+      "title": "找包裹 · 快递单号 · 切换和刷新后恢复",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-registration-disabled",
+      "title": "找包裹 · 快递单号 · 登记暂未开放",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-duplicate-queue",
+      "title": "找包裹 · 快递单号 · 线索已在待提交列表",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-queue-capacity",
+      "title": "找包裹 · 快递单号 · 待提交列表已满",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-waybill-queue-removed",
+      "title": "找包裹 · 快递单号 · 移除最后一条",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-initial",
+      "title": "找包裹 · 收件人名 · 初始页",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-input",
+      "title": "找包裹 · 收件人名 · 输入已填写",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-querying",
+      "title": "找包裹 · 收件人名 · 正在查找与模式禁用",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-queue-single",
+      "title": "找包裹 · 收件人名 · 单条待提交",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-queue-multiple",
+      "title": "找包裹 · 收件人名 · 多条待提交",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-queue-wechat",
+      "title": "找包裹 · 收件人名 · 微信联系方式",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-queue-phone",
+      "title": "找包裹 · 收件人名 · 电话联系方式",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-queue-note",
+      "title": "找包裹 · 收件人名 · 补充说明及字数",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-submitting",
+      "title": "找包裹 · 收件人名 · 正在确认登记与禁用",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-pending-retry",
+      "title": "找包裹 · 收件人名 · 原批次等待确认与重试",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-registration-error",
+      "title": "找包裹 · 收件人名 · 登记失败保留草稿",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-restored",
+      "title": "找包裹 · 收件人名 · 切换和刷新后恢复",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-registration-disabled",
+      "title": "找包裹 · 收件人名 · 登记暂未开放",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-duplicate-queue",
+      "title": "找包裹 · 收件人名 · 线索已在待提交列表",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-queue-capacity",
+      "title": "找包裹 · 收件人名 · 待提交列表已满",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-lost-recipient-queue-removed",
+      "title": "找包裹 · 收件人名 · 移除最后一条",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-initial",
+      "title": "找失主 · 快递单号 · 初始页",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-input",
+      "title": "找失主 · 快递单号 · 输入已填写",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-querying",
+      "title": "找失主 · 快递单号 · 正在查找与模式禁用",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-queue-single",
+      "title": "找失主 · 快递单号 · 单条待提交",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-queue-multiple",
+      "title": "找失主 · 快递单号 · 多条待提交",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-queue-wechat",
+      "title": "找失主 · 快递单号 · 微信联系方式",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-queue-phone",
+      "title": "找失主 · 快递单号 · 电话联系方式",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-queue-note",
+      "title": "找失主 · 快递单号 · 补充说明及字数",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-submitting",
+      "title": "找失主 · 快递单号 · 正在确认登记与禁用",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-pending-retry",
+      "title": "找失主 · 快递单号 · 原批次等待确认与重试",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-registration-error",
+      "title": "找失主 · 快递单号 · 登记失败保留草稿",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-restored",
+      "title": "找失主 · 快递单号 · 切换和刷新后恢复",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-registration-disabled",
+      "title": "找失主 · 快递单号 · 登记暂未开放",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-duplicate-queue",
+      "title": "找失主 · 快递单号 · 线索已在待提交列表",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-queue-capacity",
+      "title": "找失主 · 快递单号 · 待提交列表已满",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-waybill-queue-removed",
+      "title": "找失主 · 快递单号 · 移除最后一条",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-initial",
+      "title": "找失主 · 收件人名 · 初始页",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-input",
+      "title": "找失主 · 收件人名 · 输入已填写",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-querying",
+      "title": "找失主 · 收件人名 · 正在查找与模式禁用",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-queue-single",
+      "title": "找失主 · 收件人名 · 单条待提交",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-queue-multiple",
+      "title": "找失主 · 收件人名 · 多条待提交",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-queue-wechat",
+      "title": "找失主 · 收件人名 · 微信联系方式",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-queue-phone",
+      "title": "找失主 · 收件人名 · 电话联系方式",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-queue-note",
+      "title": "找失主 · 收件人名 · 补充说明及字数",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-submitting",
+      "title": "找失主 · 收件人名 · 正在确认登记与禁用",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-pending-retry",
+      "title": "找失主 · 收件人名 · 原批次等待确认与重试",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-registration-error",
+      "title": "找失主 · 收件人名 · 登记失败保留草稿",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-restored",
+      "title": "找失主 · 收件人名 · 切换和刷新后恢复",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-registration-disabled",
+      "title": "找失主 · 收件人名 · 登记暂未开放",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-duplicate-queue",
+      "title": "找失主 · 收件人名 · 线索已在待提交列表",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-queue-capacity",
+      "title": "找失主 · 收件人名 · 待提交列表已满",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-received-recipient-queue-removed",
+      "title": "找失主 · 收件人名 · 移除最后一条",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-drafts-loading",
+      "title": "本机草稿读取中",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-storage-read-error",
+      "title": "浏览器无法保存记录",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-storage-write-error",
+      "title": "本机记录保存失败",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-api-unconfigured",
+      "title": "查询服务尚未配置",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-query-network-error",
+      "title": "查询网络失败",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-recipient-query-network-error",
+      "title": "姓名查询网络失败",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-query-invalid-response",
+      "title": "单号查询响应异常",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-recipient-query-invalid-response",
+      "title": "姓名查询响应异常",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-waybill-empty-error",
+      "title": "未填单号提示",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-waybill-format-error",
+      "title": "国内单号格式错误",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-recipient-empty-error",
+      "title": "未填姓名提示",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-recipient-format-error",
+      "title": "收件人名格式错误",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-contact-wechat-error",
+      "title": "微信联系方式格式错误",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-contact-phone-error",
+      "title": "电话号码格式错误",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-incomplete-not-found",
+      "title": "不完整单号未找到且不入队列",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-complete-not-found",
+      "title": "完整单号未找到且进入待提交",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-recipient-not-found",
+      "title": "姓名未找到且进入待提交",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-barcode-filled",
+      "title": "扫码成功只填号提示",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-stats-loading",
+      "title": "首次读取真实登记统计",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-stats-success",
+      "title": "读取到登记统计",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-stats-updating",
+      "title": "统计更新中保留最近数字",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-stats-error-empty",
+      "title": "统计失败且没有旧数字",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-stats-error-stale",
+      "title": "统计失败且保留最近数字",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-stats-invalid-response",
+      "title": "统计响应异常",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-community-loading",
+      "title": "社区配置正在读取",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-community-error",
+      "title": "社区配置读取失败",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-community-configured",
+      "title": "真实社区入口展示",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-community-missing",
+      "title": "公众号和找货群入口缺配置",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-community-image-error",
+      "title": "社区二维码无法读取",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-community-helper-qr",
+      "title": "可查看小助手二维码入口",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-footer",
+      "title": "页脚入口和社区品牌",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-keyboard-focus",
+      "title": "键盘跳到内容和焦点",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-jtth-reminder",
+      "title": "请填写国内快递单号弹窗",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-matched-lost-wechat",
+      "title": "找到包裹登记 · 对方微信号",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-matched-lost-phone",
+      "title": "找到包裹登记 · 对方电话号码",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-matched-received-wechat",
+      "title": "找到寻件登记 · 对方微信号",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-matched-received-phone",
+      "title": "找到寻件登记 · 对方电话号码",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-matched-note",
+      "title": "精确匹配带对方备注",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-matched-no-note",
+      "title": "精确匹配没有备注",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-duplicate",
+      "title": "这个单号已经登记过",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-closed",
+      "title": "包裹已经交还",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-contact-copied",
+      "title": "对方联系方式已复制",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-contact-copy-error",
+      "title": "对方联系方式复制失败",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-possible-one",
+      "title": "找到一条疑似包裹线索",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-possible-five",
+      "title": "找到五条疑似包裹线索",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-possible-complete",
+      "title": "疑似线索允许登记完整单号",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-possible-incomplete",
+      "title": "疑似线索需先核对完整单号",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-possible-registering",
+      "title": "疑似完整单号正在加入列表",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-possible-registration-error",
+      "title": "疑似完整单号加入列表失败",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-optional-contact-wechat",
+      "title": "可选留下我的微信号",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-optional-contact-phone",
+      "title": "可选留下我的电话号码",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-optional-contact-invalid",
+      "title": "可选联系方式校验失败",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-optional-contact-saving",
+      "title": "可选联系方式正在保存",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-optional-contact-error",
+      "title": "可选联系方式保存失败",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-optional-contact-saved-registration",
+      "title": "可选联系方式保存并生成回执",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-optional-contact-saved-history",
+      "title": "已有同侧只保存查询联系历史",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-optional-contact-received-thanks",
+      "title": "保存错收登记后的感谢",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-possible-five-bottom",
+      "title": "五条疑似线索内部滚动末尾",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-leads-one-wechat",
+      "title": "找到一条同名微信线索",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-leads-one-phone",
+      "title": "找到一条同名电话线索",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-leads-note",
+      "title": "同名线索带补充说明",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-leads-no-note",
+      "title": "同名线索没有补充说明",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-leads-multiple",
+      "title": "同名多人保持独立线索",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-leads-next-page",
+      "title": "同名线索有后续分页",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-leads-loading-page",
+      "title": "正在读取后续同名线索",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-leads-page-error",
+      "title": "后续同名线索读取失败",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-leads-page-complete",
+      "title": "后续线索追加且分页结束",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-leads-copied",
+      "title": "同名线索联系方式已复制",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-leads-copy-error",
+      "title": "同名线索复制失败",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-leads-registering",
+      "title": "同名命中仍需登记正在入队",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-leads-registration-error",
+      "title": "同名命中加入队列失败",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-leads-added-to-queue",
+      "title": "同名命中后加入自己队列",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-queue-recipient-empty",
+      "title": "单号每行可选填写收件人名",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-queue-recipient-filled",
+      "title": "单号每行分别填写姓名",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-queue-recipient-unsaved",
+      "title": "单号已处理但姓名未保存",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-queue-recipient-transfer",
+      "title": "未保存姓名转入独立姓名队列",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-receipt-registered",
+      "title": "本次登记已处理 · 登记成功",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-receipt-matched-wechat",
+      "title": "提交时匹配 · 对方微信",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-receipt-matched-phone",
+      "title": "提交时匹配 · 对方电话",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-receipt-duplicate",
+      "title": "回执 · 已有同侧登记",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-receipt-closed",
+      "title": "回执 · 已交还",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-receipt-mixed",
+      "title": "回执 · 四种处理结果混合",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-receipt-my-note",
+      "title": "回执带我的备注",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-receipt-received-thanks",
+      "title": "错收登记回执感谢",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "waybill-receipt-mixed-bottom",
+      "title": "混合单号回执内部滚动末尾",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-receipt-registered",
+      "title": "姓名线索登记已处理 · 登记成功",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-receipt-duplicate-managed",
+      "title": "姓名回执 · 重复且有本人管理入口",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-receipt-duplicate-unmanaged",
+      "title": "姓名回执 · 重复且没有管理权限",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-receipt-mixed",
+      "title": "姓名回执 · 新增和重复混合",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-receipt-received-thanks",
+      "title": "错收姓名登记回执感谢",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "recipient-receipt-mixed-bottom",
+      "title": "混合姓名回执内部滚动末尾",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "local-loading",
+      "title": "本机记录读取中",
+      "route": "/local",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "local-empty",
+      "title": "本机没有正式登记回执",
+      "route": "/local",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "local-waybill-receipts",
+      "title": "本机单号登记回执",
+      "route": "/local",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "local-recipient-receipts",
+      "title": "本机姓名登记回执",
+      "route": "/local",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "local-mixed-receipts",
+      "title": "本机单号和姓名混合记录",
+      "route": "/local",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "local-pending-contact",
+      "title": "联系方式提交等待确认",
+      "route": "/local",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "local-pending-contact-retrying",
+      "title": "正在确认联系方式提交",
+      "route": "/local",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "local-pending-contact-saved",
+      "title": "联系方式确认保存后回执",
+      "route": "/local",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "local-pending-contact-received-thanks",
+      "title": "错收联系方式确认保存感谢",
+      "route": "/local",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "local-pending-contact-error",
+      "title": "联系方式等待确认重试失败",
+      "route": "/local",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "local-pending-entries",
+      "title": "仍有线索待提交",
+      "route": "/local",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "local-management-link-copied",
+      "title": "私密管理链接已复制",
+      "route": "/local",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "local-management-link-copy-error",
+      "title": "私密管理链接复制失败",
+      "route": "/local",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "local-storage-error",
+      "title": "本机记录存储错误",
+      "route": "/local",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-record-open",
+      "title": "公开记录 · 正在寻找",
+      "route": "/p/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-record-verifying",
+      "title": "公开记录 · 正在核实",
+      "route": "/p/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-record-claimed",
+      "title": "公开记录 · 已认领，待交还",
+      "route": "/p/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-record-resolved",
+      "title": "公开记录 · 已交还",
+      "route": "/p/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-record-withdrawn",
+      "title": "公开记录 · 登记已撤回",
+      "route": "/p/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-record-loading",
+      "title": "公开记录 · 读取中",
+      "route": "/p/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-record-error",
+      "title": "公开记录 · 记录读取失败",
+      "route": "/p/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-record-copied",
+      "title": "公开记录 · 公开链接已复制",
+      "route": "/p/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-record-copy-error",
+      "title": "公开记录 · 复制失败",
+      "route": "/p/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-share-open",
+      "title": "截图卡片 · 正在寻找",
+      "route": "/p/:code/share",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-share-verifying",
+      "title": "截图卡片 · 正在核实",
+      "route": "/p/:code/share",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-share-claimed",
+      "title": "截图卡片 · 已认领，待交还",
+      "route": "/p/:code/share",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-share-resolved",
+      "title": "截图卡片 · 已交还",
+      "route": "/p/:code/share",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-share-withdrawn",
+      "title": "截图卡片 · 登记已撤回",
+      "route": "/p/:code/share",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-share-loading",
+      "title": "截图卡片 · 读取中",
+      "route": "/p/:code/share",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-share-error",
+      "title": "截图卡片 · 记录读取失败",
+      "route": "/p/:code/share",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-share-copied",
+      "title": "截图卡片 · 公开链接已复制",
+      "route": "/p/:code/share",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "public-share-copy-error",
+      "title": "截图卡片 · 复制失败",
+      "route": "/p/:code/share",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-no-capability",
+      "title": "单号管理缺少凭证",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-invalid-capability",
+      "title": "单号管理凭证无效",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-loading",
+      "title": "单号管理正在读取",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-read-error",
+      "title": "单号管理读取失败",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-lost",
+      "title": "管理我的登记 · 我丢件了",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-received",
+      "title": "管理我的登记 · 我错收件了",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-open",
+      "title": "单号管理 · 正在寻找",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-verifying",
+      "title": "单号管理 · 正在核实",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-claimed",
+      "title": "单号管理 · 已认领，待交还",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-resolved",
+      "title": "单号管理 · 已交还",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-withdrawn",
+      "title": "单号管理 · 本人的登记已撤回",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-counterpart-registered",
+      "title": "单号管理 · 已有另一方登记",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-contact-cleaned",
+      "title": "单号管理 · 联系方式已清理",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-note",
+      "title": "单号管理 · 我的备注",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-edit-wechat",
+      "title": "更正收件人名与微信号",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-edit-phone",
+      "title": "更正收件人名与电话号码",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-name-error",
+      "title": "管理时姓名校验失败",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-contact-error",
+      "title": "管理时联系校验失败",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-saving",
+      "title": "管理修改正在保存",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-saved",
+      "title": "管理修改已更新",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-conflict",
+      "title": "管理修改版本冲突",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-save-error",
+      "title": "管理修改失败",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-withdraw-confirm",
+      "title": "撤回本人单号登记确认框",
+      "route": "/m/:code",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ],
+      "captureType": "native-surface"
+    },
+    {
+      "id": "manage-waybill-withdraw-saving",
+      "title": "正在撤回本人登记",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-withdraw-success",
+      "title": "本人的登记已撤回及感谢",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-withdraw-denied",
+      "title": "归属确认后本人撤回被拒绝",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-withdraw-error",
+      "title": "本人登记撤回失败",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-link-copied",
+      "title": "单号私密管理链接已复制",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-link-copy-error",
+      "title": "单号私密管理链接复制失败",
+      "route": "/m/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-no-capability",
+      "title": "姓名管理缺少凭证",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-invalid-capability",
+      "title": "姓名管理凭证无效",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-loading",
+      "title": "姓名管理正在读取",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-read-error",
+      "title": "姓名管理读取失败",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-lost",
+      "title": "管理我的姓名线索 · 我丢件了",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-received",
+      "title": "管理我的姓名线索 · 我错收件了",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-active",
+      "title": "姓名管理 · 正在寻找",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-reviewing",
+      "title": "姓名管理 · 正在跟进",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-closed",
+      "title": "姓名管理 · 已结案",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-withdrawn",
+      "title": "姓名管理 · 已撤回",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-cleaned",
+      "title": "姓名和联系方式已按保留期清理",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-note",
+      "title": "姓名管理带补充说明",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-edit-wechat",
+      "title": "更正姓名与微信联系方式",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-edit-phone",
+      "title": "更正姓名与电话联系方式",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-name-error",
+      "title": "姓名管理校验失败",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-contact-error",
+      "title": "姓名管理联系校验失败",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-saving",
+      "title": "姓名线索修改正在保存",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-saved",
+      "title": "姓名和联系方式已更新",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-conflict",
+      "title": "姓名修改版本冲突",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-save-error",
+      "title": "姓名修改失败",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-withdraw-confirm",
+      "title": "撤回本人姓名线索确认框",
+      "route": "/rm/:code",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ],
+      "captureType": "native-surface"
+    },
+    {
+      "id": "manage-recipient-withdraw-saving",
+      "title": "姓名线索正在撤回",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-withdraw-success",
+      "title": "您的姓名线索已撤回",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-withdraw-error",
+      "title": "本人姓名线索撤回失败",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-link-copied",
+      "title": "姓名私密管理链接已复制",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-recipient-link-copy-error",
+      "title": "姓名私密管理链接复制失败",
+      "route": "/rm/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-permission",
+      "title": "正在申请摄像头权限",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-opening",
+      "title": "相机已开启正在准备识别",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-switching",
+      "title": "正在切换摄像头",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-photo-ready",
+      "title": "拍照识别默认就绪",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-photo-busy",
+      "title": "已拍照正在本机识别",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-photo-not-found",
+      "title": "照片未识别到条码",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-photo-error",
+      "title": "拍照识别未完成",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-photo-preview-error",
+      "title": "相机画面未恢复",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-realtime-ready",
+      "title": "自动扫码就绪",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-realtime-distance-help",
+      "title": "自动扫码四秒距离提醒",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-realtime-light-help",
+      "title": "自动扫码十秒光线提醒",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-permission-denied",
+      "title": "摄像头权限未开启",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-camera-not-found",
+      "title": "未找到摄像头",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-camera-busy",
+      "title": "摄像头被占用",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-unsupported-browser",
+      "title": "当前浏览器无法使用摄像头",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-camera-start-error",
+      "title": "相机未能启动",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-reader-error",
+      "title": "识别组件未能加载",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-error-alternate-camera",
+      "title": "启动失败可选择其他摄像头",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-settings-collapsed",
+      "title": "相机设置收起",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-settings-multiple-devices",
+      "title": "选择摄像头设置",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-settings-mirrored",
+      "title": "左右翻转画面已开启",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-settings-unmirrored",
+      "title": "左右翻转画面未开启",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-focus-unsupported",
+      "title": "当前摄像头不支持网页调焦",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-focus-auto",
+      "title": "自动对焦可用并选中",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-focus-manual",
+      "title": "手动对焦和滑块",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-focus-busy",
+      "title": "正在调整对焦相机保持开启",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-focus-confirmed-auto",
+      "title": "相机已确认自动对焦",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-focus-confirmed-manual",
+      "title": "相机已确认手动对焦",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-focus-not-switched",
+      "title": "相机没有切换到所选对焦方式",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-focus-unconfirmed",
+      "title": "调整对焦暂未确认当前方式",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-focus-error",
+      "title": "对焦调整没有成功",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-close-manual",
+      "title": "关闭扫码后手动输入",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-decoded",
+      "title": "条码识别成功填号",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-hidden-closed",
+      "title": "切到后台后扫码关闭",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "scanner-settings-bottom",
+      "title": "相机设置展开后内部滚动末尾",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "feedback-empty",
+      "title": "建议与反馈空表单",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "feedback-wechat",
+      "title": "反馈带选填微信号",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "feedback-phone",
+      "title": "反馈带选填电话号码",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "feedback-no-contact",
+      "title": "反馈不留下联系方式",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "feedback-long-content",
+      "title": "长反馈与可见提交按钮",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "feedback-message-error",
+      "title": "反馈说明校验失败",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "feedback-wechat-error",
+      "title": "反馈微信号校验失败",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "feedback-phone-error",
+      "title": "反馈电话号码校验失败",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "feedback-submitting",
+      "title": "反馈正在提交",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "feedback-submit-error",
+      "title": "反馈提交失败保留内容",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "feedback-unconfirmed",
+      "title": "尚未收到反馈提交确认",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "feedback-success",
+      "title": "反馈已收到谢谢你的帮助",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "feedback-long-content-bottom",
+      "title": "长反馈滚动末尾仍可提交",
+      "route": "/",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-session-loading",
+      "title": "正在验证管理员会话",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-login",
+      "title": "工作台登录",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-unconfigured",
+      "title": "管理员认证服务尚未配置",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-session-error",
+      "title": "管理员会话读取失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-login-busy",
+      "title": "正在登录工作台",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-login-error",
+      "title": "管理员登录失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-reset-invalid-email",
+      "title": "重置密码邮箱校验错误",
+      "route": "/admin",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ],
+      "captureType": "native-surface"
+    },
+    {
+      "id": "admin-auth-reset-busy",
+      "title": "正在发送密码设置邮件",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-reset-sent",
+      "title": "密码设置邮件请求已确认",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-reset-error",
+      "title": "密码设置邮件请求失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-forbidden",
+      "title": "非授权管理员读取被拒绝",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-recovery-pending",
+      "title": "验证密码设置链接",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-recovery-expired",
+      "title": "密码设置链接已失效",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-recovery-unconfigured",
+      "title": "密码恢复时认证服务未配置",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-recovery-ready",
+      "title": "设置管理员密码",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-password-short",
+      "title": "新密码不足十二字符",
+      "route": "/admin",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ],
+      "captureType": "native-surface"
+    },
+    {
+      "id": "admin-auth-password-mismatch",
+      "title": "两次新密码不一致",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-password-busy",
+      "title": "正在保存管理员新密码",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-password-error",
+      "title": "管理员密码设置失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-auth-password-complete",
+      "title": "密码设置成功进入工作台",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybills-list",
+      "title": "单号与跟进有记录",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybills-loading",
+      "title": "单号列表正在读取",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybills-empty",
+      "title": "单号列表目前没有记录",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybills-error",
+      "title": "单号列表读取失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybills-pagination",
+      "title": "单号列表下一页",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-clue-lookup-empty",
+      "title": "按线索编号查看登记",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-clue-lookup-invalid",
+      "title": "线索编号格式错误",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-clue-lookup-loading",
+      "title": "正在查看线索登记可取消",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-clue-lookup-not-found",
+      "title": "没有找到这个线索编号",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-clue-lookup-error",
+      "title": "登记详情读取失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-detail-open",
+      "title": "单号详情 · 正在寻找",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-detail-verifying",
+      "title": "单号详情 · 正在核实",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-detail-claimed",
+      "title": "单号详情 · 已认领，待交还",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-detail-resolved",
+      "title": "单号详情 · 已交还",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-detail-one-side",
+      "title": "单号详情仅一方登记",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-detail-withdrawn",
+      "title": "单号详情带已撤回登记",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-detail-cleaned",
+      "title": "单号详情联系方式已清理",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-detail-note",
+      "title": "单号详情姓名和登记备注",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-action-saving",
+      "title": "管理员操作正在保存",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-action-saved",
+      "title": "管理员操作已保存并记录审计",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-action-conflict",
+      "title": "管理员单号操作版本冲突",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-action-error",
+      "title": "管理员单号操作失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-return-confirm",
+      "title": "确认包裹已实际交还对话框",
+      "route": "/admin",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ],
+      "captureType": "native-surface"
+    },
+    {
+      "id": "admin-waybill-withdraw-confirm",
+      "title": "管理员撤回登记确认框",
+      "route": "/admin",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ],
+      "captureType": "native-surface"
+    },
+    {
+      "id": "admin-recipients-list",
+      "title": "姓名线索有记录",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipients-loading",
+      "title": "姓名线索正在读取",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipients-empty",
+      "title": "姓名线索目前没有记录",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipients-error",
+      "title": "姓名线索读取失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipients-pagination",
+      "title": "姓名线索下一页",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-detail-active",
+      "title": "姓名详情 · 正在寻找",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-detail-reviewing",
+      "title": "姓名详情 · 正在跟进",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-detail-closed",
+      "title": "姓名详情 · 已结案",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-detail-withdrawn",
+      "title": "姓名详情 · 已撤回",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-detail-cleaned",
+      "title": "姓名详情姓名和联系已清理",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-detail-note",
+      "title": "姓名详情补充说明",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-action-saving",
+      "title": "姓名管理员操作正在保存",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-action-conflict",
+      "title": "姓名管理员操作版本冲突",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-action-error",
+      "title": "姓名管理员操作失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-close-confirm",
+      "title": "单条姓名结案确认框",
+      "route": "/admin",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ],
+      "captureType": "native-surface"
+    },
+    {
+      "id": "admin-recipient-withdraw-confirm",
+      "title": "管理员撤回单条姓名确认框",
+      "route": "/admin",
+      "fullPageRequired": false,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ],
+      "captureType": "native-surface"
+    },
+    {
+      "id": "admin-waybill-queries-list",
+      "title": "单号查询日志有记录",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-queries-loading",
+      "title": "单号查询日志读取中",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-queries-empty",
+      "title": "单号查询日志没有记录",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-queries-error",
+      "title": "单号查询日志读取失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-waybill-queries-pagination",
+      "title": "单号查询日志下一页",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-queries-list",
+      "title": "姓名查询日志有记录",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-queries-loading",
+      "title": "姓名查询日志读取中",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-queries-empty",
+      "title": "姓名查询日志没有记录",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-queries-error",
+      "title": "姓名查询日志读取失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-recipient-queries-pagination",
+      "title": "姓名查询日志下一页",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-community-configured",
+      "title": "真实社区入口配置表单",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-community-empty",
+      "title": "社区入口缺配置",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-community-registration-enabled",
+      "title": "开放正式登记已勾选",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-community-registration-disabled",
+      "title": "开放正式登记未勾选",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-community-loading",
+      "title": "社区配置正在读取",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-community-read-error",
+      "title": "社区配置读取失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-community-saving",
+      "title": "正在保存社区配置",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-community-saved",
+      "title": "社区入口已保存并记录审计",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-community-save-error",
+      "title": "社区入口保存失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-feedback-list",
+      "title": "建议与反馈列表",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-feedback-new",
+      "title": "待查看反馈",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-feedback-reviewed",
+      "title": "已查看反馈",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-feedback-closed",
+      "title": "已处理反馈",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-feedback-contact-wechat",
+      "title": "反馈带微信联系方式",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-feedback-contact-phone",
+      "title": "反馈带电话号码",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-feedback-no-contact",
+      "title": "反馈未留下联系方式",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-feedback-filtered",
+      "title": "按处理状态筛选反馈",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-feedback-empty",
+      "title": "暂时没有符合条件的反馈",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-feedback-loading",
+      "title": "正在读取反馈",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-feedback-error",
+      "title": "反馈读取失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-feedback-pagination",
+      "title": "反馈下一页",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-feedback-changing",
+      "title": "反馈状态正在保存",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-feedback-change-error",
+      "title": "反馈处理状态保存失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-loading",
+      "title": "监控数据读取中",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-healthy",
+      "title": "服务探测正常且可接收登记",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-unhealthy",
+      "title": "服务异常",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-not-ready",
+      "title": "登记未就绪",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-warnings",
+      "title": "监控告警列表",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-no-database",
+      "title": "监控没有数据库信息",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-quota-unconfigured",
+      "title": "数据库容量上限未配置",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-system-error",
+      "title": "服务状态暂不可用",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-analytics-error",
+      "title": "部分站内统计读取失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-all-error",
+      "title": "全部监控读取失败",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-seven-days",
+      "title": "最近七天统计",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-thirty-days",
+      "title": "最近三十天统计",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-analytics-disabled",
+      "title": "站内埋点尚未启用",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-empty-analytics",
+      "title": "尚未收到埋点数据",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-view-chart",
+      "title": "每日页面浏览图表",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-dwell-chart",
+      "title": "可见停留分布图表",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-events-table",
+      "title": "操作明细和中文操作元信息",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-no-budget",
+      "title": "今日尚无采集配额记录",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-budget-active",
+      "title": "今日统计采集正常配额",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-budget-limited",
+      "title": "今日统计采集已暂停",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-monitor-refreshing",
+      "title": "正在刷新监控",
+      "route": "/admin",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "help-page",
+      "title": "如何使用 PDD404 帮助页",
+      "route": "/help",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "community-help-alias",
+      "title": "社区旧路径展示帮助页",
+      "route": "/community",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "privacy-page",
+      "title": "隐私与使用说明",
+      "route": "/privacy",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "missing-page",
+      "title": "这个页面不存在",
+      "route": "/not-a-page",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "manage-waybill-alias",
+      "title": "旧本人管理路径正确显示",
+      "route": "/manage/:code",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "admin-login-alias",
+      "title": "旧管理员登录路径正确显示",
+      "route": "/admin/login",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "redirect-received",
+      "title": "旧错收入口跳到找失主",
+      "route": "/received/example",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "redirect-search",
+      "title": "旧查询入口跳到首页",
+      "route": "/search/example",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "redirect-queue",
+      "title": "旧队列入口跳到本机记录",
+      "route": "/queue",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "redirect-success",
+      "title": "旧成功入口跳到本机记录",
+      "route": "/success",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    }
+  ]
+}
