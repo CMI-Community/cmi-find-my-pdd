@@ -68,4 +68,3 @@ begin
  update public.pdd_telemetry_budget set accepted_batches=accepted_batches+1,accepted_events=accepted_events+total,daily_limit=configured_limit where day=today;
  return jsonb_build_object('accepted',true,'recorded',total,'limited',false,'day',today);
 end$$;
-
