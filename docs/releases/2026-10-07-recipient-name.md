@@ -2,7 +2,7 @@
 
 日期：2026-10-07，Asia/Bangkok。目标为独立 PDD404，实现分支 `codex/pdd404-recipient-name`，发布复核分支 `codex/pdd404-recipient-production`。
 
-状态：数据库、API和前端已发布到独立 PDD404 生产环境，生产合成业务及浏览器验收通过；最终截图复核发现姓名按钮悬停颜色未跟随主题，本次补齐后待更新前端。本记录不代表真机扫码验收；尚未创建运行标签。
+状态：数据库、API和前端已发布到独立 PDD404 生产环境，生产合成业务及浏览器验收通过；姓名按钮悬停颜色已修正并更新生产前端，最终颜色复核通过。本记录不代表真机扫码验收；尚未创建运行标签。
 
 ## 实现
 
@@ -28,7 +28,7 @@
 - 两项兼容迁移 `20261007083319_recipient_name_leads`、`20261007083331_recipient_telemetry` 已应用。CLI认证当前不可用，通过MCP执行仓库原文；平台生成版本 `20261007100056`、`20261007100133`，再用表锁、唯一name/version、完整旧历史及原文SHA256守卫事务仅修复为仓库canonical版本。15项历史已核对，旧13项与原SQL保持。没有生产reset、重新执行DDL或删业务资料。
 - API从26更新到27，`ACTIVE`；完整18文件依赖回读验证成功。bundle SHA256为 `217317f7c61d655dd7f890107ca8753ff9f7b87d18b60428448f52a51f571041`；相对于已审阅源码，bundle仅额外注入 `DEPLOY_SHA` 构建标记以对应API源码，其余运行配置保留。部署显式使用bundle内 `supabase/functions/deno.json` import map。worker保持25，OCR继续关闭。
 - 后端 `/v1/health` HTTP200，`service=pdd404`、`environment=production`、SHA为上述API源码、`ok=true`、`ready=true`。新增3表RLS开启，anon/authenticated没有表读取权限；15个姓名函数无浏览器角色EXECUTE权限。无凭证姓名查询、本人管理和管理员访问均HTTP401 `FORBIDDEN`。
-- 前端部署 `dpl_3SWX4zwsMfHjokQMSM5RzzCdoJnY`，`READY` / `production`，地址：[pdd404-r5by5absw-guanchao71-gmailcoms-projects.vercel.app](https://pdd404-r5by5absw-guanchao71-gmailcoms-projects.vercel.app)。正式网站为 [pdd404.app](https://pdd404.app)，对应首页build meta及部署Git metadata为本次源码。沿用完整dist静态发布：12个公开文件与 `vercel.json`，部署级空build/install command、outputDirectory为 `.`，没有改变项目全局构建设置。正式域名12个文件大小及SHA256逐项匹配；www以308保留路径、参数跳转apex；两个Vercel统计脚本HTTP200。
+- 首次前端部署 `dpl_3SWX4zwsMfHjokQMSM5RzzCdoJnY`，`READY` / `production`，地址：[pdd404-r5by5absw-guanchao71-gmailcoms-projects.vercel.app](https://pdd404-r5by5absw-guanchao71-gmailcoms-projects.vercel.app)。正式网站为 [pdd404.app](https://pdd404.app)，对应首页build meta及部署Git metadata为首次源码 `43ea784d19c4a63a337b0bf99e3526c897648e17`。沿用完整dist静态发布：12个公开文件与 `vercel.json`，部署级空build/install command、outputDirectory为 `.`，没有改变项目全局构建设置。正式域名12个文件大小及SHA256逐项匹配；www以308保留路径、参数跳转apex；两个Vercel统计脚本HTTP200。
 - 前端回滚候选为上一部署 `dpl_4DeeNgDJL7J1ULAVGzVd6yLhQaDD`。回退前端/API须保留新表、姓名列及新增资料；数据库默认前向修复。后端部署前后单号统计均为182/30/1，姓名表当时为空；更早预检179/30/1与此差值来自期间既有单号登记，不归于姓名功能。
 
 ## 生产合成业务验收
@@ -43,8 +43,16 @@
 
 ## 生产浏览器验收
 
-正式网站390/1280px四种组合的10张截图已保存到忽略Git的 `output/playwright/recipient-production-20261007/`，首页版本对应本次源码。图片全部加载，查询方式选中态唯一、常驻输入图标可见、按钮至少44px，无横向溢出；同一视口场景区高度固定，姓名模式隐藏扫码。
+首次前端正式网站390/1280px四种组合的10张截图已保存到忽略Git的 `output/playwright/recipient-production-20261007/`，首页版本对应 `43ea784d19c4a63a337b0bf99e3526c897648e17`。图片全部加载，查询方式选中态唯一、常驻输入图标可见、按钮至少44px，无横向溢出；同一视口场景区高度固定，姓名模式隐藏扫码。
 
 两侧分别查询唯一演示姓名，均HTTP200、未找到、0条线索；各自仅加入1条本机待提交草稿，浏览器未发正式批次或管理请求。切换及刷新后，两个姓名输入、队列、联系方式和说明恢复；两个未查询单号输入恢复且没有自动入队。入队后的已查询输入按既有设计清空。帮助页、减少动态效果、请求来源检查通过，无页面或控制台错误，QA浏览器已关闭。该验收没有覆盖真机相机扫码。
 
-最终人工检查截图发现查询与批量提交按钮的通用悬停规则覆盖局部主题；本次增加局部悬停色，单号保持深紫、姓名使用深琥珀。正式前端更新与颜色复核结果待补充，尚未创建运行标签。
+## 前端悬停修正与最终部署
+
+最终人工检查截图发现查询与批量提交按钮的通用悬停规则覆盖局部主题；[修正PR #42](https://github.com/CMI-Community/cmi-find-my-pdd/pull/42) 增加局部悬停色，单号保持深紫 `#4d3265`、姓名使用深琥珀 `#703f19`。本机浏览器两模式、两类按钮的12个普通／悬停／真实忙碌禁用状态全部通过，未发生产请求或批次。`npm run check` 与 `npm run build` 通过；最初沙箱禁止本机测试服务器监听，使用许可运行后全套检查通过。[PR检查 37613648598](https://github.com/CMI-Community/cmi-find-my-pdd/actions/runs/37613648598) 及[合入主线检查 37613810996](https://github.com/CMI-Community/cmi-find-my-pdd/actions/runs/37613810996) 成功，均包含真实PostgreSQL与加密恢复。
+
+最终前端源码为 `f645f2674fb3843203f72d740d978c3b7d334b34`，部署 `dpl_Gco1rVpVG1zPPEHVgp9q3kPMAGY1`，`READY` / `production`，地址：[pdd404-5fbjxv5sf-guanchao71-gmailcoms-projects.vercel.app](https://pdd404-5fbjxv5sf-guanchao71-gmailcoms-projects.vercel.app)。正式域名仍为 [pdd404.app](https://pdd404.app)，首页build meta与Git metadata匹配该前端源码，12个公开文件大小及SHA256全部匹配，www路径参数308跳转及统计脚本验证通过。构建仍使用正式公开配置并检查服务端密钥不进入产物。此补丁仅更新前端，API 27仍对应 `43ea784d19c4a63a337b0bf99e3526c897648e17`，数据库迁移和worker不变。
+
+最终生产浏览器复核对应上述前端源码，16张实际截图及报告保存在忽略Git的 `output/playwright/recipient-final-production-20261007/`。390/1280px四组合均无横向溢出、图片完整、44px按钮、模式图标与扫码正确、场景高度固定；四组合的查询／提交按钮共16个普通及悬停读值全部正确，姓名由 `#8a5124` 变为 `#703f19`，单号由 `#674782` 变为 `#4d3265`。
+
+只发4次唯一合成查询（两侧各1个完整假单号及1个演示姓名），均为HTTP200、未找到、没有联系人、说明、完整记录或候选。使用真实API响应，无生产mock或正式批次／管理请求；总API请求8次、滚动60秒最多8次，没有业务资料披露、意外请求、页面或控制台错误，QA会话已关闭。禁用颜色已由本机真实忙碌状态验证，本轮未重复生产禁用测试；真机相机扫码仍未覆盖。尚未创建运行标签；发布记录PR仅归档实际状态，不重新部署。
