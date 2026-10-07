@@ -2,6 +2,7 @@ import type { Resolution, Visibility } from './contracts.ts';
 
 export type PddMode = 'lost' | 'received';
 export type PddSource = 'manual' | 'barcode';
+export type PddLookupType = 'waybill' | 'recipient';
 export interface PddContact { kind: 'wechat' | 'phone'; value: string }
 export interface PddHomeStats { lostRegistered: number; receivedRegistered: number; matchedParcels: number }
 export type PddResult = 'matched' | 'possible' | 'duplicate' | 'not_found' | 'closed';
@@ -15,21 +16,23 @@ export interface PddRegistration {
   registrationCode: string; number: string; mode: PddMode; source: PddSource;
   contact: PddContact | null; note: string | null; revision: number; visibility: 'active' | 'withdrawn';
   createdAt: string; updatedAt: string; record: PddPublicRecord;
+  recipientName?: string | null;
 }
 export interface PddQueryInput { queryId: string; number: string; mode: PddMode; source: PddSource; allowPossible?: boolean }
-/** The exact-number lookup is the sole intentional direct-contact projection. */
+/** Only the complete exact-number lookup discloses opposite contacts in the waybill flow. */
 export interface PddQueryResult {
   queryId: string; result: PddResult; queriedAt: string;
   record: PddPublicRecord | null; registeredAt: string | null; contact: PddContact | null; note: string | null;
   candidates: PddPossibleCandidate[];
 }
 export interface PddQueryContactResult { saved: true; registration: PddRegistration | null }
-export interface PddBatchItem { requestId: string; number: string; source: PddSource }
+export interface PddBatchItem { requestId: string; number: string; source: PddSource; recipientName?: string | null }
 export interface PddBatchInput { mode: PddMode; contact: PddContact; note?: string | null; items: PddBatchItem[] }
 export interface PddBatchResultItem {
   requestId: string; number: string; result: 'registered' | 'matched' | 'duplicate' | 'closed';
   record: PddPublicRecord; registration: PddRegistration | null;
   contact: PddContact | null; note: string | null; registeredAt: string | null;
+  recipientNameSaved?: boolean;
 }
 export interface PddBatchResult { submittedAt: string; items: PddBatchResultItem[] }
 export interface PddQueryLog {

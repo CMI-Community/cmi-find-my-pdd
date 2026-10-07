@@ -2,6 +2,10 @@
 export const TELEMETRY_EVENTS = [
   'pdd_page_view', 'pdd_visible_dwell',
   'pdd_mode_selected', 'pdd_query_started', 'pdd_query_invalid', 'pdd_query_domestic_blocked',
+  'pdd_lookup_waybill_selected', 'pdd_lookup_recipient_selected',
+  'pdd_recipient_query_started', 'pdd_recipient_query_invalid', 'pdd_recipient_query_leads_found', 'pdd_recipient_query_not_found', 'pdd_recipient_query_error',
+  'pdd_recipient_queue_added', 'pdd_recipient_queue_duplicate', 'pdd_recipient_queue_removed',
+  'pdd_recipient_registration_started', 'pdd_recipient_registration_registered', 'pdd_recipient_registration_duplicate', 'pdd_recipient_registration_error',
   'pdd_query_matched', 'pdd_query_possible', 'pdd_query_duplicate', 'pdd_query_not_found', 'pdd_query_closed', 'pdd_query_error',
   'pdd_queue_added', 'pdd_queue_duplicate', 'pdd_queue_removed',
   'pdd_registration_started', 'pdd_registration_registered', 'pdd_registration_matched', 'pdd_registration_duplicate', 'pdd_registration_closed', 'pdd_registration_error',
@@ -26,6 +30,9 @@ export const TELEMETRY_MAX_BYTES = 8_192;
 
 export function telemetryMetadataKeys(event: TelemetryEvent): string[] {
   if (event === 'pdd_visible_dwell') return ['bucket'];
+  if (event.startsWith('pdd_recipient_query_')) return ['mode'];
+  if (event.startsWith('pdd_recipient_registration_')) return ['mode', 'batch'];
+  if (event.startsWith('pdd_recipient_queue_') || event.startsWith('pdd_lookup_')) return ['mode'];
   if (event.startsWith('pdd_query_')) return ['mode', 'source'];
   if (event.startsWith('pdd_registration_')) return ['mode', 'batch'];
   if (event.startsWith('pdd_scanner_')) return ['scanMode'];

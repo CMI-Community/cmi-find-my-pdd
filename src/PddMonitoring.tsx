@@ -19,6 +19,10 @@ const warnings: Record<string, string> = {
 };
 const pages: Record<string, string> = { home: '首页', help: '帮助', privacy: '隐私说明', local: '本机记录' };
 export const eventLabels: Record<TelemetryEvent, string> = {
+  pdd_lookup_waybill_selected: '切换为快递单号', pdd_lookup_recipient_selected: '切换为收件人名',
+  pdd_recipient_query_started: '开始姓名查询', pdd_recipient_query_invalid: '姓名格式待修改', pdd_recipient_query_leads_found: '查询得到同名线索', pdd_recipient_query_not_found: '姓名暂无线索', pdd_recipient_query_error: '姓名查询未完成',
+  pdd_recipient_queue_added: '姓名加入待提交列表', pdd_recipient_queue_duplicate: '姓名已在待提交列表', pdd_recipient_queue_removed: '移除待提交姓名',
+  pdd_recipient_registration_started: '开始提交姓名线索', pdd_recipient_registration_registered: '批次包含新姓名线索', pdd_recipient_registration_duplicate: '姓名线索已登记', pdd_recipient_registration_error: '姓名登记未完成',
   pdd_page_view: '页面浏览', pdd_visible_dwell: '可见停留', pdd_mode_selected: '切换查询类型',
   pdd_query_started: '开始查询', pdd_query_invalid: '单号格式待修改', pdd_query_domestic_blocked: '提醒改填国内单号',
   pdd_query_matched: '查询得到精确匹配', pdd_query_possible: '查询得到疑似线索', pdd_query_duplicate: '查询得到已有登记', pdd_query_not_found: '查询暂无线索', pdd_query_closed: '查询得到已交还记录', pdd_query_error: '查询流程未完成',
@@ -65,7 +69,7 @@ export default function PddMonitoring({ token }: { token: string }) {
   }, [token, days]);
   useEffect(() => { const controller = new AbortController(); setSystem(null); setAnalytics(null); void reload(controller.signal); return () => { generation.current++; controller.abort(); }; }, [reload]);
   const db = system?.database, rows = Array.isArray(analytics?.rows) ? analytics.rows : [], series = monitoringSeries(rows);
-  const views = series.views.reduce((sum, row) => sum + row.count, 0), queries = rows.filter(row => row.event === 'pdd_query_started').reduce((sum, row) => sum + row.count, 0);
+  const views = series.views.reduce((sum, row) => sum + row.count, 0), queries = rows.filter(row => row.event === 'pdd_query_started' || row.event === 'pdd_recipient_query_started').reduce((sum, row) => sum + row.count, 0);
   const dwellTotal = series.dwell.reduce((sum, row) => sum + row.count, 0), maxViews = Math.max(1, ...series.views.map(row => row.count));
   const today = (system?.checkedAt ?? new Date().toISOString()).slice(0, 10);
   const budget = Array.isArray(analytics?.budget) ? analytics.budget.find(row => row.day === today) : null;

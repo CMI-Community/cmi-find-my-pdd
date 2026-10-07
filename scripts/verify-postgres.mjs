@@ -43,6 +43,36 @@ async function bootstrap(database, roles = false) {
 }
 const batch = (number, mode, capability, person, requestId = randomUUID(), note) => ({ request_id: requestId, mode, note, contact: { kind: 'wechat', value: person },
   items: [{ request_id: randomUUID(), number, source: 'manual' }], capability_hash: capability, body_hash: randomBytes(32).toString('hex') });
+async function verifyRecipientTelemetry(database = 'postgres') {
+  const names = ['pdd_lookup_waybill_selected', 'pdd_lookup_recipient_selected',
+    'pdd_recipient_query_started', 'pdd_recipient_query_invalid', 'pdd_recipient_query_leads_found', 'pdd_recipient_query_not_found', 'pdd_recipient_query_error',
+    'pdd_recipient_queue_added', 'pdd_recipient_queue_duplicate', 'pdd_recipient_queue_removed',
+    'pdd_recipient_registration_started', 'pdd_recipient_registration_registered', 'pdd_recipient_registration_duplicate', 'pdd_recipient_registration_error'];
+  const events = names.map(event => ({ event, page: 'home', mode: 'lost', count: 1, ...(event.startsWith('pdd_recipient_registration_') ? { batch: '2-5' } : {}) }));
+  const input = { events, daily_limit: 50 };
+  const before = await rpc('pdd_telemetry_summary', { days: 30 }, database);
+  const businessBefore = await rpc('pdd_home_stats', {}, database);
+  // These temporary fixture changes are always rolled back in the disposable DB.
+  // Reuse the same synthetic daily cap; never change the surrounding budget.
+  const resetFixture = 'begin; delete from public.pdd_telemetry_daily; delete from public.pdd_telemetry_budget; set local role service_role;';
+  const output = await sql(`${resetFixture} ${invoke('pdd_telemetry_ingest', input)} ${invoke('pdd_telemetry_summary', { days: 1 })} rollback;`, database);
+  const [receipt, summary] = output.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line));
+  assert.equal(receipt.accepted, true); assert.equal(receipt.recorded, names.length);
+  assert.deepEqual(new Set(summary.events.map(event => event.event)), new Set(names));
+  assert.equal(summary.budget[0].dailyLimit, 50);
+  assert(summary.events.every(event => event.mode === 'lost' && event.source === null && event.scanMode === null));
+  const valid = { event: 'pdd_recipient_query_started', page: 'home', mode: 'received', count: 1 };
+  const forbidden = ['recipientName', 'recipient_name', 'number', 'contact', 'note', 'code', 'capability', 'cursor', 'queryId', 'registrationCode', 'url'];
+  for (const field of forbidden) {
+    const invalid = { events: [valid, { ...valid, [field]: 'synthetic_private_metadata' }], daily_limit: 50 };
+    await assert.rejects(() => sql(`${resetFixture} ${invoke('pdd_telemetry_ingest', invalid)} rollback;`, database), /INVALID_REQUEST/);
+  }
+  for (const extra of [{ source: 'manual' }, { scanMode: 'photo' }, { batch: '1' }, { event: 'pdd_recipient_arbitrary' }]) {
+    await assert.rejects(() => sql(`${resetFixture} ${invoke('pdd_telemetry_ingest', { events: [{ ...valid, ...extra }], daily_limit: 50 })} rollback;`, database), /INVALID_REQUEST/);
+  }
+  assert.deepEqual(await rpc('pdd_telemetry_summary', { days: 30 }, database), before);
+  assert.deepEqual(await rpc('pdd_home_stats', {}, database), businessBefore);
+}
 function transactionSession() {
   const child = spawn(path.join(bin, 'psql'), ['-X', '-A', '-t', '-q', '--set', 'ON_ERROR_STOP=1', '--set', 'VERBOSITY=verbose'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   let output = '', errors = '', ended = false;
@@ -378,8 +408,8 @@ try {
   assert(helperPermissions.every(item => !item.anon && !item.authenticated));
   console.log('Real PostgreSQL fuzzy strict boundary, unknown/edit distance, safe candidate ordering/eligibility, concurrent logs, exact priority and match-count isolation passed.');
 
-  // Authenticate in one connection, block it on the number lock in another,
-  // revoke its capability with cleanup, then let the authenticated request resume.
+  // Hold the current registry-before-number lock order in another connection,
+  // revoke the capability with cleanup, then let the waiting management resume.
   const retentionNumber = 'SF990000006005';
   const retentionItem = (await rpc('pdd_batch_register', batch(retentionNumber, 'received', capA, 'fictional_retention'))).items[0];
   const retainedRegistration = retentionItem.registration;
@@ -388,7 +418,7 @@ try {
   const holder = transactionSession();
   let waiting;
   try {
-    holder.send(`begin; select pg_advisory_xact_lock(hashtextextended('pdd-number:${retentionNumber}',0));\n\\echo PDD_RETENTION_LOCK_HELD`);
+    holder.send(`begin; select pg_advisory_xact_lock(hashtextextended('pdd-recipient-registry',0)); select pg_advisory_xact_lock(hashtextextended('pdd-number:${retentionNumber}',0));\n\\echo PDD_RETENTION_LOCK_HELD`);
     await holder.marker('PDD_RETENTION_LOCK_HELD');
     const waiterName = `pdd-retention-waiter-${randomUUID()}`;
     waiting = sql(invoke('pdd_manage_update', { registration_code: retainedRegistration.registrationCode, capability_hash: capA,
@@ -485,6 +515,177 @@ try {
   telemetrySummary = await rpc('pdd_telemetry_summary', { days: 30 });
   console.log('Telemetry real transactions/concurrency passed: invalid/rolled-back batches wrote nothing, 12 competing batches stayed at exactly 50 events, no registration stats changed; monitor RPC passed a service-role read-only transaction and public access was denied.');
 
+  const recipientBatch = (name, mode = 'received', capability = capA, person = 'fictional_name_holder', note = 'Synthetic name note') => ({
+    request_id: randomUUID(), mode, contact: { kind: 'wechat', value: person }, note,
+    items: [{ request_id: randomUUID(), recipient_name: name }], capability_hash: capability, body_hash: randomBytes(32).toString('hex'),
+  });
+  const recipientQuery = (name, mode = 'lost', capability = capB) => ({
+    query_id: randomUUID(), recipient_name: name, mode, capability_hash: capability, body_hash: randomBytes(32).toString('hex'),
+  });
+  const nameNumber = 'RECIPIENT990001';
+  const numberWithName = batch(nameNumber, 'received', capA, 'fictional_name_number', randomUUID(), 'Synthetic numbered recipient note');
+  numberWithName.items[0].recipient_name = '  Jose\u0301  示例  ';
+  const numberedRecipient = (await rpc('pdd_batch_register', numberWithName)).items[0];
+  assert.equal(numberedRecipient.recipientNameSaved, true);
+  assert.equal(numberedRecipient.registration.recipientName, 'José 示例');
+  const duplicateNumber = batch(nameNumber, 'received', capB, 'fictional_other_number_holder');
+  duplicateNumber.items[0].recipient_name = '未保存的收件人';
+  const unsavedRecipient = (await rpc('pdd_batch_register', duplicateNumber)).items[0];
+  assert.equal(unsavedRecipient.registration, null);
+  assert.equal(unsavedRecipient.recipientNameSaved, false);
+  assert.equal((await rpc('pdd_recipient_query', recipientQuery('未保存的收件人'))).result, 'not_found');
+  assert.equal((await rpc('pdd_manage', { registration_code: numberedRecipient.registration.registrationCode, capability_hash: capA })).recipientName, 'José 示例');
+  const oppositeNameNumber = batch(nameNumber, 'lost', capB, 'fictional_name_owner');
+  oppositeNameNumber.items[0].recipient_name = 'José 示例';
+  const matchedNameNumber = (await rpc('pdd_batch_register', oppositeNameNumber)).items[0];
+  assert.equal(matchedNameNumber.result, 'matched');
+  assert.equal(matchedNameNumber.recipientNameSaved, true);
+  assert.equal(matchedNameNumber.registration.recipientName, 'José 示例');
+  const beforeNameOnly = await rpc('pdd_home_stats', {});
+
+  const nfcPayload = recipientBatch('Jose\u0301 示例');
+  const sameRequestNames = await Promise.all(Array.from({ length: 6 }, () => rpc('pdd_recipient_batch_register', nfcPayload)));
+  const nfcRegistration = sameRequestNames[0].items[0].registration;
+  assert(nfcRegistration);
+  assert.equal(nfcRegistration.recipientName, 'José 示例');
+  assert(sameRequestNames.every(receipt => receipt.items[0].registration.registrationCode === nfcRegistration.registrationCode));
+  const deniedNameDuplicate = (await rpc('pdd_recipient_batch_register', recipientBatch('José 示例', 'received', capB))).items[0];
+  assert.equal(deniedNameDuplicate.result, 'duplicate');
+  assert.equal(deniedNameDuplicate.registration, null);
+  await assert.rejects(() => rpc('pdd_recipient_manage', { registration_code: nfcRegistration.registrationCode, capability_hash: capB }), /FORBIDDEN/);
+  const recipientRestoreQuery = recipientQuery('josé 示例');
+  const unionNames = await rpc('pdd_recipient_query', recipientRestoreQuery);
+  assert.equal(unionNames.result, 'leads_found');
+  assert.equal(unionNames.leads.length, 2);
+  assert.deepEqual(new Set(unionNames.leads.map(lead => lead.contact.value)), new Set(['fictional_name_number', 'fictional_name_holder']));
+  assert(unionNames.leads.every(lead => Object.keys(lead).sort().join(',') === 'contact,note,recipientName,registeredAt'));
+  assert(unionNames.leads.every(lead => lead.note));
+  for (const name of ['José', 'Jose 示例', '收件人 José 示例']) assert.equal((await rpc('pdd_recipient_query', recipientQuery(name))).result, 'not_found');
+  for (const name of ['ผู้รับทดสอบ', '测试收件人']) {
+    await rpc('pdd_recipient_batch_register', recipientBatch(name));
+    assert.equal((await rpc('pdd_recipient_query', recipientQuery(name))).leads[0].recipientName, name);
+  }
+  const ownAfterHit = (await rpc('pdd_recipient_batch_register', recipientBatch('José 示例', 'lost', capB, 'fictional_name_seeker'))).items[0];
+  assert.equal(ownAfterHit.result, 'registered', 'Finding an opposite lead must not block a separate own registration.');
+  await rpc('pdd_recipient_batch_register', recipientBatch('José 示例', 'received', capB, 'fictional_name_other'));
+  assert.equal((await rpc('pdd_recipient_query', recipientQuery('José 示例'))).leads.length, 3);
+
+  const nameRaceA = recipientBatch('并发收件人', 'received', capA, 'fictional_same_name_contact');
+  const nameRaceB = recipientBatch('并发收件人', 'received', capB, 'fictional_same_name_contact');
+  const nameRace = await Promise.all([rpc('pdd_recipient_batch_register', nameRaceA), rpc('pdd_recipient_batch_register', nameRaceB)]);
+  assert.deepEqual(nameRace.map(receipt => receipt.items[0].result).sort(), ['duplicate', 'registered']);
+  assert.equal(nameRace.filter(receipt => receipt.items[0].registration !== null).length, 1);
+  assert.equal(await sql("select count(*) from public.pdd_recipient_leads where recipient_name='并发收件人';"), '1');
+  const nameWinner = nameRace.findIndex(receipt => receipt.items[0].registration !== null);
+  await assert.rejects(() => rpc('pdd_recipient_manage', { registration_code: nameRace[nameWinner].items[0].registration.registrationCode, capability_hash: nameWinner === 0 ? capB : capA }), /FORBIDDEN/);
+  await rpc('pdd_recipient_batch_register', recipientBatch('并发收件人', 'received', capB, 'fictional_different_contact'));
+  assert.equal((await rpc('pdd_recipient_query', recipientQuery('并发收件人'))).leads.length, 2);
+  const firstRename = (await rpc('pdd_recipient_batch_register', recipientBatch('姓名更正甲'))).items[0].registration;
+  await rpc('pdd_recipient_batch_register', recipientBatch('姓名更正乙'));
+  await businessError(() => rpc('pdd_recipient_manage_update', { registration_code: firstRename.registrationCode, capability_hash: capA, revision: firstRename.revision, action: 'update', recipient_name: '姓名更正乙' }), 'DUPLICATE_RECIPIENT');
+  assert.equal((await rpc('pdd_recipient_manage', { registration_code: firstRename.registrationCode, capability_hash: capA })).recipientName, '姓名更正甲');
+  const renamed = await rpc('pdd_recipient_manage_update', { registration_code: firstRename.registrationCode, capability_hash: capA, revision: firstRename.revision, action: 'update', recipient_name: '姓名更正丙' });
+  assert.equal(renamed.revision, firstRename.revision + 1);
+  assert.equal((await rpc('pdd_recipient_query', recipientQuery('姓名更正甲'))).result, 'not_found');
+  assert.equal((await rpc('pdd_recipient_query', recipientQuery('姓名更正丙'))).leads.length, 1);
+  const renameWithdrawRace = await Promise.allSettled([
+    rpc('pdd_recipient_manage_update', { registration_code: renamed.registrationCode, capability_hash: capA, revision: renamed.revision, action: 'update', recipient_name: '姓名更正丁' }),
+    rpc('pdd_recipient_manage_update', { registration_code: renamed.registrationCode, capability_hash: capA, revision: renamed.revision, action: 'withdraw' }),
+  ]);
+  assert.equal(renameWithdrawRace.filter(result => result.status === 'fulfilled').length, 1);
+  const afterRenameRace = await rpc('pdd_recipient_manage', { registration_code: renamed.registrationCode, capability_hash: capA });
+  if (afterRenameRace.state !== 'withdrawn') await rpc('pdd_recipient_manage_update', { registration_code: renamed.registrationCode, capability_hash: capA, revision: afterRenameRace.revision, action: 'withdraw' });
+  for (const name of ['姓名更正丙', '姓名更正丁']) assert.equal((await rpc('pdd_recipient_query', recipientQuery(name))).result, 'not_found');
+
+  const originalTombstoneInput = recipientBatch('旧重复回执收件人', 'received', capA, 'fictional_tombstone_holder');
+  const originalTombstoneLead = (await rpc('pdd_recipient_batch_register', originalTombstoneInput)).items[0].registration;
+  const duplicateTombstoneInput = recipientBatch('旧重复回执收件人', 'received', capB, 'fictional_tombstone_holder');
+  const duplicateTombstoneReceipt = await rpc('pdd_recipient_batch_register', duplicateTombstoneInput);
+  assert.equal(duplicateTombstoneReceipt.items[0].result, 'duplicate');
+  assert.equal(duplicateTombstoneReceipt.items[0].registration, null);
+  const recipientRequestRow = (input, database = 'postgres') => sql(`select jsonb_build_object('key',key,'capabilityHash',capability_hash,'bodyHash',body_hash,'receipt',receipt)::text from public.pdd_write_requests where scope='recipient-batch' and key='${input.request_id}';`, database).then(JSON.parse);
+  assert.equal((await recipientRequestRow(duplicateTombstoneInput)).receipt[0].registrationCode, null);
+  await sql(`update public.pdd_write_requests set created_at=now()-interval '31 days' where scope='recipient-batch' and key='${duplicateTombstoneInput.request_id}';`);
+  await rpc('pdd_cleanup', {});
+  const duplicateTombstone = await recipientRequestRow(duplicateTombstoneInput);
+  assert.deepEqual(duplicateTombstone, { key: duplicateTombstoneInput.request_id, capabilityHash: capB, bodyHash: duplicateTombstoneInput.body_hash, receipt: [] });
+  const tombstoneLeadCount = await sql('select count(*) from public.pdd_recipient_leads;');
+  await businessError(() => rpc('pdd_recipient_batch_register', duplicateTombstoneInput), 'IDEMPOTENCY_CONFLICT');
+  assert.equal(await sql('select count(*) from public.pdd_recipient_leads;'), tombstoneLeadCount);
+  await rpc('pdd_recipient_manage_update', { registration_code: originalTombstoneLead.registrationCode, capability_hash: capA, revision: originalTombstoneLead.revision, action: 'withdraw' });
+  await businessError(() => rpc('pdd_recipient_batch_register', duplicateTombstoneInput), 'IDEMPOTENCY_CONFLICT');
+  assert.equal(await sql('select count(*) from public.pdd_recipient_leads;'), tombstoneLeadCount);
+  await sql(`update public.pdd_recipient_leads set closed_at=now()-interval '31 days' where registration_code='${originalTombstoneLead.registrationCode}';`);
+  await rpc('pdd_cleanup', {});
+  assert.deepEqual((await recipientRequestRow(originalTombstoneInput)).receipt, [], 'A newer receipt referencing a cleared lead must also be scrubbed.');
+  await businessError(() => rpc('pdd_recipient_batch_register', originalTombstoneInput), 'IDEMPOTENCY_CONFLICT');
+  await businessError(() => rpc('pdd_recipient_batch_register', duplicateTombstoneInput), 'IDEMPOTENCY_CONFLICT');
+  assert.equal(await sql('select count(*) from public.pdd_recipient_leads;'), tombstoneLeadCount);
+  await assert.rejects(() => rpc('pdd_recipient_manage', { registration_code: originalTombstoneLead.registrationCode, capability_hash: capA }), /FORBIDDEN/);
+  const freshTombstoneLead = (await rpc('pdd_recipient_batch_register', recipientBatch('旧重复回执收件人', 'received', capB, 'fictional_tombstone_holder'))).items[0];
+  assert.equal(freshTombstoneLead.result, 'registered');
+  assert(freshTombstoneLead.registration);
+  assert.equal(await sql('select count(*) from public.pdd_recipient_leads;'), String(Number(tombstoneLeadCount) + 1));
+
+  const pageName = '分页测试收件人';
+  const pageRegistrations = [];
+  for (let index = 0; index < 22; index++) pageRegistrations.push((await rpc('pdd_recipient_batch_register', recipientBatch(pageName, 'received', capA, `fictional_page_holder_${index}`, `Synthetic page note ${index}`))).items[0].registration);
+  const pageInput = recipientQuery(pageName);
+  const firstNamePage = await rpc('pdd_recipient_query', pageInput);
+  assert.equal(firstNamePage.leads.length, 20); assert(firstNamePage.nextCursor);
+  const notYetShown = pageRegistrations.filter(registration => !firstNamePage.leads.some(lead => lead.contact.value === registration.contact.value));
+  assert.equal(notYetShown.length, 2);
+  await rpc('pdd_recipient_manage_update', { registration_code: notYetShown[0].registrationCode, capability_hash: capA, revision: notYetShown[0].revision, action: 'withdraw' });
+  const pagePayload = { query_id: pageInput.query_id, cursor: firstNamePage.nextCursor, capability_hash: capB };
+  const secondNamePage = await rpc('pdd_recipient_query_page', pagePayload);
+  assert.equal(secondNamePage.leads.length, 1); assert.equal(secondNamePage.nextCursor, null);
+  assert.equal(secondNamePage.leads[0].contact.value, notYetShown[1].contact.value);
+  await assert.rejects(() => rpc('pdd_recipient_query_page', { ...pagePayload, capability_hash: capA }), /FORBIDDEN/);
+  const unrelatedPageQuery = await rpc('pdd_recipient_query', recipientQuery('José 示例'));
+  await assert.rejects(() => rpc('pdd_recipient_query_page', { ...pagePayload, query_id: unrelatedPageQuery.queryId }), /INVALID_CURSOR|INVALID_REQUEST|FORBIDDEN/);
+  await rpc('pdd_recipient_manage_update', { registration_code: notYetShown[1].registrationCode, capability_hash: capA, revision: notYetShown[1].revision, action: 'withdraw' });
+  assert.equal((await rpc('pdd_recipient_query_page', pagePayload)).leads.length, 0, 'An opaque page replay must not disclose a withdrawn contact snapshot.');
+  assert.deepEqual(await rpc('pdd_home_stats', {}), beforeNameOnly);
+  const recipientAudits = await sql('select coalesce(jsonb_agg(to_jsonb(a)),\'[]\')::text from public.pdd_recipient_audit_events a;');
+  assert(!recipientAudits.includes('fictional_')); assert(!recipientAudits.includes('Synthetic name note'));
+  for (const table of ['pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events']) {
+    await assert.rejects(() => sql(`set role anon; select * from public.${table};`), /permission denied/);
+    await assert.rejects(() => sql(`set role authenticated; select * from public.${table};`), /permission denied/);
+  }
+  await assert.rejects(() => sql("set role authenticated; select public.pdd_recipient_query('{}');"), /permission denied/);
+
+  const retentionName = (await rpc('pdd_recipient_batch_register', recipientBatch('清理屏障收件人'))).items[0].registration;
+  const closedRetentionName = await rpc('pdd_recipient_admin_action', { registration_code: retentionName.registrationCode, actor_id: actor, revision: retentionName.revision, action: 'close' });
+  const closedNameRegistration = closedRetentionName.registration ?? closedRetentionName;
+  await sql(`update public.pdd_recipient_leads set closed_at=now()-interval '31 days' where registration_code='${retentionName.registrationCode}';`);
+  const nameLockHolder = transactionSession();
+  let nameWaiter;
+  try {
+    nameLockHolder.send("begin; select pg_advisory_xact_lock(hashtextextended('pdd-recipient-registry',0));\n\\echo PDD_NAME_LOCK_HELD");
+    await nameLockHolder.marker('PDD_NAME_LOCK_HELD');
+    const waiterName = `pdd-name-retention-waiter-${randomUUID()}`;
+    nameWaiter = sql(invoke('pdd_recipient_manage_update', { registration_code: retentionName.registrationCode, capability_hash: capA,
+      revision: closedNameRegistration.revision, action: 'update', recipient_name: '不可复活的收件人' }), 'postgres', { PGAPPNAME: waiterName })
+      .then(output => ({ succeeded: true, output }), error => ({ succeeded: false, error }));
+    const deadline = Date.now() + 10_000;
+    while (await sql(`select count(*) from pg_stat_activity where application_name='${waiterName}' and wait_event_type='Lock' and wait_event='advisory';`) !== '1') {
+      assert(Date.now() < deadline, 'Recipient management did not reach the cleanup advisory-lock barrier.');
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    nameLockHolder.send(`${invoke('pdd_cleanup', {})}\n\\echo PDD_NAME_CAP_REVOKED`);
+    await nameLockHolder.marker('PDD_NAME_CAP_REVOKED');
+    nameLockHolder.send('commit;\n\\echo PDD_NAME_CLEANUP_COMMITTED');
+    await nameLockHolder.marker('PDD_NAME_CLEANUP_COMMITTED');
+    const mutation = await nameWaiter;
+    assert.equal(mutation.succeeded, false); assert.match(String(mutation.error), /FORBIDDEN/);
+    const cleaned = JSON.parse(await sql(`select jsonb_build_object('recipientName',recipient_name,'nameKey',recipient_name_key,'contact',contact,'note',note,'capabilityHash',capability_hash,'revision',revision)::text from public.pdd_recipient_leads where registration_code='${retentionName.registrationCode}';`));
+    assert.deepEqual(cleaned, { recipientName: null, nameKey: null, contact: null, note: null, capabilityHash: '', revision: closedNameRegistration.revision + 1 });
+  } finally { await nameLockHolder.close(); if (nameWaiter) await nameWaiter; }
+  assert.deepEqual(await rpc('pdd_home_stats', {}), beforeNameOnly);
+  await verifyRecipientTelemetry();
+  console.log('Recipient real PostgreSQL checks passed: NFC/multilingual exact lookup, both sources, post-hit registration, independent counts, duplicate ownership, rename/withdraw races, live opaque pagination, cleanup revocation barrier and old duplicate tombstones preventing recreation.');
+  console.log('Recipient telemetry real PostgreSQL checks passed: all 14 fixed events accepted under the unchanged synthetic cap; private metadata, scanner/source flags and unknown events rejected atomically.');
+
   const dumped = path.join(root, 'database.dump'), sealed = path.join(root, 'database.cmibak'), reopened = path.join(root, 'restored.dump');
   await run(path.join(bin, 'pg_dump'), ['--format=custom', '--no-owner', '--schema=public', '--schema=auth', '--file', dumped, '--dbname', 'postgres'], { env });
   const password = randomBytes(32).toString('base64url');
@@ -495,15 +696,24 @@ try {
   assert.equal(await sql('select count(*) from public.pdd_handovers;', 'pdd404_restore_check'), '1');
   assert.equal((await rpc('pdd_public', { public_code: code }, 'pdd404_restore_check')).resolution, 'resolved');
   assert.deepEqual(await rpc('pdd_home_stats', {}, 'pdd404_restore_check'), await rpc('pdd_home_stats', {}));
-  for (const table of ['pdd_waybills', 'pdd_registrations', 'pdd_feedback']) {
-    const statement = `select coalesce(jsonb_agg(to_jsonb(r) order by r.id),'[]'::jsonb)::text from public.${table} r;`;
+  for (const table of ['pdd_waybills', 'pdd_registrations', 'pdd_feedback', 'pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events', 'pdd_write_requests']) {
+    const order = table === 'pdd_write_requests' ? 'r.scope,r.key' : 'r.id';
+    const statement = `select coalesce(jsonb_agg(to_jsonb(r) order by ${order}),'[]'::jsonb)::text from public.${table} r;`;
     assert.deepEqual(JSON.parse(await sql(statement, 'pdd404_restore_check')), JSON.parse(await sql(statement)));
   }
   await assert.rejects(() => sql("set role anon; select * from public.pdd_registrations;", 'pdd404_restore_check'), /permission denied/);
   await assert.rejects(() => sql('set role authenticated; select * from public.pdd_feedback;', 'pdd404_restore_check'), /permission denied/);
+  const restoredNames = await rpc('pdd_recipient_query', recipientRestoreQuery, 'pdd404_restore_check');
+  assert.deepEqual(restoredNames.leads, (await rpc('pdd_recipient_query', recipientRestoreQuery)).leads);
+  assert.deepEqual(await rpc('pdd_home_stats', {}, 'pdd404_restore_check'), beforeNameOnly);
+  await assert.rejects(() => sql('set role anon; select * from public.pdd_recipient_leads;', 'pdd404_restore_check'), /permission denied/);
+  await assert.rejects(() => sql("set role authenticated; select public.pdd_recipient_query('{}');", 'pdd404_restore_check'), /permission denied/);
+  await businessError(() => rpc('pdd_recipient_batch_register', duplicateTombstoneInput, 'pdd404_restore_check'), 'IDEMPOTENCY_CONFLICT');
+  assert.deepEqual(await recipientRequestRow(duplicateTombstoneInput, 'pdd404_restore_check'), duplicateTombstone);
   await businessError(() => rpc('pdd_query_contact', { query_id: completePossible.queryId, capability_hash: capB, contact: { kind: 'wechat', value: 'fictional_fuzzy_owner' }, idempotency_key: 'restored-possible-error', body_hash: 'restored-possible-error' }, 'pdd404_restore_check'), 'VERSION_CONFLICT');
   await businessError(() => rpc('pdd_feedback_submit', { ...feedbackInput, body_hash: 'restored-changed-feedback' }, 'pdd404_restore_check'), 'IDEMPOTENCY_CONFLICT');
   assert.deepEqual(await rpc('pdd_telemetry_summary', { days: 30 }, 'pdd404_restore_check'), telemetrySummary);
+  await verifyRecipientTelemetry('pdd404_restore_check');
   assert.equal(await sql("select string_agg(key,',' order by key) from jsonb_object_keys(public.pdd_monitor_status('{}')) key;", 'pdd404_restore_check'), monitorColumns);
   assert.equal(JSON.parse(await sql(monitorMetadataSQL, 'pdd404_restore_check')).definition, monitorDefinition);
   assertClusterSize(JSON.parse(await sql(`begin read only; set local role service_role; ${monitorSizeSQL} commit;`, 'pdd404_restore_check')));

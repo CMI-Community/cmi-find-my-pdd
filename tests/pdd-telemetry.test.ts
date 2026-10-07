@@ -3,6 +3,14 @@ import { createTelemetryBuffer } from '../src/pdd-telemetry';
 import { TELEMETRY_MAX_BYTES, validateTelemetryRows, type TelemetryRow } from '../shared/telemetry';
 
 describe('bounded first-party telemetry batching', () => {
+  it('accepts fixed name-flow events but rejects names and disclosure data', () => {
+    expect(validateTelemetryRows([{ event: 'pdd_recipient_query_leads_found', page: 'home', mode: 'received', count: 1 }])).toHaveLength(1);
+    expect(validateTelemetryRows([{ event: 'pdd_recipient_registration_registered', page: 'home', mode: 'lost', batch: '2-5', count: 1 }])).toHaveLength(1);
+    for (const privateField of ['recipientName', 'contact', 'note', 'queryId', 'number']) {
+      expect(() => validateTelemetryRows([{ event: 'pdd_recipient_query_started', page: 'home', mode: 'lost', count: 1, [privateField]: 'synthetic-private' }])).toThrow('INVALID_TELEMETRY');
+    }
+    expect(() => validateTelemetryRows([{ event: 'pdd_recipient_query_started', page: 'home', source: 'barcode', count: 1 }])).toThrow('INVALID_TELEMETRY');
+  });
   it('aggregates repeated actions without making a request per action, and never posts an empty batch', () => {
     const send = vi.fn(), buffer = createTelemetryBuffer(send, () => true);
     for (let count = 0; count < 50; count++) buffer.add({ event: 'pdd_query_started', page: 'home', mode: 'lost', source: 'barcode', count: 1 });

@@ -5,8 +5,9 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
+import type { PddRecipientBatchResult, PddRecipientQueryResult } from '../shared/recipient';
 // @ts-expect-error Native operational ESM is intentionally outside TS compilation.
-import { TABLES, FORMAT, FEEDBACK_MIGRATION, TELEMETRY_MIGRATION, migrationManifest, readEncryptedSnapshot, rowsHash, sanitizeRow, sha256, snapshotChunks, tablesForMigrations, writeEncryptedChunks } from '../scripts/backup-scoped.mjs';
+import { TABLES, FORMAT, FEEDBACK_MIGRATION, TELEMETRY_MIGRATION, RECIPIENT_MIGRATION, migrationManifest, readEncryptedSnapshot, rowsHash, sanitizeRow, sha256, snapshotChunks, tablesForMigrations, writeEncryptedChunks } from '../scripts/backup-scoped.mjs';
 // @ts-expect-error Native operational ESM is intentionally outside TS compilation.
 import { BOOTSTRAP_SQL, restoreAndCompare, validateSnapshot, verifiedMigrations, verifyScopedRestore } from '../scripts/verify-scoped-restore.mjs';
 
@@ -41,7 +42,7 @@ beforeAll(async () => {
     insert into public.audit_events(actor_id,action,record_id) values('${actor}','synthetic','${records[0]}');
     insert into public.site_settings(key,value) values('runtime','{"OCR_ENABLED":"false","APP_ENVIRONMENT":"test"}');
   `);
-  const batch = { request_id: id(), mode: 'received', note: 'Synthetic holder description', contact: { kind: 'wechat', value: 'fictional_holder' }, capability_hash: 'a'.repeat(64), body_hash: 'synthetic-batch', items: [{ request_id: id(), number: '001234560001', source: 'barcode' }] };
+  const batch = { request_id: id(), mode: 'received', note: 'Synthetic holder description', contact: { kind: 'wechat', value: 'fictional_holder' }, capability_hash: 'a'.repeat(64), body_hash: 'synthetic-batch', items: [{ request_id: id(), number: '001234560001', source: 'barcode', recipient_name: 'Synthetic José' }] };
   const registered = (await source.query<{ value: { items: { record: { code: string } }[] } }>('select public.pdd_batch_register($1::jsonb) value', [JSON.stringify(batch)])).rows[0].value;
   const query = { query_id: id(), number: '001234560001', mode: 'lost', source: 'manual', capability_hash: 'b'.repeat(64), body_hash: 'synthetic-query' };
   await source.query('select public.pdd_query($1::jsonb)', [JSON.stringify(query)]);
@@ -50,7 +51,12 @@ beforeAll(async () => {
   await source.query('select public.pdd_admin_action($1::jsonb)', [JSON.stringify({ public_code: registered.items[0].record.code, revision: beforeClaim, action: 'claim', actor_id: actor, notes: 'Synthetic verification.' })]);
   const revision = (await source.query<{ revision: number }>('select revision from public.pdd_waybills')).rows[0].revision;
   await source.query('select public.pdd_admin_action($1::jsonb)', [JSON.stringify({ public_code: registered.items[0].record.code, revision, action: 'return', actor_id: actor, notes: 'Synthetic handover.' })]);
-  await source.query('select public.pdd_batch_register($1::jsonb)', [JSON.stringify({ ...batch, request_id: id(), mode: 'lost', note: 'Synthetic owner description', body_hash: 'synthetic-owner-batch', items: [{ request_id: id(), number: '001234560002', source: 'manual' }] })]);
+  await source.query('select public.pdd_batch_register($1::jsonb)', [JSON.stringify({ ...batch, request_id: id(), mode: 'lost', note: 'Synthetic owner description', body_hash: 'synthetic-owner-batch', items: [{ request_id: id(), number: '001234560002', source: 'manual', recipient_name: 'Synthetic 王小明' }] })]);
+  const recipientBatch = { request_id: id(), mode: 'lost', note: 'Synthetic private name note', contact: { kind: 'wechat', value: 'fictional_name_seeker' }, capability_hash: 'a'.repeat(64), body_hash: 'synthetic-name-batch',
+    items: ['Synthetic 王小明', 'ผู้รับทดสอบ', 'Jose\u0301 示例'].map(recipient_name => ({ request_id: id(), recipient_name })) };
+  const recipients = (await source.query<{ value: PddRecipientBatchResult }>('select public.pdd_recipient_batch_register($1::jsonb) value', [JSON.stringify(recipientBatch)])).rows[0].value;
+  await source.query('select public.pdd_recipient_admin_action($1::jsonb)', [JSON.stringify({ registration_code: recipients.items[0].registration!.registrationCode, actor_id: actor, revision: 1, action: 'review' })]);
+  await source.query('select public.pdd_recipient_query($1::jsonb)', [JSON.stringify({ query_id: id(), recipient_name: 'Synthetic 王小明', mode: 'received', capability_hash: 'b'.repeat(64), body_hash: 'synthetic-name-query' })]);
   const feedback = { request_id: id(), body_hash: 'synthetic-feedback', message: 'Synthetic private camera feedback', contact: { kind: 'wechat', value: 'fictional_feedback_contact' } };
   const receipt = (await source.query<{ value: { feedbackId: string } }>('select public.pdd_feedback_submit($1::jsonb) value', [JSON.stringify(feedback)])).rows[0].value;
   await source.query('select public.pdd_feedback_submit($1::jsonb)', [JSON.stringify(feedback)]);
@@ -88,6 +94,20 @@ function mockClient(changed = false, runtimeChanged = false, data = fixture) {
 async function writeFixture(file: string) {
   await writeEncryptedChunks(file, password, [JSON.stringify(fixture)]);
 }
+async function snapshotForMigrations(migrations: Snapshot['migrations']): Promise<Snapshot> {
+  const schema = new PGlite({ extensions: { pgcrypto } });
+  try {
+    await schema.exec(BOOTSTRAP_SQL);
+    for (const statement of await verifiedMigrations({ migrations })) await schema.exec(statement);
+    const tables: Snapshot['tables'] = [];
+    for (const table of tablesForMigrations(migrations)) {
+      const columns = new Set((await schema.query<{ column_name: string }>('select column_name from information_schema.columns where table_schema=$1 and table_name=$2', ['public', table.name])).rows.map(row => row.column_name));
+      const rows = fixture.tables.find(entry => entry.name === table.name)!.rows.map(row => Object.fromEntries(Object.entries(row).filter(([key]) => columns.has(key))));
+      tables.push({ name: table.name, rows, rowCount: rows.length, sha256: rowsHash(rows) });
+    }
+    return { ...fixture, migrations, tables };
+  } finally { await schema.close(); }
+}
 describe('scoped encrypted fallback and restore', () => {
   it('round-trips a CMIBAK01 stream without plaintext files, rejects authentication tampering and never overwrites', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdd404-sealed-test-'));
@@ -99,8 +119,8 @@ describe('scoped encrypted fallback and restore', () => {
       expect(sealed.includes(Buffer.from('fictional_owner'))).toBe(false);
       expect((await stat(file)).mode & 0o777).toBe(0o600);
       const opened = await readEncryptedSnapshot(file, password);
-      expect(validateSnapshot(opened).size).toBe(23);
-      expect(client.calls.size).toBe(23);
+      expect(validateSnapshot(opened).size).toBe(26);
+      expect(client.calls.size).toBe(26);
       expect([...client.calls.values()].every(count => count === 2)).toBe(true);
       expect(opened.authMetadata).toBeUndefined();
       await expect(writeFixture(file)).rejects.toThrow();
@@ -130,8 +150,13 @@ describe('scoped encrypted fallback and restore', () => {
     expect(() => validateSnapshot({ ...fixture, storage: [{ ...fixture.storage[0], key: '../escape.bin' }] })).toThrow('Invalid');
     expect(() => validateSnapshot({ ...fixture, storage: [{ ...fixture.storage[0], sha256: '0'.repeat(64) }] })).toThrow('checksum');
     expect(() => validateSnapshot({ ...fixture, tables: fixture.tables.map(table => table.name === 'pdd_waybills' ? { ...table, sha256: '0'.repeat(64) } : table) })).toThrow('digest');
-    for (const name of ['pdd_telemetry_daily', 'pdd_telemetry_budget']) {
+    for (const name of ['pdd_telemetry_daily', 'pdd_telemetry_budget', 'pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events']) {
       expect(() => validateSnapshot({ ...fixture, tables: fixture.tables.filter(table => table.name !== name) })).toThrow('Incomplete');
+    }
+    const emptyRecipientTables = { ...fixture, tables: fixture.tables.map(table => table.name.startsWith('pdd_recipient_') ? { ...table, rows: [], rowCount: 0, sha256: rowsHash([]) } : table) };
+    expect(validateSnapshot(emptyRecipientTables).size).toBe(26);
+    for (const name of ['pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events']) {
+      expect(() => validateSnapshot({ ...emptyRecipientTables, tables: emptyRecipientTables.tables.filter(table => table.name !== name) })).toThrow('Incomplete');
     }
   });
   it('restores populated legacy and PDD tables with FK/self references, RLS and audit UUID placeholders', async () => {
@@ -144,9 +169,16 @@ describe('scoped encrypted fallback and restore', () => {
         return last ? String(Object.values(last)[0]) : '';
       };
       const result = await restoreAndCompare(fixture, sql);
-      expect(result).toMatchObject({ tables: 23, storageObjects: 1, auditActorPlaceholders: 1 });
+      expect(result).toMatchObject({ tables: 26, storageObjects: 1, auditActorPlaceholders: 1 });
       expect(JSON.parse(await sql("select public.pdd_home_stats('{}'::jsonb)::text"))).toEqual({ lostRegistered: 2, receivedRegistered: 1, matchedParcels: 1 });
       expect((await database.query<{ note: string | null }>('select note from public.pdd_registrations order by note nulls first')).rows.map(row => row.note)).toEqual([null, 'Synthetic holder description', 'Synthetic owner description']);
+      expect((await database.query<{ recipient_name: string | null }>('select recipient_name from public.pdd_registrations order by recipient_name nulls first')).rows.map(row => row.recipient_name)).toEqual([null, 'Synthetic José', 'Synthetic 王小明']);
+      expect((await database.query<{ recipient_name: string }>('select recipient_name from public.pdd_recipient_leads order by recipient_name collate "C"')).rows.map(row => row.recipient_name)).toEqual(['José 示例', 'Synthetic 王小明', 'ผู้รับทดสอบ']);
+      const nameQuery = (await database.query<{ value: PddRecipientQueryResult }>('select public.pdd_recipient_query($1::jsonb) value', [JSON.stringify({ query_id: randomUUID(), recipient_name: 'Synthetic 王小明', mode: 'received', capability_hash: 'b'.repeat(64), body_hash: 'restored-name-query' })])).rows[0].value;
+      expect(nameQuery.result).toBe('leads_found');
+      expect(new Set(nameQuery.leads.map(lead => lead.contact.value))).toEqual(new Set(['fictional_holder', 'fictional_name_seeker']));
+      expect(await sql("select has_table_privilege('anon','public.pdd_recipient_leads','SELECT')::text")).toBe('false');
+      expect(await sql("select has_function_privilege('authenticated','public.pdd_recipient_query(jsonb)','EXECUTE')::text")).toBe('false');
       expect((await database.query<{ message: string; contact: unknown; status: string }>('select message,contact,status from public.pdd_feedback')).rows).toEqual([{ message: 'Synthetic private camera feedback', contact: { kind: 'wechat', value: 'fictional_feedback_contact' }, status: 'reviewed' }]);
       expect((await database.query<{ event: string; page: string; mode: string; source: string; dwell_bucket: string; event_count: number }>('select event,page,mode,source,dwell_bucket,event_count from public.pdd_telemetry_daily order by event')).rows).toEqual([
         { event: 'pdd_page_view', page: 'home', mode: '', source: '', dwell_bucket: '', event_count: 3 },
@@ -156,10 +188,27 @@ describe('scoped encrypted fallback and restore', () => {
       expect((await database.query<{ accepted_batches: number; accepted_events: number; daily_limit: number; limited_at: string | null }>('select accepted_batches,accepted_events,daily_limit,limited_at from public.pdd_telemetry_budget')).rows).toEqual([{ accepted_batches: 1, accepted_events: 6, daily_limit: 100000, limited_at: null }]);
     } finally { await database.close(); }
   }, 30_000);
+  it('restores encrypted pre-recipient tables and original column schemas without requiring name resources', async () => {
+    const migrations = fixture.migrations.filter(entry => entry.version < RECIPIENT_MIGRATION);
+    const old = await snapshotForMigrations(migrations);
+    const database = new PGlite({ extensions: { pgcrypto } });
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdd404-pre-recipient-scoped-test-'));
+    try {
+      const file = path.join(directory, 'legacy.cmibak'), client = mockClient(false, false, old);
+      await writeEncryptedChunks(file, password, snapshotChunks(client, { project, migrations }));
+      const opened = await readEncryptedSnapshot(file, password);
+      expect(validateSnapshot(opened).size).toBe(23);
+      expect([...client.calls.keys()].some(name => name.startsWith('pdd_recipient_'))).toBe(false);
+      const sql = async (statement: string) => { const result = await database.exec(statement); const row = result.at(-1)?.rows[0]; return row ? String(Object.values(row)[0]) : ''; };
+      expect(await restoreAndCompare(opened, sql)).toMatchObject({ tables: 23, auditActorPlaceholders: 1 });
+      expect(await sql("select count(*) from information_schema.columns where table_schema='public' and table_name='pdd_registrations' and column_name='recipient_name'")).toBe('0');
+      expect(await sql("select count(*) from information_schema.tables where table_schema='public' and table_name like 'pdd_recipient_%'")).toBe('0');
+      expect(() => validateSnapshot({ ...opened, migrations: fixture.migrations })).toThrow('Incomplete');
+    } finally { await database.close(); await rm(directory, { recursive: true, force: true }); }
+  }, 30_000);
   it('restores an encrypted pre-telemetry 21-table snapshot without requiring or reading new aggregates', async () => {
     const migrations = fixture.migrations.filter(entry => entry.version < TELEMETRY_MIGRATION);
-    const tableNames = new Set((tablesForMigrations(migrations) as { name: string }[]).map(table => table.name));
-    const old: Snapshot = { ...fixture, migrations, tables: fixture.tables.filter(table => tableNames.has(table.name)) };
+    const old = await snapshotForMigrations(migrations);
     const database = new PGlite({ extensions: { pgcrypto } });
     const directory = await mkdtemp(path.join(tmpdir(), 'pdd404-pre-telemetry-scoped-test-'));
     try {
@@ -218,12 +267,30 @@ describe('scoped encrypted fallback and restore', () => {
       await expect(restoreAndCompare(broken, sql)).rejects.toThrow(/foreign key/);
     } finally { await database.close(); }
   }, 30_000);
+  it('rejects a recipient snapshot with missing new columns or a restored name RPC exposed to browsers', async () => {
+    const missingColumn = structuredClone(fixture);
+    const registrations = missingColumn.tables.find(table => table.name === 'pdd_registrations')!;
+    delete registrations.rows[0].recipient_name_key;
+    registrations.sha256 = rowsHash(registrations.rows);
+    for (const exposeRpc of [false, true]) {
+      const database = new PGlite({ extensions: { pgcrypto } });
+      try {
+        const sql = async (statement: string): Promise<string> => {
+          if (exposeRpc && statement.includes("'signature',p.oid::regprocedure::text")) await database.exec('grant execute on function public.pdd_recipient_query(jsonb) to authenticated;');
+          const results = await database.exec(statement);
+          const last = results.at(-1)?.rows[0];
+          return last ? String(Object.values(last)[0]) : '';
+        };
+        await expect(restoreAndCompare(exposeRpc ? fixture : missingColumn, sql)).rejects.toThrow(exposeRpc ? 'private PDD RPC has browser access' : 'columns differ');
+      } finally { await database.close(); }
+    }
+  }, 30_000);
   it.runIf(process.env.RUN_SCOPED_POSTGRES_TEST === 'true')('runs authenticated restore in disposable real PostgreSQL using no cloud URL', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pdd404-pg-scoped-test-'));
     try {
       const file = path.join(directory, 'snapshot.cmibak');
       await writeFixture(file);
-      expect(await verifyScopedRestore(file, password)).toMatchObject({ tables: 23, storageObjects: 1, auditActorPlaceholders: 1 });
+      expect(await verifyScopedRestore(file, password)).toMatchObject({ tables: 26, storageObjects: 1, auditActorPlaceholders: 1 });
     } finally { await rm(directory, { recursive: true, force: true }); }
   }, 30_000);
 });

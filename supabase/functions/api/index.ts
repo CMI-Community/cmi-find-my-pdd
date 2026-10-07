@@ -6,6 +6,7 @@ import { publicSummary } from '../../../shared/domain.ts';
 import { ApiError, body, candidateRequest, corsHeaders, failure, json, onlyKeys, stringValue, uuid, version } from '../_shared/http.ts';
 import { bearer, capability, canonicalJson, contact, dimensions, fingerprint, sha256, withoutMetadata } from '../_shared/security.ts';
 import { ensureRuntimeConfig, getRuntime } from '../_shared/runtime.ts';
+import { recipientRoute } from '../_shared/recipient-api.ts';
 import { pddHomeStats, pddRoute } from '../_shared/waybill-api.ts';
 import { feedbackRoute } from '../_shared/feedback-api.ts';
 import { apiParts, databaseTiming, observedError, observedFetch, requestObservation, type DatabaseTiming } from '../_shared/observability.ts';
@@ -33,8 +34,9 @@ async function rpc(db: SupabaseClient, name: string, payload: Row): Promise<Row>
   if (error) {
     const raw = String(error.message ?? '');
     if (raw.includes('NON_DOMESTIC_WAYBILL')) throw new ApiError('NON_DOMESTIC_WAYBILL', DOMESTIC_WAYBILL_MESSAGE, 422);
-    const recognized = ['VERSION_CONFLICT', 'SCAN_EXPIRED', 'QUERY_EXPIRED', 'QUERY_TIMEOUT', 'RATE_LIMITED', 'FORBIDDEN', 'INVALID_IMAGE', 'UPLOAD_INCOMPLETE', 'NEEDS_PHOTO', 'OCR_DEFERRED', 'INVALID_REQUEST', 'INVALID_CONTACT', 'INVALID_WAYBILL', 'IDEMPOTENCY_CONFLICT', 'RECORD_NOT_FOUND', 'SCAN_NOT_FOUND', 'WAYBILL_NOT_FOUND', 'QUERY_NOT_FOUND', 'OWNERSHIP_LOCKED', 'NEEDS_RECEIVED', 'INVALID_ADMIN_STATE'].find((code) => raw.includes(code));
+    const recognized = ['VERSION_CONFLICT', 'SCAN_EXPIRED', 'QUERY_EXPIRED', 'QUERY_TIMEOUT', 'RATE_LIMITED', 'FORBIDDEN', 'INVALID_IMAGE', 'UPLOAD_INCOMPLETE', 'NEEDS_PHOTO', 'OCR_DEFERRED', 'INVALID_REQUEST', 'INVALID_CONTACT', 'INVALID_RECIPIENT_NAME', 'DUPLICATE_RECIPIENT', 'INVALID_WAYBILL', 'IDEMPOTENCY_CONFLICT', 'RECORD_NOT_FOUND', 'SCAN_NOT_FOUND', 'WAYBILL_NOT_FOUND', 'QUERY_NOT_FOUND', 'OWNERSHIP_LOCKED', 'NEEDS_RECEIVED', 'INVALID_ADMIN_STATE'].find((code) => raw.includes(code));
     if (recognized === 'RECORD_NOT_FOUND' || recognized === 'SCAN_NOT_FOUND' || recognized === 'WAYBILL_NOT_FOUND' || recognized === 'QUERY_NOT_FOUND') throw new ApiError('NOT_FOUND', '记录不存在。', 404);
+    if (recognized === 'DUPLICATE_RECIPIENT') throw new ApiError('DUPLICATE_RECIPIENT', '相同收件人和联系方式已有有效线索，请保留原记录或使用其他资料。', 409);
     if (recognized === 'OWNERSHIP_LOCKED') throw new ApiError('OWNERSHIP_LOCKED', '包裹已确认归属，撤回请联系小助手处理。', 409);
     if (recognized === 'NEEDS_RECEIVED') throw new ApiError('NEEDS_RECEIVED', '需有有效的错收件登记才能确认实际包裹归属。', 409);
     if (recognized === 'INVALID_ADMIN_STATE') throw new ApiError('INVALID_ADMIN_STATE', '当前状态不能执行此操作，请先核实并确认归属。', 409);
@@ -308,6 +310,11 @@ async function route(request: Request, db: SupabaseClient, headers: Record<strin
   if (parts[0] === 'feedback' && method === 'POST') await limited(db, request, 'feedback-submit', 5);
   const feedbackResponse = await feedbackRoute(request, parts, headers, { rpc: (name, payload) => rpc(db, name, payload), admin: () => admin(db, request) });
   if (feedbackResponse) return feedbackResponse;
+  const recipientResponse = await recipientRoute(request, parts, headers, {
+    rpc: (name, payload) => rpc(db, name, payload), admin: () => admin(db, request),
+    canRegister: async () => { const community = await settings(db); return community.ready && community.submissionsEnabled && Boolean(getRuntime('ADMIN_USER_IDS')); },
+  });
+  if (recipientResponse) return recipientResponse;
   const pddResponse = await pddRoute(request, parts, headers, {
     rpc: (name, payload) => rpc(db, name, payload), admin: () => admin(db, request),
     canRegister: async () => { const community = await settings(db); return community.ready && community.submissionsEnabled && Boolean(getRuntime('ADMIN_USER_IDS')); },
