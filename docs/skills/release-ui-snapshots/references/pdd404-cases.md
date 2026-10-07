@@ -1,5 +1,8 @@
 # PDD404 发布界面快照状态清单
 
+首页六项统计矩阵从本次候选版本起扩展为 421 个 case、987 个状态与视口组合。此前 414 个 case、961 个组合的基线已完整封存，保留其归档内冻结的 cases.json 和哈希，不回写历史矩阵。候选保留所有原组合，并为统计加载、更新、无旧值失败、保留旧值失败及异常响应增加 320 宽度；另外覆盖旧三字段 API、真实零值、大数字，以及姓名首查、翻页、登记和单号管理后补姓名时重新读取权威统计。四种首页查询组合均应显示两组三列、全部六个标签和对应单位。
+
+
 此清单从当前 `src/PddApp.tsx`、`src/pdd-*.tsx`、`src/PddMonitoring.tsx`、`shared/waybill.ts`、`shared/recipient.ts` 与 `docs/ACCEPTANCE.md` 的用户可见分支推导。它是拍摄合同，不是已完成截图或生产验收证据。
 
 机器清单为 [pdd404-cases.json](pdd404-cases.json)，共有 **414 个状态、961 个必需状态×视口组合**。JSON 固定 case id、中文名称、脱敏 route、必需视口和全页图要求；原生表面另标可选 `captureType: native-surface`；本文件补充真实触发方法。状态名称不得冒充当前生产状态。
@@ -159,12 +162,19 @@
 | `home-complete-not-found` | 完整单号未找到且进入待提交 | `/` | 390/1280 | `viewport` | 是 | 完整 query 返回 not_found；捕获加入队列 notice。 |
 | `home-recipient-not-found` | 姓名未找到且进入待提交 | `/` | 390/1280 | `viewport` | 是 | recipient query 返回 not_found；捕获姓名入队 notice。 |
 | `home-barcode-filled` | 扫码成功只填号提示 | `/` | 390/1280 | `viewport` | 是 | 合成条码识别后 scanner 关闭，输入显示号码和“已扫描单号，请核对后点击查找”；无自动 POST。 |
-| `home-stats-loading` | 首次读取真实登记统计 | `/` | 390/1280 | `viewport` | 是 | 挂起 stats；无数字，只展示读取提示。 |
+| `home-stats-loading` | 首次读取真实登记统计 | `/` | 320/390/1280 | `viewport` | 是 | 挂起 stats；无数字，只展示读取提示。 |
 | `home-stats-success` | 读取到登记统计 | `/` | 320/390/1280 | `viewport` | 是 | 合成整数 stats；外部 manifest 标 synthetic，不作为真实生产计数。 |
-| `home-stats-updating` | 统计更新中保留最近数字 | `/` | 390/1280 | `viewport` | 是 | 首次成功后挂起刷新，显示旧值和“正在更新统计”。 |
-| `home-stats-error-empty` | 统计失败且没有旧数字 | `/` | 390/1280 | `viewport` | 是 | 首次 stats 请求拒绝，不显示假零。 |
-| `home-stats-error-stale` | 统计失败且保留最近数字 | `/` | 390/1280 | `viewport` | 是 | 首次成功后刷新失败，显示旧数字来源提示和重试。 |
-| `home-stats-invalid-response` | 统计响应异常 | `/` | 390/1280 | `viewport` | 是 | mock 非法统计值导致 INVALID_RESPONSE；捕获实际状态。 |
+| `home-stats-updating` | 统计更新中保留最近数字 | `/` | 320/390/1280 | `viewport` | 是 | 首次成功后挂起刷新，显示旧值和“正在更新统计”。 |
+| `home-stats-error-empty` | 统计失败且没有旧数字 | `/` | 320/390/1280 | `viewport` | 是 | 首次 stats 请求拒绝，不显示假零。 |
+| `home-stats-error-stale` | 统计失败且保留最近数字 | `/` | 320/390/1280 | `viewport` | 是 | 首次成功后刷新失败，显示旧数字来源提示和重试。 |
+| `home-stats-invalid-response` | 统计响应异常 | `/` | 320/390/1280 | `viewport` | 是 | mock 非法统计值导致 INVALID_RESPONSE；捕获实际状态。 |
+| `home-stats-old-api-response` | 统计旧三字段响应显示失败 | `/` | 320/390/1280 | `viewport` | 是 | HTTP 成功仅返回原三字段；六字段校验失败，显示重试，不将缺失值补零。 |
+| `home-stats-zero` | 六项统计均为真实零值 | `/` | 320/390/1280 | `viewport` | 是 | 六字段全部为安全整数 0，标签与条/件单位完整，不能显示加载或失败。 |
+| `home-stats-large-values` | 六项统计大数字及单位 | `/` | 320/390/1280 | `viewport` | 是 | 六字段使用较大合成安全整数；每组三列，数字与单位不溢出。 |
+| `home-stats-refresh-recipient-initial` | 成功姓名首查询读取权威统计 | `/` | 320/390/1280 | `viewport` | 是 | 实际姓名查询成功返回后 GET stats；显示 mock 服务端新值，单号三项不变。 |
+| `home-stats-refresh-recipient-pagination` | 成功姓名翻页读取权威统计 | `/` | 320/390/1280 | `viewport` | 是 | 实际点击继续查看并成功返回后 GET stats；显示 mock 服务端新值，未返回的线索不由浏览器推计。 |
+| `home-stats-refresh-recipient-batch` | 成功姓名登记读取权威统计 | `/` | 320/390/1280 | `viewport` | 是 | 实际姓名批次提交成功后 GET stats；回执关闭后显示新累计姓名登记量，单号三项不变。 |
+| `home-stats-refresh-waybill-first-name` | 单号管理首次保存姓名后读取权威统计 | `/m/:code` → `/` | 320/390/1280 | `viewport` | 是 | 合成单号登记原无姓名；通过真实表单保存姓名后重新读取 stats，再在当前客户端返回首页验证新累计值。 |
 | `home-community-loading` | 社区配置正在读取 | `/` | 390/1280 | `viewport` | 是 | 挂起 community，有队列；显示“正在读取登记服务状态…”及未配置入口。 |
 | `home-community-error` | 社区配置读取失败 | `/` | 390/1280 | `viewport` | 是 | community 拒绝；捕获社区错误和登记服务状态。 |
 | `home-community-configured` | 真实社区入口展示 | `/` | 320/390/1280 | `viewport` | 是 | 当前版本已有的公开配置只读拍摄，或使用现有公开资源的合成配置；无伪造 QR/联系人。 |

@@ -4,7 +4,10 @@ export type PddMode = 'lost' | 'received';
 export type PddSource = 'manual' | 'barcode';
 export type PddLookupType = 'waybill' | 'recipient';
 export interface PddContact { kind: 'wechat' | 'phone'; value: string }
-export interface PddHomeStats { lostRegistered: number; receivedRegistered: number; matchedParcels: number }
+export interface PddHomeStats {
+  lostRegistered: number; receivedRegistered: number; matchedParcels: number;
+  lostRecipientRegistered: number; receivedRecipientRegistered: number; matchedRecipientLeads: number;
+}
 export type PddResult = 'matched' | 'possible' | 'duplicate' | 'not_found' | 'closed';
 export interface PddPossibleCandidate { code: string; tail: string; similarity: number; registeredAt: string }
 export interface PddPublicRecord {

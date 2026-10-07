@@ -34,10 +34,13 @@ describe('registration notes and truthful public totals', () => {
     expect(failed).not.toContain('<dd>');
   });
   it('shows genuine zero counts and marks previous successful totals as stale after failure', () => {
-    const html = renderToStaticMarkup(createElement(HomeStats, { stats: { lostRegistered: 0, receivedRegistered: 1200, matchedParcels: 7 }, loading: false, error: 'synthetic timeout', onRefresh() {} }));
-    expect(html).toContain('<dd>0</dd>');
+    const html = renderToStaticMarkup(createElement(HomeStats, { stats: { lostRegistered: 0, receivedRegistered: 1200, matchedParcels: 7, lostRecipientRegistered: 4, receivedRecipientRegistered: 8, matchedRecipientLeads: 2 }, loading: false, error: 'synthetic timeout', onRefresh() {} }));
+    expect(html).toContain('pdd-stat-number">0</span>');
     expect(html).toContain('1,200');
-    expect(html).toContain('累计错收登记');
+    expect(html.match(/<dd>/g)).toHaveLength(6);
+    for (const label of ['快递单号', '收件人名', '找包裹的单号', '找失主的单号', '已匹配包裹', '找包裹的姓名线索', '找失主的姓名线索', '已匹配姓名线索']) expect(html).toContain(label);
+    expect(html.match(/pdd-stat-unit">条/g)).toHaveLength(5);
+    expect(html).toContain('pdd-stat-unit">件');
     expect(html).not.toContain('多收');
     expect(html).toContain('上方为最近一次读取的数字');
   });

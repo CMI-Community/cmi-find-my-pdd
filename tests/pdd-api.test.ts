@@ -34,12 +34,31 @@ describe('PDD404 new public and administrator API contracts', () => {
     expect(await pddApi.query({ queryId: exact.queryId, number: '00123456', mode: 'lost', source: 'manual' }, 'synthetic-capability')).toBe(exact);
   });
   it('reads only validated cumulative counts and rejects malformed data instead of showing zeros', async () => {
-    mockedRequest.mockResolvedValueOnce({ lostRegistered: 3, receivedRegistered: 4, matchedParcels: 2, internal: 'synthetic' });
-    expect(await pddApi.stats()).toEqual({ lostRegistered: 3, receivedRegistered: 4, matchedParcels: 2 });
+    const stats = { lostRegistered: 3, receivedRegistered: 4, matchedParcels: 2, lostRecipientRegistered: 5, receivedRecipientRegistered: 6, matchedRecipientLeads: 1 };
+    mockedRequest.mockResolvedValueOnce({ ...stats, internal: 'synthetic', contacts: ['private'], recipientNames: ['private'], handoverCount: 3 });
+    expect(await pddApi.stats()).toEqual(stats);
     expect(mockedRequest).toHaveBeenCalledWith('/v1/waybill-stats', {});
-    for (const invalid of [{ lostRegistered: -1, receivedRegistered: 0, matchedParcels: 0 }, { lostRegistered: 0, receivedRegistered: '2', matchedParcels: 0 }, { lostRegistered: 0, receivedRegistered: 0 }]) {
-      mockedRequest.mockResolvedValueOnce(invalid);
+    for (const key of Object.keys(stats)) {
+      for (const count of [-1, 1.5, '4', null, undefined, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+        mockedRequest.mockResolvedValueOnce({ ...stats, [key]: count });
+        await expect(pddApi.stats()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+      }
+      const missing = { ...stats } as Record<string, number>;
+      delete missing[key];
+      mockedRequest.mockResolvedValueOnce(missing);
       await expect(pddApi.stats()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    }
+    // API-first rollout accepts old clients, while a new client cannot invent the new counts.
+    mockedRequest.mockResolvedValueOnce({ lostRegistered: 3, receivedRegistered: 4, matchedParcels: 2 });
+    await expect(pddApi.stats()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    mockedRequest.mockResolvedValueOnce(null);
+    await expect(pddApi.stats()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+  it('accepts genuine zero and the maximum safe integer for every cumulative count', async () => {
+    for (const count of [0, Number.MAX_SAFE_INTEGER]) {
+      const stats = { lostRegistered: count, receivedRegistered: count, matchedParcels: count, lostRecipientRegistered: count, receivedRecipientRegistered: count, matchedRecipientLeads: count };
+      mockedRequest.mockResolvedValueOnce(stats);
+      expect(await pddApi.stats()).toEqual(stats);
     }
   });
   it('sends feedback with a stable request ID and no browser capability or administrator token', async () => {

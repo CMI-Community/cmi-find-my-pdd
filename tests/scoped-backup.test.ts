@@ -170,7 +170,8 @@ describe('scoped encrypted fallback and restore', () => {
       };
       const result = await restoreAndCompare(fixture, sql);
       expect(result).toMatchObject({ tables: 26, storageObjects: 1, auditActorPlaceholders: 1 });
-      expect(JSON.parse(await sql("select public.pdd_home_stats('{}'::jsonb)::text"))).toEqual({ lostRegistered: 2, receivedRegistered: 1, matchedParcels: 1 });
+      expect(JSON.parse(await sql("select public.pdd_home_stats('{}'::jsonb)::text"))).toEqual({ lostRegistered: 2, receivedRegistered: 1, matchedParcels: 1,
+        lostRecipientRegistered: 4, receivedRecipientRegistered: 1, matchedRecipientLeads: 2 });
       expect((await database.query<{ note: string | null }>('select note from public.pdd_registrations order by note nulls first')).rows.map(row => row.note)).toEqual([null, 'Synthetic holder description', 'Synthetic owner description']);
       expect((await database.query<{ recipient_name: string | null }>('select recipient_name from public.pdd_registrations order by recipient_name nulls first')).rows.map(row => row.recipient_name)).toEqual([null, 'Synthetic José', 'Synthetic 王小明']);
       expect((await database.query<{ recipient_name: string }>('select recipient_name from public.pdd_recipient_leads order by recipient_name collate "C"')).rows.map(row => row.recipient_name)).toEqual(['José 示例', 'Synthetic 王小明', 'ผู้รับทดสอบ']);
@@ -205,6 +206,31 @@ describe('scoped encrypted fallback and restore', () => {
       expect(await sql("select count(*) from information_schema.tables where table_schema='public' and table_name like 'pdd_recipient_%'")).toBe('0');
       expect(() => validateSnapshot({ ...opened, migrations: fixture.migrations })).toThrow('Incomplete');
     } finally { await database.close(); await rm(directory, { recursive: true, force: true }); }
+  }, 30_000);
+  it('restores the pre-six-stat schema and rejects a new manifest with missing lifetime markers', async () => {
+    const migrations = fixture.migrations.filter(entry => entry.version < '20261007121000');
+    const old = await snapshotForMigrations(migrations);
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdd404-pre-six-stats-test-'));
+    const database = new PGlite({ extensions: { pgcrypto } });
+    try {
+      const file = path.join(directory, 'legacy.cmibak');
+      await writeEncryptedChunks(file, password, snapshotChunks(mockClient(false, false, old), { project, migrations }));
+      const opened = await readEncryptedSnapshot(file, password);
+      const sql = async (statement: string) => { const result = await database.exec(statement); const row = result.at(-1)?.rows[0]; return row ? String(Object.values(row)[0]) : ''; };
+      expect(await restoreAndCompare(opened, sql)).toMatchObject({ tables: 26, auditActorPlaceholders: 1 });
+      expect(await sql("select count(*) from information_schema.columns where table_schema='public' and column_name in ('recipient_registered_at','recipient_matched_at')")).toBe('0');
+      expect(JSON.parse(await sql("select public.pdd_home_stats('{}'::jsonb)::text"))).toEqual({ lostRegistered: 2, receivedRegistered: 1, matchedParcels: 1 });
+    } finally { await database.close(); await rm(directory, { recursive: true, force: true }); }
+    for (const column of ['recipient_registered_at', 'recipient_matched_at']) {
+      const incomplete = structuredClone(fixture);
+      const table = incomplete.tables.find(table => table.name === 'pdd_registrations')!;
+      delete table.rows[0][column]; table.sha256 = rowsHash(table.rows);
+      const target = new PGlite({ extensions: { pgcrypto } });
+      try {
+        const sql = async (statement: string) => { const result = await target.exec(statement); const row = result.at(-1)?.rows[0]; return row ? String(Object.values(row)[0]) : ''; };
+        await expect(restoreAndCompare(incomplete, sql)).rejects.toThrow('columns differ');
+      } finally { await target.close(); }
+    }
   }, 30_000);
   it('restores an encrypted pre-telemetry 21-table snapshot without requiring or reading new aggregates', async () => {
     const migrations = fixture.migrations.filter(entry => entry.version < TELEMETRY_MIGRATION);

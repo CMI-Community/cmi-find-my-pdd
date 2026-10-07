@@ -856,6 +856,7 @@
       "route": "/",
       "fullPageRequired": true,
       "viewports": [
+        "mobile-320",
         "mobile-390",
         "desktop-1280"
       ]
@@ -877,6 +878,7 @@
       "route": "/",
       "fullPageRequired": true,
       "viewports": [
+        "mobile-320",
         "mobile-390",
         "desktop-1280"
       ]
@@ -887,6 +889,7 @@
       "route": "/",
       "fullPageRequired": true,
       "viewports": [
+        "mobile-320",
         "mobile-390",
         "desktop-1280"
       ]
@@ -897,6 +900,7 @@
       "route": "/",
       "fullPageRequired": true,
       "viewports": [
+        "mobile-320",
         "mobile-390",
         "desktop-1280"
       ]
@@ -907,6 +911,7 @@
       "route": "/",
       "fullPageRequired": true,
       "viewports": [
+        "mobile-320",
         "mobile-390",
         "desktop-1280"
       ]
@@ -4294,6 +4299,83 @@
       "route": "/success",
       "fullPageRequired": true,
       "viewports": [
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-stats-old-api-response",
+      "title": "统计旧三字段响应显示失败",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-stats-zero",
+      "title": "六项统计均为真实零值",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-stats-large-values",
+      "title": "六项统计大数字及单位",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-stats-refresh-recipient-initial",
+      "title": "成功姓名首查询读取权威统计",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-stats-refresh-recipient-pagination",
+      "title": "成功姓名翻页读取权威统计",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-stats-refresh-recipient-batch",
+      "title": "成功姓名登记读取权威统计",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
+        "mobile-390",
+        "desktop-1280"
+      ]
+    },
+    {
+      "id": "home-stats-refresh-waybill-first-name",
+      "title": "单号管理首次保存姓名后读取权威统计",
+      "route": "/",
+      "fullPageRequired": true,
+      "viewports": [
+        "mobile-320",
         "mobile-390",
         "desktop-1280"
       ]

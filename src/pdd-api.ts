@@ -20,8 +20,9 @@ export function safeRecipientQueryResponse(value: PddRecipientQueryResult): PddR
   return { queryId: value.queryId, result: value.result, queriedAt: value.queriedAt, leads, nextCursor: value.nextCursor };
 }
 function homeStatsResponse(value: PddHomeStats): PddHomeStats {
-  if (!value || [value.lostRegistered, value.receivedRegistered, value.matchedParcels].some(count => !Number.isSafeInteger(count) || count < 0)) throw new ApiFailure('统计返回异常，请稍后重试。', 'INVALID_RESPONSE');
-  return { lostRegistered: value.lostRegistered, receivedRegistered: value.receivedRegistered, matchedParcels: value.matchedParcels };
+  if (!value || [value.lostRegistered, value.receivedRegistered, value.matchedParcels, value.lostRecipientRegistered, value.receivedRecipientRegistered, value.matchedRecipientLeads].some(count => !Number.isSafeInteger(count) || count < 0)) throw new ApiFailure('统计返回异常，请稍后重试。', 'INVALID_RESPONSE');
+  return { lostRegistered: value.lostRegistered, receivedRegistered: value.receivedRegistered, matchedParcels: value.matchedParcels,
+    lostRecipientRegistered: value.lostRecipientRegistered, receivedRecipientRegistered: value.receivedRecipientRegistered, matchedRecipientLeads: value.matchedRecipientLeads };
 }
 export function safeQueryResponse(value: PddQueryResult): PddQueryResult {
   if (value.result !== 'possible') return value;

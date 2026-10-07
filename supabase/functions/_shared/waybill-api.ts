@@ -52,9 +52,10 @@ function key(request: Request): string { return stringValue(request.headers.get(
 function unavailable(): never { throw new ApiError('SERVICE_UNAVAILABLE', '暂时无法读取登记结果，请稍后重试。', 503, true); }
 
 export function pddHomeStats(raw: Row): PddHomeStats {
-  const keys = ['lostRegistered', 'receivedRegistered', 'matchedParcels'] as const;
+  const keys = ['lostRegistered', 'receivedRegistered', 'matchedParcels', 'lostRecipientRegistered', 'receivedRecipientRegistered', 'matchedRecipientLeads'] as const;
   if (!raw || keys.some(key => !Number.isSafeInteger(raw[key]) || raw[key] < 0)) unavailable();
-  return { lostRegistered: raw.lostRegistered, receivedRegistered: raw.receivedRegistered, matchedParcels: raw.matchedParcels };
+  return { lostRegistered: raw.lostRegistered, receivedRegistered: raw.receivedRegistered, matchedParcels: raw.matchedParcels,
+    lostRecipientRegistered: raw.lostRecipientRegistered, receivedRecipientRegistered: raw.receivedRecipientRegistered, matchedRecipientLeads: raw.matchedRecipientLeads };
 }
 
 /** Always project from named fields; never forward a DB row or capability hash. */
