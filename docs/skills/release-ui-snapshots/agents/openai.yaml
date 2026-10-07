@@ -1,0 +1,6 @@
+interface:
+  display_name: "版本界面快照"
+  short_description: "在界面修改和发布前保存各用例界面，并按版本归档可浏览的截图索引"
+  default_prompt: "使用 $release-ui-snapshots，在界面修改或发布前完成当前版本的全状态界面归档。"
+policy:
+  allow_implicit_invocation: true
