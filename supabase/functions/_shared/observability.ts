@@ -12,6 +12,9 @@ export function observedRoute(request: Request): string {
   if (first === 'community') return 'community';
   if (first === 'stats') return 'legacy.stats';
   if (first === 'waybill-stats') return 'waybill.stats';
+  if (first === 'insights' && second === 'history') return 'public.insights.history';
+  if (first === 'insights' && second === 'reports') return 'public.insights.reports';
+  if (first === 'outreach') return 'public.outreach';
   if (first === 'waybill-queries') return third === 'contact' ? 'waybill.query.contact' : 'waybill.query';
   if (first === 'waybill-batches') return 'waybill.batch';
   if (first === 'waybill-manage') return third === 'withdraw' ? 'waybill.manage.withdraw' : 'waybill.manage';
@@ -25,6 +28,8 @@ export function observedRoute(request: Request): string {
   if (first === 'records') return third === 'image' ? 'legacy.public.image' : 'legacy.public';
   if (first === 'manage') return third === 'withdraw' ? 'legacy.manage.withdraw' : 'legacy.manage';
   if (first === 'admin') {
+    if (second === 'publications') return 'admin.publication';
+    if (second === 'public-assets') return 'admin.public.asset';
     if (second === 'system') return 'admin.system';
     if (second === 'analytics') return 'admin.analytics';
     if (second === 'waybills') return fourth === 'actions' ? 'admin.waybill.action' : third ? 'admin.waybill.detail' : 'admin.waybill.list';
@@ -37,7 +42,7 @@ export function observedRoute(request: Request): string {
   return 'unknown';
 }
 
-const ERROR_CODES = new Set(['INTERNAL_ERROR', 'SERVICE_UNAVAILABLE', 'FORBIDDEN', 'NOT_FOUND', 'INVALID_REQUEST', 'INVALID_WAYBILL', 'INVALID_RECIPIENT_NAME', 'DUPLICATE_RECIPIENT', 'INVALID_CONTACT', 'INVALID_NOTE', 'RATE_LIMITED', 'VERSION_CONFLICT', 'IDEMPOTENCY_CONFLICT', 'QUERY_TIMEOUT', 'QUERY_EXPIRED', 'SCAN_EXPIRED', 'OWNERSHIP_LOCKED', 'NEEDS_RECEIVED', 'INVALID_ADMIN_STATE', 'INVALID_IMAGE', 'UPLOAD_INCOMPLETE', 'NEEDS_PHOTO', 'OCR_DEFERRED']);
+const ERROR_CODES = new Set(['INTERNAL_ERROR', 'SERVICE_UNAVAILABLE', 'FORBIDDEN', 'NOT_FOUND', 'INVALID_REQUEST', 'INVALID_WAYBILL', 'INVALID_RECIPIENT_NAME', 'DUPLICATE_RECIPIENT', 'INVALID_CONTACT', 'INVALID_NOTE', 'RATE_LIMITED', 'VERSION_CONFLICT', 'IDEMPOTENCY_CONFLICT', 'QUERY_TIMEOUT', 'QUERY_EXPIRED', 'SCAN_EXPIRED', 'OWNERSHIP_LOCKED', 'NEEDS_RECEIVED', 'INVALID_ADMIN_STATE', 'INVALID_IMAGE', 'INVALID_ASSET', 'ARTIFACT_MISMATCH', 'UPLOAD_INCOMPLETE', 'NEEDS_PHOTO', 'OCR_DEFERRED']);
 export function observedError(error: unknown): string {
   return error instanceof ApiError && ERROR_CODES.has(error.code) ? error.code : 'INTERNAL_ERROR';
 }

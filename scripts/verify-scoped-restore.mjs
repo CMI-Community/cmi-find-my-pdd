@@ -6,7 +6,7 @@ import { access, mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { BUCKETS, FORMAT, RUNTIME_KEYS, migrationManifest, readEncryptedSnapshot, rowsHash, safeStorageKey, sha256, tablesForMigrations } from './backup-scoped.mjs';
+import { FORMAT, PUBLIC_CONTENT_MIGRATION, RUNTIME_KEYS, bucketsForMigrations, migrationManifest, readEncryptedSnapshot, rowsHash, safeStorageKey, sha256, tablesForMigrations } from './backup-scoped.mjs';
 import { required } from './ops.mjs';
 
 const run = promisify(execFile);
@@ -30,13 +30,16 @@ export function validateSnapshot(snapshot) {
     tables.set(table.name, table.rows);
   }
   const objects = new Set();
+  const buckets = bucketsForMigrations(snapshot.migrations);
   for (const item of snapshot.storage) {
-    if (!item || !BUCKETS.includes(item.bucket) || !safeStorageKey(item.key) || typeof item.mime !== 'string' || typeof item.base64 !== 'string' || !Number.isSafeInteger(item.size) || item.size < 0) throw new Error('Invalid scoped storage object.');
+    if (!item || !buckets.includes(item.bucket) || !safeStorageKey(item.key) || typeof item.mime !== 'string' || typeof item.base64 !== 'string' || !Number.isSafeInteger(item.size) || item.size < 0) throw new Error('Invalid scoped storage object.');
     const identity = `${item.bucket}/${item.key}`;
     if (objects.has(identity)) throw new Error('Duplicate scoped storage object.');
     objects.add(identity);
     const bytes = Buffer.from(item.base64, 'base64');
     if (bytes.toString('base64') !== item.base64 || bytes.length !== item.size || sha256(bytes) !== item.sha256) throw new Error('Scoped storage checksum mismatch.');
+    if (item.bucket === 'pdd-public-assets' && (!/^[0-9a-f]{64}\.(?:png|jpg|webp|zip)$/.test(item.key) || !item.key.startsWith(item.sha256 + '.')
+      || item.size < 1 || item.size > 5 * 1024 * 1024 || ({ png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', zip: 'application/zip' })[item.key.split('.').at(-1)] !== item.mime)) throw new Error('Public asset identity does not match its approved immutable bytes.');
   }
   const versions = new Set();
   for (const migration of snapshot.migrations) {
@@ -77,7 +80,7 @@ export async function restoreAndCompare(snapshot, sql) {
   await sql(BOOTSTRAP_SQL);
   for (const migration of migrations) await sql(migration);
   const actorIds = new Set();
-  for (const name of ['audit_events', 'handovers', 'pdd_audit_events', 'pdd_handovers', 'pdd_recipient_audit_events']) for (const row of tables.get(name) ?? []) {
+  for (const name of ['audit_events', 'handovers', 'pdd_audit_events', 'pdd_handovers', 'pdd_recipient_audit_events', 'pdd_content_revisions']) for (const row of tables.get(name) ?? []) {
     if (row.actor_id != null) {
       if (!uuid.test(row.actor_id)) throw new Error('Invalid audit actor UUID.');
       actorIds.add(row.actor_id);
@@ -105,6 +108,10 @@ export async function restoreAndCompare(snapshot, sql) {
     'anon',has_function_privilege('anon',p.oid,'EXECUTE'),'authenticated',has_function_privilege('authenticated',p.oid,'EXECUTE'))),'[]')::text
     from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname like 'pdd_%';`));
   if (!rpcPermissions.length || rpcPermissions.some(permission => permission.anon || permission.authenticated)) throw new Error('Restored private PDD RPC has browser access.');
+  if (snapshot.migrations.some(entry => entry.version === PUBLIC_CONTENT_MIGRATION)) {
+    const bucket = JSON.parse(await sql("select jsonb_build_object('public',public,'limit',file_size_limit,'mime',allowed_mime_types)::text from storage.buckets where id='pdd-public-assets';"));
+    if (!bucket?.public || bucket.limit !== 5 * 1024 * 1024 || JSON.stringify(bucket.mime) !== JSON.stringify(['image/png', 'image/jpeg', 'image/webp', 'application/zip'])) throw new Error('Dedicated public asset bucket differs from its migration.');
+  }
   if (Number(await sql('select count(*) from auth.users;')) !== actorIds.size) throw new Error('Audit actor placeholders were not restored.');
   // Storage bytes have authenticated size/hash verification in memory. There is
   // no Supabase endpoint or disk extraction; actual bucket restore is separate.

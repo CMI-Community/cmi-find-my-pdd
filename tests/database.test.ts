@@ -66,12 +66,13 @@ async function recognize(fixture: Awaited<ReturnType<typeof finalized>>, data: E
 }
 
 describe('real Postgres schema and transactions', () => {
-  it('publishes only community assets while both parcel buckets remain private', async () => {
+  it('publishes authorized community and outreach assets while both parcel buckets remain private', async () => {
     const rows = await db.query<{ id: string; public: boolean }>('select id,public from storage.buckets order by id');
     expect(rows.rows).toEqual([
       { id: 'community-assets', public: true },
       { id: 'parcel-originals', public: false },
       { id: 'parcel-public', public: false },
+      { id: 'pdd-public-assets', public: true },
     ]);
   });
 

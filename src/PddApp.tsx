@@ -19,6 +19,7 @@ import cmiCommunityLogo from './assets/cmi-community-logo.jpg';
 import { AdminFeedbackPanel, FeedbackForm } from './pdd-feedback';
 import { PddAnalytics } from './PddAnalytics';
 import PddMonitoring from './PddMonitoring';
+import { InsightsPage, SharePage, PublicNavigation } from './PddPublicPages';
 import { analyticsBatchSize, trackPddEvent, type AnalyticsEvent } from './pdd-analytics';
 import { addRecipientQueueEntry, entryLookupType, lookupDraft, lookupScope, newRecipientPendingBatch, newRecipientQueueEntry, pendingForScope, privateRecipientUrl, receiptFromRecipient, recipientInputError, recipientPendingBatchInput, setLookupDraft, setPendingForScope, type LookupDraft, type LookupScope, type QueueEntry, addQueueEntry, draftBatchNote, needsDomesticWaybillReminder, newPendingBatch, newQueueEntry, normalizeWaybillInput, pendingBatchInput, privateWaybillUrl, queryQueueAction, readWaybillDrafts, receiptFromRegistration, saveWaybillDrafts, setDraftBatchNote, settleQueue, waybillInputError, waybillQueryInputError, type NumberSource, type WaybillDraftState, type WaybillMode } from './waybill-drafts';
 
@@ -31,23 +32,28 @@ function contactLabel(contact: PddContact) { return contact.kind === 'wechat' ? 
 const localReceipt = receiptFromRegistration;
 async function copy(value: string) { if (!navigator.clipboard?.writeText) throw new Error('当前浏览器无法自动复制，请长按选中内容复制。'); await navigator.clipboard.writeText(value); }
 
-type PddContextValue = { community: Community | null; communityError: string; reloadCommunity: () => void; stats: PddHomeStats | null; statsLoading: boolean; statsError: string; reloadStats: () => void; drafts: WaybillDraftState; loaded: boolean; storageError: string; changeDrafts: (update: (state: WaybillDraftState) => WaybillDraftState) => Promise<void> };
+type PddContextValue = { community: Community | null; communityError: string; reloadCommunity: () => void; stats: PddHomeStats | null; statsLoading: boolean; statsError: string; statsReadAt: string | null; reloadStats: () => void; drafts: WaybillDraftState; loaded: boolean; storageError: string; changeDrafts: (update: (state: WaybillDraftState) => WaybillDraftState) => Promise<void> };
 const PddContext = createContext<PddContextValue>(null!);
 function PddProvider({ children }: { children: ReactNode }) {
   const [community, setCommunity] = useState<Community | null>(null), [communityError, setCommunityError] = useState('');
   const [stats, setStats] = useState<PddHomeStats | null>(null), [statsLoading, setStatsLoading] = useState(true), [statsError, setStatsError] = useState('');
+  const [statsReadAt, setStatsReadAt] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<WaybillDraftState>({ entries: [], receipts: [] }), [loaded, setLoaded] = useState(false), [storageError, setStorageError] = useState('');
   const draftRef = useRef(drafts), saves = useRef(Promise.resolve()), statsRequest = useRef(0);
   const reloadCommunity = useCallback(() => { void pddApi.community().then(value => { setCommunity(value); setCommunityError(''); }).catch(error => setCommunityError(errorMessage(error))); }, []);
-  const reloadStats = useCallback(() => { const request = ++statsRequest.current; setStatsLoading(true); setStatsError(''); void pddApi.stats().then(value => { if (request === statsRequest.current) setStats(value); }).catch(error => { if (request === statsRequest.current) setStatsError(errorMessage(error)); }).finally(() => { if (request === statsRequest.current) setStatsLoading(false); }); }, []);
+  const reloadStats = useCallback(() => { const request = ++statsRequest.current; setStatsLoading(true); setStatsError(''); void pddApi.stats().then(value => { if (request === statsRequest.current) { setStats(value); setStatsReadAt(new Date().toISOString()); } }).catch(error => { if (request === statsRequest.current) setStatsError(errorMessage(error)); }).finally(() => { if (request === statsRequest.current) setStatsLoading(false); }); }, []);
   useEffect(() => { let active = true; void readWaybillDrafts().then(value => { if (active) { draftRef.current = value; setDrafts(value); setLoaded(true); } }).catch(() => { if (active) { setStorageError('当前浏览器无法保存记录。请允许网站存储，或换一个浏览器后重试。'); setLoaded(true); } }); reloadCommunity(); return () => { active = false; }; }, [reloadCommunity]);
-  useEffect(() => { reloadStats(); window.addEventListener('focus', reloadStats); return () => { statsRequest.current++; window.removeEventListener('focus', reloadStats); }; }, [reloadStats]);
+  useEffect(() => { const visible = () => { if (document.visibilityState === 'visible') reloadStats(); }; reloadStats(); window.addEventListener('focus', reloadStats); document.addEventListener('visibilitychange', visible); return () => { statsRequest.current++; window.removeEventListener('focus', reloadStats); document.removeEventListener('visibilitychange', visible); }; }, [reloadStats]);
   const changeDrafts = useCallback(async (update: (state: WaybillDraftState) => WaybillDraftState) => {
     const action = saves.current.then(async () => { const next = update(draftRef.current); await saveWaybillDrafts(next); draftRef.current = next; setDrafts(next); setStorageError(''); });
     saves.current = action.catch(() => undefined);
     try { await action; } catch { setStorageError('记录没有保存成功，请允许浏览器存储后重试。'); throw new Error('记录没有保存成功，尚未继续提交。'); }
   }, []);
-  return <PddContext.Provider value={{ community, communityError, reloadCommunity, stats, statsLoading, statsError, reloadStats, drafts, loaded, storageError, changeDrafts }}>{children}</PddContext.Provider>;
+  return <PddContext.Provider value={{ community, communityError, reloadCommunity, stats, statsLoading, statsError, statsReadAt, reloadStats, drafts, loaded, storageError, changeDrafts }}>{children}</PddContext.Provider>;
+}
+function PublicInsights() {
+  const { stats, statsLoading, statsError, statsReadAt, reloadStats } = useContext(PddContext);
+  return <InsightsPage stats={stats} loading={statsLoading} error={statsError} readAt={statsReadAt} refresh={reloadStats} />;
 }
 function ErrorNote({ children }: { children?: ReactNode }) { return children ? <div className="pdd-error" role="alert">{children}</div> : null; }
 function Busy({ children = '正在处理…' }: { children?: ReactNode }) { return <div className="pdd-busy" role="status"><LoaderCircle size={18} className="pdd-spin" />{children}</div>; }
@@ -377,7 +383,7 @@ export function DomesticWaybillReminder({ onClose }: { onClose: () => void }) {
   return <Dialog title="请填写国内快递单号" onClose={onClose}><p>这个单号以 JTTH 开头，可能是集运或境外配送单号。请改填包裹从中国境内寄出时的快递单号。可在拼多多 App 的物流详情中查看，或在包裹面单上查找。</p><button className="pdd-button pdd-primary pdd-full" onClick={onClose}>返回修改单号</button></Dialog>;
 }
 function Home() {
-  const { community, communityError, stats, statsLoading, statsError, reloadStats, drafts, loaded, storageError, changeDrafts } = useContext(PddContext);
+  const { community, communityError, stats, statsLoading, statsError, statsReadAt, reloadStats, drafts, loaded, storageError, changeDrafts } = useContext(PddContext);
   const initialMode = new URLSearchParams(window.location.search).get('mode') === 'received' ? 'received' : 'lost';
   const [mode, setMode] = useState<WaybillMode>(initialMode), [lookupType, setLookupType] = useState<PddLookupType>('waybill'), [scopeDrafts, setScopeDrafts] = useState<Partial<Record<LookupScope, LookupDraft>>>({}), [rowNames, setRowNames] = useState<Record<string, string>>({});
   const [scanning, setScanning] = useState(false), [querying, setQuerying] = useState(false), [submitting, setSubmitting] = useState(false), [queryView, setQueryView] = useState<QueryView | null>(null), [recipientView, setRecipientView] = useState<RecipientQueryView | null>(null), [receipt, setReceipt] = useState<PddBatchResult | null>(null), [recipientReceipt, setRecipientReceipt] = useState<PddRecipientBatchResult | null>(null), [error, setError] = useState(''), [notice, setNotice] = useState(''), [domesticReminder, setDomesticReminder] = useState(false);
@@ -694,5 +700,5 @@ function PrivacyPage() { return <div className="pdd-page pdd-privacy"><Back /><s
 function MissingPage() { return <div className="pdd-page"><h1>这个页面不存在</h1><p>请检查链接，或返回首页继续查询单号。</p><Back /></div>; }
 export default function PddApp() {
   const authState = useSyncExternalStore(adminAuth.subscribe, adminAuth.getSnapshot, adminAuth.getSnapshot);
-  return <PddProvider><PddAnalytics blocked={needsPasswordRecovery(authState)} /><a className="pdd-skip" href="#pdd-main">跳到内容</a><header className="pdd-header"><Link to="/" className="pdd-brand" aria-label="PDD404 首页">pdd<span>404</span><small>包裹寻回计划</small></Link><Link to="/help" className="pdd-header-community" aria-label="帮助 Help" onClick={() => trackPddEvent('help_open')}>帮助 Help<ArrowRight size={16} /></Link></header><main id="pdd-main">{needsPasswordRecovery(authState) ? <AdminPage /> : <Routes><Route path="/" element={<Home />} /><Route path="/local" element={<LocalPage />} /><Route path="/p/:code" element={<PublicPage />} /><Route path="/p/:code/share" element={<PublicPage share />} /><Route path="/rm/:code" element={<RecipientManage />} /><Route path="/m/:code" element={<ManagePage />} /><Route path="/manage/:code" element={<ManagePage />} /><Route path="/admin" element={<AdminPage />} /><Route path="/admin/login" element={<AdminPage />} /><Route path="/help" element={<HelpPage />} /><Route path="/community" element={<HelpPage />} /><Route path="/privacy" element={<PrivacyPage />} /><Route path="/received/*" element={<Navigate to="/?mode=received" replace />} /><Route path="/search/*" element={<Navigate to="/" replace />} /><Route path="/queue" element={<Navigate to="/local" replace />} /><Route path="/success" element={<Navigate to="/local" replace />} /><Route path="*" element={<MissingPage />} /></Routes>}</main><Footer /></PddProvider>;
+  return <PddProvider><PddAnalytics blocked={needsPasswordRecovery(authState)} /><a className="pdd-skip" href="#pdd-main">跳到内容</a><header className="pdd-header"><Link to="/" className="pdd-brand" aria-label="PDD404 首页">pdd<span>404</span><small>包裹寻回计划</small></Link><PublicNavigation /></header><main id="pdd-main">{needsPasswordRecovery(authState) ? <AdminPage /> : <Routes><Route path="/" element={<Home />} /><Route path="/insights" element={<PublicInsights />} /><Route path="/share" element={<SharePage />} /><Route path="/local" element={<LocalPage />} /><Route path="/p/:code" element={<PublicPage />} /><Route path="/p/:code/share" element={<PublicPage share />} /><Route path="/rm/:code" element={<RecipientManage />} /><Route path="/m/:code" element={<ManagePage />} /><Route path="/manage/:code" element={<ManagePage />} /><Route path="/admin" element={<AdminPage />} /><Route path="/admin/login" element={<AdminPage />} /><Route path="/help" element={<HelpPage />} /><Route path="/community" element={<HelpPage />} /><Route path="/privacy" element={<PrivacyPage />} /><Route path="/received/*" element={<Navigate to="/?mode=received" replace />} /><Route path="/search/*" element={<Navigate to="/" replace />} /><Route path="/queue" element={<Navigate to="/local" replace />} /><Route path="/success" element={<Navigate to="/local" replace />} /><Route path="*" element={<MissingPage />} /></Routes>}</main><Footer /></PddProvider>;
 }

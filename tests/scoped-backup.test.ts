@@ -7,7 +7,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import type { PddRecipientBatchResult, PddRecipientQueryResult } from '../shared/recipient';
 // @ts-expect-error Native operational ESM is intentionally outside TS compilation.
-import { TABLES, FORMAT, FEEDBACK_MIGRATION, TELEMETRY_MIGRATION, RECIPIENT_MIGRATION, migrationManifest, readEncryptedSnapshot, rowsHash, sanitizeRow, sha256, snapshotChunks, tablesForMigrations, writeEncryptedChunks } from '../scripts/backup-scoped.mjs';
+import { TABLES, FORMAT, FEEDBACK_MIGRATION, TELEMETRY_MIGRATION, RECIPIENT_MIGRATION, PUBLIC_CONTENT_MIGRATION, bucketsForMigrations, canonical, migrationManifest, readEncryptedSnapshot, rowsHash, sanitizeRow, sha256, snapshotChunks, tablesForMigrations, writeEncryptedChunks } from '../scripts/backup-scoped.mjs';
 // @ts-expect-error Native operational ESM is intentionally outside TS compilation.
 import { BOOTSTRAP_SQL, restoreAndCompare, validateSnapshot, verifiedMigrations, verifyScopedRestore } from '../scripts/verify-scoped-restore.mjs';
 
@@ -66,20 +66,28 @@ beforeAll(async () => {
     { event: 'pdd_query_matched', page: 'home', count: 2, mode: 'lost', source: 'barcode' },
     { event: 'pdd_visible_dwell', page: 'help', count: 1, bucket: '30-59s' },
   ], daily_limit: 100000 })]);
+  await source.query("insert into public.pdd_stats_daily(day,sampled_at,metric_version,stats) values((now() at time zone 'Asia/Bangkok')::date,now(),'home-six-lifetime-v1',public.pdd_home_stats('{}'))");
+  const publication = { kind: 'outreach', key: 'main', action: 'publish', expectedRevision: 0, content: { items: [] } };
+  await source.query('select public.pdd_publish_content($1::jsonb)', [JSON.stringify({ kind: publication.kind, key: publication.key, action: publication.action, expected_revision: 0, content: publication.content, actor_id: actor, approval_artifact_sha: sha256(canonical(publication)) })]);
   const tables = [];
   for (const name of tableNames) {
     const rows = (await source.query<{ value: Row }>(`select to_jsonb(row) value from public.${name} row`)).rows.map(row => row.value);
     tables.push({ name, rows, rowCount: rows.length, sha256: rowsHash(rows) });
   }
   const bytes = Buffer.from('synthetic storage bytes');
-  fixture = { format: FORMAT, project, migrations, tables, storage: [{ bucket: 'community-assets', key: 'synthetic/example.bin', mime: 'application/octet-stream', size: bytes.length, sha256: sha256(bytes), base64: bytes.toString('base64') }] };
+  const publicBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aLj8AAAAASUVORK5CYII=', 'base64');
+  fixture = { format: FORMAT, project, migrations, tables, storage: [
+    { bucket: 'community-assets', key: 'synthetic/example.bin', mime: 'application/octet-stream', size: bytes.length, sha256: sha256(bytes), base64: bytes.toString('base64') },
+    { bucket: 'pdd-public-assets', key: sha256(publicBytes) + '.png', mime: 'image/png', size: publicBytes.length, sha256: sha256(publicBytes), base64: publicBytes.toString('base64') },
+  ] };
 }, 30_000);
 afterAll(async () => { await source?.close(); });
 
 function mockClient(changed = false, runtimeChanged = false, data = fixture) {
   const calls = new Map<string, number>();
+  const bucketCalls = new Set<string>();
   return {
-    calls,
+    calls, bucketCalls,
     from(name: string) {
       const request = { select: () => request, order: () => request, range: async () => {
         calls.set(name, (calls.get(name) || 0) + 1);
@@ -88,7 +96,20 @@ function mockClient(changed = false, runtimeChanged = false, data = fixture) {
         return { data: changed && name === 'pdd_waybills' && calls.get(name) === 2 ? [] : rows, error: null };
       } }; return request;
     },
-    storage: { from: () => ({ list: async () => ({ data: [], error: null }) }) },
+    storage: { from: (bucket: string) => {
+      bucketCalls.add(bucket);
+      return {
+        list: async (prefix: string) => {
+          const names = new Map<string, { name: string; id?: string }>();
+          for (const item of data.storage.filter(item => item.bucket === bucket)) {
+            const remaining = prefix ? item.key.startsWith(prefix + '/') ? item.key.slice(prefix.length + 1) : null : item.key;
+            if (remaining !== null) { const [name, ...rest] = remaining.split('/'); names.set(name, { name, ...(rest.length ? {} : { id: 'synthetic-object' }) }); }
+          }
+          return { data: [...names.values()], error: null };
+        },
+        download: async (key: string) => { const item = data.storage.find(item => item.bucket === bucket && item.key === key); return { data: item ? new Blob([new Uint8Array(Buffer.from(item.base64, 'base64'))], { type: item.mime }) : null, error: null }; },
+      };
+    } },
   };
 }
 async function writeFixture(file: string) {
@@ -105,7 +126,7 @@ async function snapshotForMigrations(migrations: Snapshot['migrations']): Promis
       const rows = fixture.tables.find(entry => entry.name === table.name)!.rows.map(row => Object.fromEntries(Object.entries(row).filter(([key]) => columns.has(key))));
       tables.push({ name: table.name, rows, rowCount: rows.length, sha256: rowsHash(rows) });
     }
-    return { ...fixture, migrations, tables };
+    return { ...fixture, migrations, tables, storage: fixture.storage.filter(item => bucketsForMigrations(migrations).includes(item.bucket)) };
   } finally { await schema.close(); }
 }
 describe('scoped encrypted fallback and restore', () => {
@@ -119,8 +140,10 @@ describe('scoped encrypted fallback and restore', () => {
       expect(sealed.includes(Buffer.from('fictional_owner'))).toBe(false);
       expect((await stat(file)).mode & 0o777).toBe(0o600);
       const opened = await readEncryptedSnapshot(file, password);
-      expect(validateSnapshot(opened).size).toBe(26);
-      expect(client.calls.size).toBe(26);
+      expect(validateSnapshot(opened).size).toBe(28);
+      expect(client.calls.size).toBe(28);
+      expect(opened.storage).toEqual(fixture.storage);
+      expect(client.bucketCalls.has('pdd-public-assets')).toBe(true);
       expect([...client.calls.values()].every(count => count === 2)).toBe(true);
       expect(opened.authMetadata).toBeUndefined();
       await expect(writeFixture(file)).rejects.toThrow();
@@ -150,14 +173,18 @@ describe('scoped encrypted fallback and restore', () => {
     expect(() => validateSnapshot({ ...fixture, storage: [{ ...fixture.storage[0], key: '../escape.bin' }] })).toThrow('Invalid');
     expect(() => validateSnapshot({ ...fixture, storage: [{ ...fixture.storage[0], sha256: '0'.repeat(64) }] })).toThrow('checksum');
     expect(() => validateSnapshot({ ...fixture, tables: fixture.tables.map(table => table.name === 'pdd_waybills' ? { ...table, sha256: '0'.repeat(64) } : table) })).toThrow('digest');
-    for (const name of ['pdd_telemetry_daily', 'pdd_telemetry_budget', 'pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events']) {
+    for (const name of ['pdd_telemetry_daily', 'pdd_telemetry_budget', 'pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events', 'pdd_stats_daily', 'pdd_content_revisions']) {
       expect(() => validateSnapshot({ ...fixture, tables: fixture.tables.filter(table => table.name !== name) })).toThrow('Incomplete');
     }
     const emptyRecipientTables = { ...fixture, tables: fixture.tables.map(table => table.name.startsWith('pdd_recipient_') ? { ...table, rows: [], rowCount: 0, sha256: rowsHash([]) } : table) };
-    expect(validateSnapshot(emptyRecipientTables).size).toBe(26);
+    expect(validateSnapshot(emptyRecipientTables).size).toBe(28);
     for (const name of ['pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events']) {
       expect(() => validateSnapshot({ ...emptyRecipientTables, tables: emptyRecipientTables.tables.filter(table => table.name !== name) })).toThrow('Incomplete');
     }
+    const emptyPublic = { ...fixture, tables: fixture.tables.map(table => ['pdd_stats_daily','pdd_content_revisions'].includes(table.name) ? { ...table, rows: [], rowCount: 0, sha256: rowsHash([]) } : table) };
+    expect(validateSnapshot(emptyPublic).size).toBe(28);
+    for (const name of ['pdd_stats_daily','pdd_content_revisions']) expect(() => validateSnapshot({ ...emptyPublic, tables: emptyPublic.tables.filter(table => table.name !== name) })).toThrow('Incomplete');
+    expect(() => validateSnapshot({ ...fixture, storage: fixture.storage.map(item => item.bucket === 'pdd-public-assets' ? { ...item, key: '0'.repeat(64) + '.png' } : item) })).toThrow('immutable bytes');
   });
   it('restores populated legacy and PDD tables with FK/self references, RLS and audit UUID placeholders', async () => {
     expect(fixture.tables.every(table => table.rows.length > 0)).toBe(true);
@@ -169,7 +196,11 @@ describe('scoped encrypted fallback and restore', () => {
         return last ? String(Object.values(last)[0]) : '';
       };
       const result = await restoreAndCompare(fixture, sql);
-      expect(result).toMatchObject({ tables: 26, storageObjects: 1, auditActorPlaceholders: 1 });
+      expect(result).toMatchObject({ tables: 28, storageObjects: 2, auditActorPlaceholders: 1 });
+      expect(await sql("select count(*) from public.pdd_stats_daily")).toBe('1');
+      expect(await sql("select count(*) from public.pdd_content_revisions where approval_artifact_sha ~ '^[0-9a-f]{64}$'")).toBe('1');
+      expect(JSON.parse(await sql("select public.pdd_public_outreach('{}')::text"))).toMatchObject({ catalog: { revision: 1, content: { items: [] } }, developerGroup: null });
+      expect(await sql("select has_table_privilege('authenticated','public.pdd_content_revisions','SELECT')::text")).toBe('false');
       expect(JSON.parse(await sql("select public.pdd_home_stats('{}'::jsonb)::text"))).toEqual({ lostRegistered: 2, receivedRegistered: 1, matchedParcels: 1,
         lostRecipientRegistered: 4, receivedRecipientRegistered: 1, matchedRecipientLeads: 2 });
       expect((await database.query<{ note: string | null }>('select note from public.pdd_registrations order by note nulls first')).rows.map(row => row.note)).toEqual([null, 'Synthetic holder description', 'Synthetic owner description']);
@@ -188,6 +219,23 @@ describe('scoped encrypted fallback and restore', () => {
       ]);
       expect((await database.query<{ accepted_batches: number; accepted_events: number; daily_limit: number; limited_at: string | null }>('select accepted_batches,accepted_events,daily_limit,limited_at from public.pdd_telemetry_budget')).rows).toEqual([{ accepted_batches: 1, accepted_events: 6, daily_limit: 100000, limited_at: null }]);
     } finally { await database.close(); }
+  }, 30_000);
+  it('restores the encrypted pre-public-content schema without requiring or reading the two new tables or public asset bucket', async () => {
+    const migrations = fixture.migrations.filter(entry => entry.version < PUBLIC_CONTENT_MIGRATION);
+    const old = await snapshotForMigrations(migrations), database = new PGlite({ extensions: { pgcrypto } });
+    const directory = await mkdtemp(path.join(tmpdir(), 'pdd404-pre-public-content-'));
+    try {
+      const file = path.join(directory, 'legacy.cmibak'), client = mockClient(false, false, old);
+      await writeEncryptedChunks(file, password, snapshotChunks(client, { project, migrations }));
+      const opened = await readEncryptedSnapshot(file, password);
+      expect(validateSnapshot(opened).size).toBe(26);
+      expect(client.calls.has('pdd_stats_daily')).toBe(false); expect(client.calls.has('pdd_content_revisions')).toBe(false);
+      expect(client.bucketCalls.has('pdd-public-assets')).toBe(false);
+      const sql = async (statement: string) => { const result = await database.exec(statement); const row = result.at(-1)?.rows[0]; return row ? String(Object.values(row)[0]) : ''; };
+      expect(await restoreAndCompare(opened, sql)).toMatchObject({ tables: 26, storageObjects: 1, auditActorPlaceholders: 1 });
+      expect(await sql("select count(*) from storage.buckets where id='pdd-public-assets'")).toBe('0');
+      expect(() => validateSnapshot({ ...opened, migrations: fixture.migrations })).toThrow('Incomplete');
+    } finally { await database.close(); await rm(directory, { recursive: true, force: true }); }
   }, 30_000);
   it('restores encrypted pre-recipient tables and original column schemas without requiring name resources', async () => {
     const migrations = fixture.migrations.filter(entry => entry.version < RECIPIENT_MIGRATION);
@@ -316,7 +364,7 @@ describe('scoped encrypted fallback and restore', () => {
     try {
       const file = path.join(directory, 'snapshot.cmibak');
       await writeFixture(file);
-      expect(await verifyScopedRestore(file, password)).toMatchObject({ tables: 26, storageObjects: 1, auditActorPlaceholders: 1 });
+      expect(await verifyScopedRestore(file, password)).toMatchObject({ tables: 28, storageObjects: 2, auditActorPlaceholders: 1 });
     } finally { await rm(directory, { recursive: true, force: true }); }
   }, 30_000);
 });

@@ -11,6 +11,7 @@ export const FORMAT = 'pdd404-scoped-row-snapshot-v1';
 export const FEEDBACK_MIGRATION = '20261006141735';
 export const TELEMETRY_MIGRATION = '20261006173511';
 export const RECIPIENT_MIGRATION = '20261007083319';
+export const PUBLIC_CONTENT_MIGRATION = '20261008133000';
 export const TABLES = Object.freeze([
   ['scans', ['id']], ['images', ['id']], ['records', ['id']], ['evidence', ['id']],
   ['jobs', ['id']], ['matches', ['id']], ['followups', ['id']], ['handovers', ['id']],
@@ -24,6 +25,7 @@ export const TABLES = Object.freeze([
   ['pdd_telemetry_budget', ['day']],
   ['pdd_recipient_leads', ['id']], ['pdd_recipient_query_events', ['id']],
   ['pdd_recipient_audit_events', ['id']],
+  ['pdd_stats_daily', ['day']], ['pdd_content_revisions', ['kind', 'content_key', 'revision']],
 ].map(([name, order]) => Object.freeze({ name, order: Object.freeze(order) })));
 // Older encrypted snapshots must reconstruct their original schema. A snapshot
 // declaring a table's migration must include that table, even when empty.
@@ -32,11 +34,17 @@ export function tablesForMigrations(migrations) {
   const hasFeedback = migrations.some(entry => entry?.version === FEEDBACK_MIGRATION);
   const hasTelemetry = migrations.some(entry => entry?.version === TELEMETRY_MIGRATION);
   const hasRecipient = migrations.some(entry => entry?.version === RECIPIENT_MIGRATION);
+  const hasPublicContent = migrations.some(entry => entry?.version === PUBLIC_CONTENT_MIGRATION);
   return TABLES.filter(table => (hasFeedback || table.name !== 'pdd_feedback') &&
     (hasTelemetry || !['pdd_telemetry_daily', 'pdd_telemetry_budget'].includes(table.name)) &&
-    (hasRecipient || !['pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events'].includes(table.name)));
+    (hasRecipient || !['pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events'].includes(table.name)) &&
+    (hasPublicContent || !['pdd_stats_daily', 'pdd_content_revisions'].includes(table.name)));
 }
-export const BUCKETS = Object.freeze(['parcel-originals', 'parcel-public', 'community-assets']);
+export const BUCKETS = Object.freeze(['parcel-originals', 'parcel-public', 'community-assets', 'pdd-public-assets']);
+export function bucketsForMigrations(migrations) {
+  if (!Array.isArray(migrations) || !migrations.length) throw new Error('Invalid scoped migration manifest.');
+  return BUCKETS.filter(bucket => bucket !== 'pdd-public-assets' || migrations.some(entry => entry?.version === PUBLIC_CONTENT_MIGRATION));
+}
 export const RUNTIME_KEYS = Object.freeze(['APP_ENVIRONMENT', 'APP_PUBLIC_URL', 'ALLOWED_ORIGINS', 'ADMIN_USER_IDS', 'APP_SHA', 'OCR_ENABLED']);
 const MAGIC = Buffer.from('CMIBAK01');
 const MIGRATIONS = new URL('../supabase/migrations/', import.meta.url);
@@ -127,7 +135,7 @@ export async function* snapshotChunks(client, metadata, summary = {}) {
   }
   yield '],"storage":[';
   let files = 0;
-  for (const bucket of BUCKETS) for await (const item of storageObjects(client, bucket)) {
+  for (const bucket of bucketsForMigrations(metadata.migrations)) for await (const item of storageObjects(client, bucket)) {
     if (files++) yield ',';
     yield JSON.stringify(item);
   }

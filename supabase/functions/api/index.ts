@@ -13,6 +13,8 @@ import { apiParts, databaseTiming, observedError, observedFetch, requestObservat
 import { monitorRoute, type MonitorContext } from '../_shared/monitor-api.ts';
 import { createPublicCache } from '../_shared/public-cache.ts';
 import { configuredTelemetryLimit, createTelemetryLimiter, createTelemetryRoutes } from '../_shared/telemetry-api.ts';
+import { publicAssetMetadataMatches, publicContentRoute } from '../_shared/public-content-api.ts';
+import { PUBLIC_ASSET_BUCKET, publicAssetsRoute } from '../_shared/public-assets-api.ts';
 
 type Row = Record<string, any>;
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
@@ -34,7 +36,7 @@ async function rpc(db: SupabaseClient, name: string, payload: Row): Promise<Row>
   if (error) {
     const raw = String(error.message ?? '');
     if (raw.includes('NON_DOMESTIC_WAYBILL')) throw new ApiError('NON_DOMESTIC_WAYBILL', DOMESTIC_WAYBILL_MESSAGE, 422);
-    const recognized = ['VERSION_CONFLICT', 'SCAN_EXPIRED', 'QUERY_EXPIRED', 'QUERY_TIMEOUT', 'RATE_LIMITED', 'FORBIDDEN', 'INVALID_IMAGE', 'UPLOAD_INCOMPLETE', 'NEEDS_PHOTO', 'OCR_DEFERRED', 'INVALID_REQUEST', 'INVALID_CONTACT', 'INVALID_RECIPIENT_NAME', 'DUPLICATE_RECIPIENT', 'INVALID_WAYBILL', 'IDEMPOTENCY_CONFLICT', 'RECORD_NOT_FOUND', 'SCAN_NOT_FOUND', 'WAYBILL_NOT_FOUND', 'QUERY_NOT_FOUND', 'OWNERSHIP_LOCKED', 'NEEDS_RECEIVED', 'INVALID_ADMIN_STATE'].find((code) => raw.includes(code));
+    const recognized = ['ARTIFACT_MISMATCH', 'VERSION_CONFLICT', 'SCAN_EXPIRED', 'QUERY_EXPIRED', 'QUERY_TIMEOUT', 'RATE_LIMITED', 'FORBIDDEN', 'INVALID_IMAGE', 'UPLOAD_INCOMPLETE', 'NEEDS_PHOTO', 'OCR_DEFERRED', 'INVALID_REQUEST', 'INVALID_CONTACT', 'INVALID_RECIPIENT_NAME', 'DUPLICATE_RECIPIENT', 'INVALID_WAYBILL', 'IDEMPOTENCY_CONFLICT', 'RECORD_NOT_FOUND', 'SCAN_NOT_FOUND', 'WAYBILL_NOT_FOUND', 'QUERY_NOT_FOUND', 'OWNERSHIP_LOCKED', 'NEEDS_RECEIVED', 'INVALID_ADMIN_STATE'].find((code) => raw.includes(code));
     if (recognized === 'RECORD_NOT_FOUND' || recognized === 'SCAN_NOT_FOUND' || recognized === 'WAYBILL_NOT_FOUND' || recognized === 'QUERY_NOT_FOUND') throw new ApiError('NOT_FOUND', '记录不存在。', 404);
     if (recognized === 'DUPLICATE_RECIPIENT') throw new ApiError('DUPLICATE_RECIPIENT', '相同收件人和联系方式已有有效线索，请保留原记录或使用其他资料。', 409);
     if (recognized === 'OWNERSHIP_LOCKED') throw new ApiError('OWNERSHIP_LOCKED', '包裹已确认归属，撤回请联系小助手处理。', 409);
@@ -42,7 +44,7 @@ async function rpc(db: SupabaseClient, name: string, payload: Row): Promise<Row>
     if (recognized === 'INVALID_ADMIN_STATE') throw new ApiError('INVALID_ADMIN_STATE', '当前状态不能执行此操作，请先核实并确认归属。', 409);
     if (recognized === 'QUERY_TIMEOUT') throw new ApiError('QUERY_TIMEOUT', '疑似线索查询暂时较慢，请稍后重试，或核对完整国内单号后再查询。', 503, true);
     if (recognized === 'QUERY_EXPIRED') throw new ApiError('QUERY_EXPIRED', '这次查询已过期，请重新查询后留下联系方式。', 410);
-    if (error.code === '40001' || error.code === '23505' || recognized === 'VERSION_CONFLICT' || recognized === 'IDEMPOTENCY_CONFLICT') throw new ApiError(recognized ?? 'VERSION_CONFLICT', '内容已更新或请求重复，请刷新后重试。', 409);
+    if (error.code === '40001' || error.code === '23505' || recognized === 'VERSION_CONFLICT' || recognized === 'IDEMPOTENCY_CONFLICT' || recognized === 'ARTIFACT_MISMATCH') throw new ApiError(recognized ?? 'VERSION_CONFLICT', '内容已更新或请求重复，请刷新后重试。', 409);
     if (recognized === 'SCAN_EXPIRED') throw new ApiError('SCAN_EXPIRED', '本次查询已过期，请重新上传。', 410);
     if (recognized === 'RATE_LIMITED') throw new ApiError('RATE_LIMITED', '操作过于频繁，请稍后再试。', 429, true);
     if (error.code === '42501' || recognized === 'FORBIDDEN') throw new ApiError('FORBIDDEN', '没有访问权限。', 403);
@@ -307,6 +309,34 @@ async function route(request: Request, db: SupabaseClient, headers: Record<strin
     if (path === '/stats') return json(await publicCache.get('stats', () => publicLegacyStats(db)), 200, headers);
   }
   await limited(db, request, parts[0] ?? 'root', method === 'GET' ? 120 : 20);
+  const publicContentResponse = await publicContentRoute(request, parts, headers, {
+    rpc: (name, payload) => rpc(db, name, payload), admin: () => admin(db, request), publicBaseUrl: getRuntime('SUPABASE_URL') ?? '',
+    assetExists: async url => {
+      const key = new URL(url).pathname.split('/').at(-1)!;
+      const { data, error } = await db.storage.from(PUBLIC_ASSET_BUCKET).info(key);
+      if (error) {
+        if ('statusCode' in error && String(error.statusCode) === '404') return false;
+        throw new ApiError('SERVICE_UNAVAILABLE', '公开素材暂时无法核实，请稍后重试。', 503, true);
+      }
+      return publicAssetMetadataMatches(url, data);
+    },
+  });
+  if (publicContentResponse) return publicContentResponse;
+  const publicAssetResponse = await publicAssetsRoute(request, parts, headers, {
+    admin: () => admin(db, request), publicBaseUrl: getRuntime('SUPABASE_URL') ?? '',
+    upload: async (key, bytes, mime) => {
+      const { error } = await db.storage.from(PUBLIC_ASSET_BUCKET).upload(key, bytes, { contentType: mime, upsert: false, cacheControl: '31536000' });
+      if (error) {
+        if ('statusCode' in error && ['409', '400'].includes(String(error.statusCode)) && /already exists|duplicate/i.test(error.message)) throw new ApiError('VERSION_CONFLICT', '此公开素材已存在，不能覆盖。', 409);
+        throw new ApiError('SERVICE_UNAVAILABLE', '公开素材上传没有完成，请稍后核实。', 503, true);
+      }
+    },
+    audit: async (actor, action, payload) => {
+      const { error } = await db.from('audit_events').insert({ actor_id: actor, action, payload });
+      if (error) throw new ApiError('SERVICE_UNAVAILABLE', '公开素材审计没有完成，请稍后核实。', 503, true);
+    },
+  });
+  if (publicAssetResponse) return publicAssetResponse;
   if (parts[0] === 'feedback' && method === 'POST') await limited(db, request, 'feedback-submit', 5);
   const feedbackResponse = await feedbackRoute(request, parts, headers, { rpc: (name, payload) => rpc(db, name, payload), admin: () => admin(db, request) });
   if (feedbackResponse) return feedbackResponse;
