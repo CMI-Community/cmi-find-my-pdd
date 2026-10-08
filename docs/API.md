@@ -6,7 +6,7 @@
 
 `VITE_API_BASE_URL=https://<project-ref>.supabase.co/functions/v1/api`，以下路径在其后追加 `/v1`。前端 `/p/:parentCode`、`/m/:registrationCode` 是页面路由。
 
-成功响应为 `{data:T}`，失败为 `{error:{code,message,requestId,retryable}}`。写请求使用 `Content-Type: application/json`，请求体最多 32 KiB；字段严格白名单。CORS 只允许配置的网站 Origin，`OPTIONS` 返回 204，响应使用 `Cache-Control: no-store`。除 health 外，一级业务路由按来源指纹限流：每分钟 GET 120 次、写请求 20 次。
+成功响应为 `{data:T}`，失败为 `{error:{code,message,requestId,retryable}}`。写请求使用 `Content-Type: application/json`，JSON文本最多32768个UTF-16代码单元（JavaScript字符串长度）；字段严格白名单。CORS 只允许配置的网站 Origin，`OPTIONS` 返回 204，响应使用 `Cache-Control: no-store`。除 health 外，一级业务路由按来源指纹限流：每分钟 GET 120 次、写请求 20 次。
 
 | 权限 | 请求方式 |
 |---|---|
@@ -123,7 +123,7 @@ action：`verify` 开始核实；`claim` 确认归属，进入待交还；`retur
 | `GET /v1/insights/reports?offset=0` | 默认offset0，每页20；也可`date=YYYY-MM-DD`且offset只能0 | `{reports:[{key,revision,publishedAt,content}],nextOffset}`，日期倒序；仅每日期最新已发表版本 |
 | `GET /v1/outreach` | 无参数 | `{catalog,developerGroup}`，各为`{key,revision,publishedAt,content}`或null |
 | `GET /v1/admin/publications?kind=outreach&key=main` | 管理员JWT；kind/key必须为合法组合 | `{kind,key,revision,action,publishedAt,approvalArtifactSha}`；未发表revision0且后三项null，已撤回仍返回最新版本元数据 |
-| `POST /v1/admin/publications` | 管理员JWT；下述审核发表输入，JSON32KiB | `{kind,key,revision,action,publishedAt,approvalArtifactSha}`；HTTP201 |
+| `POST /v1/admin/publications` | 管理员JWT；下述审核发表输入，JSON文本最多32768个UTF-16代码单元 | `{kind,key,revision,action,publishedAt,approvalArtifactSha}`；HTTP201 |
 | `POST /v1/admin/public-assets` | 管理员JWT；原始PNG/JPEG/WebP/ZIP bytes，正确Content-Type，`x-content-sha256`为本聊天已审公开副本64位小写hex | `{url,key,sha256,mime,bytes}`；HTTP201，最高5MiB |
 
 这三个公众读接口只返回正式六数及已发表公开内容，不返回匿名私有埋点表、数据库压力、原始业务行、完整单号、收件人名、联系人、备注、管理员或审核SHA。失败保持错误状态，不把缺报、无历史或取数失败当作零。历史`metricVersion=home-six-lifetime-v1`，`day`与服务器`sampledAt`在Asia/Bangkok的日期一致；没有回填，读取不创建快照。

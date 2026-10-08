@@ -1,11 +1,11 @@
 # PDD404 Project Workpad
 
-Last updated: 2026-10-08 Asia/Bangkok
+Last updated: 2026-10-09 Asia/Bangkok
 
 ## Snapshot
-- Status: In Progress
+- Status: Runtime released; editorial review pending; automation prompt update approval-blocked
 - Current focus: Implement approved data insights and outreach pages, daily snapshots and reviewed publication.
-- Next step: Freeze the checked candidate SHA, archive the complete candidate state matrix, then complete PR and production acceptance.
+- Next step: Review the exact first editorial/material candidates; receive the real independent developer QR. Evening automation prompt update remains blocked by the tool approval policy.
 
 ## Project Goal
 Provide readable, continuously updated public data at `/insights` and usable sharing materials at `/share`, while preserving parcel lookup, privacy and the distinction between clues, matches and actual returns.
@@ -32,13 +32,13 @@ Provide readable, continuously updated public data at `/insights` and usable sha
 - [x] Implement publication tooling, scoped backup/restore support and content preparation.
 ### Next
 - [x] Implement both pages, responsive navigation and help anchors after baseline.
-- [ ] Complete new state matrix, database transactional/restore tests, check and build.
-- [ ] Review PR and complete authorized release/acceptance sequence with genuine evidence.
-- [ ] Update existing evening automation to the new draft/review workflow.
+- [x] Complete candidate state matrix, database transactional/restore tests, check and build.
+- [x] Seal production UI acceptance; PR #47 and database/API/frontend deployment are complete with real identity checks.
+- [ ] Update existing evening automation to the new draft/review workflow — automatic approval rejected view/update because the tool requires approval while the active policy is never; original ACTIVE heartbeat remains unchanged.
 ### Done
 - [x] User approved detailed implementation plan.
 - [x] Created `codex/insights-outreach`; initial working tree was clean.
-- [x] Verified Vercel production currently uses frontend `fbb6e99c688d723117236a63c12cd83bb24ed597`.
+- [x] Verified baseline-time Vercel frontend `fbb6e99c688d723117236a63c12cd83bb24ed597`; subsequent release uses 0150ff9.
 
 ## Risks And Open Questions
 | Type | Item | Impact | Next check | Status |
@@ -46,7 +46,7 @@ Provide readable, continuously updated public data at `/insights` and usable sha
 | Asset | Real independent developer-group QR file/location not supplied | Group panel must show missing state | Await user location; content can update independently | Open |
 | Content | No verified first news/video release links | Empty directory sections remain honest | Prepare reviewable directory without invented links | Open |
 | Evidence | Current-runtime complete baseline | Required before first UI source edit | Live SHA, 12 static hashes and original matrix matched; 24 fresh captures added | Validated |
-| Release | Complete candidate archive and production acceptance | Blocks runtime rollout until passed | 500 cases / 1149 pairs planned, including new public-page states | In Progress |
+| Release | Complete candidate archive and production acceptance | Runtime rollout and acceptance complete | Candidate and production each 505 cases / 1159 pairs, 1157 captured + 2 source-backed N/A; production is entirely fresh | Validated |
 
 ## Implementation Notes
 - Contract: [PRODUCT.md](PRODUCT.md); operational rules: [MONITORING.md](MONITORING.md).
@@ -64,6 +64,16 @@ Provide readable, continuously updated public data at `/insights` and usable sha
 | 2026-10-08 | Disposable real PostgreSQL and encrypted scoped restore | Passed | Migration rollback/commit, concurrency, immutable sampling/publication, 28 tables / 293 rows, asset hash and old-manifest compatibility |
 | 2026-10-08 | Preliminary UI | Passed | 12 new-page layouts at 320/390/1280; navigation, date/history, help anchors, copy, download and QR interaction |
 | 2026-10-08 | Live cron timezone | GMT | Confirmed 13:00 UTC corresponds to Bangkok 20:00; independent new job only |
+| 2026-10-08 | Frozen source check/build | Passed | 287 Vitest + 67 Edge checks, one optional fixture independently verified; configured/unconfigured immutable builds use runtime SHA0150ff9 |
+| 2026-10-08 | Final clean candidate | Complete | 505 cases / 1159 pairs: 1157 captured and two source-backed N/A; five fresh non-QR fixture revisions, other source-identical evidence with original provenance |
+| 2026-10-08 | PR #47 / CI run108 | Merged / Passed | Merge fdb0250e; runtime source remains 0150ff9 |
+| 2026-10-08 | Actual database/API/frontend rollout | Passed | Canonical migration20261008133000, API29, worker25 unchanged, Vercel dpl_8RQwRLz8u9hcGUhFr5amJp8QCkiB READY/domain aliases correct |
+| 2026-10-09 | Actual public acceptance | Passed | 15 API/route assertions, 12 static file hashes, empty unapproved content, no business/editorial submission |
+| 2026-10-09 | Midnight real-PG verification-tool repair | Passed | 20:00 is cron schedule only; direct service-role first capture and rerun are tested at any time. 28 tables / 294 synthetic rows / 1 stored asset restored |
+| 2026-10-09 | Follow-up project check | Passed | 287 Vitest + 67 Edge checks; runtime source and deployed bytes unchanged |
+| 2026-10-09 | Evening heartbeat prompt change | Approval-blocked | Original ACTIVE daily heartbeat preserved. Exact new prompt ready locally; tool requires approval while active policy is never |
+| 2026-10-09 | Production full state archive | Complete | 1159 pairs; 1157 fresh captured / 2 N/A, 2038 matrix PNGs, 16 native OS surfaces; manifest3a5605f9a9d7c5591d15555dc1bcfda013b6d00b3d0eaf6f2c6bafebba32b367 |
+| 2026-10-09 | Actual public browser supplement | Passed | 21 completed-read first screens at320/390/1280; actualsource0150, no business submissions, sampling times separately preserved |
 
 ## Handoff Notes
 - Backend, publication/backup and UI baseline subtasks operate in the same checkout with separate file ownership.

@@ -163,18 +163,18 @@ async function verifyRecipientLifetimeStats() {
 }
 async function verifyPublicInsightsContent(actor) {
   assert.equal(await sql('select count(*) from public.pdd_stats_daily;'), '0', 'Applying the new schema must not infer historical daily counts.');
-  const before = await rpc('pdd_home_stats', {}), ready = await sql("select (clock_timestamp() at time zone 'Asia/Bangkok')::time>=time '20:00';") === 't';
-  let frozen;
-  if (ready) frozen = JSON.parse(await sql(`begin; set local role service_role; ${invoke('pdd_capture_stats_daily', {})} commit;`));
-  else {
-    await assert.rejects(() => rpc('pdd_capture_stats_daily', {}), /SNAPSHOT_WINDOW_NOT_READY/);
-    assert.equal(await sql('select count(*) from public.pdd_stats_daily;'), '0');
-    await sql("insert into public.pdd_stats_daily(day,sampled_at,metric_version,stats) values((clock_timestamp() at time zone 'Asia/Bangkok')::date,clock_timestamp(),'home-six-lifetime-v1',public.pdd_home_stats('{}'));");
-    frozen = (await rpc('pdd_public_stats_history', { days: 30 })).snapshots[0];
-  }
+  const before = await rpc('pdd_home_stats', {});
+  // 20:00 is the cron schedule, not a capture RPC guard. Exercise the real
+  // service-role capture at any test time instead of inserting a stand-in row.
+  const captureStartedAt = JSON.parse(await sql('select to_jsonb(clock_timestamp())::text;'));
+  const frozen = JSON.parse(await sql(`begin; set local role service_role; ${invoke('pdd_capture_stats_daily', {})} commit;`));
+  const timing = JSON.parse(await sql("select jsonb_build_object('bangkokDay',day=(sampled_at at time zone 'Asia/Bangkok')::date,'notFuture',sampled_at<=clock_timestamp())::text from public.pdd_stats_daily;"));
+  assert.equal(timing.bangkokDay, true, 'The day must come from the actual server sample in Bangkok.');
+  assert.equal(timing.notFuture, true, 'The sample must record actual server time.');
+  assert(Date.parse(frozen.sampledAt) >= Date.parse(captureStartedAt), 'The first capture must be acquired by this real RPC call.');
   assert.deepEqual(frozen.stats, before); assert.equal(frozen.metricVersion, 'home-six-lifetime-v1');
   const changedWindow = await sql(`begin; set local role service_role; ${invoke('pdd_batch_register', batch('HISTORYIMMUTABLE99001', 'lost', capA, 'fictional_daily_history'))}
-    select jsonb_build_object('live',public.pdd_home_stats('{}'),'snapshot',${ready ? "public.pdd_capture_stats_daily('{}')" : "public.pdd_public_stats_history('{}')->'snapshots'->0"})::text; rollback;`);
+    select jsonb_build_object('live',public.pdd_home_stats('{}'),'snapshot',public.pdd_capture_stats_daily('{}'))::text; rollback;`);
   const changed = JSON.parse(changedWindow.split('\n').filter(line => line.startsWith('{')).at(-1));
   assert.equal(changed.live.lostRegistered, before.lostRegistered + 1);
   assert.deepEqual(changed.snapshot, frozen, 'A rerun must keep the exact first daily sample timestamp and counters despite new business activity.');
@@ -231,7 +231,7 @@ async function verifyPublicInsightsContent(actor) {
     for (const table of ['pdd_stats_daily', 'pdd_content_revisions']) await assert.rejects(() => sql(`set role ${role}; select * from public.${table};`), /permission denied/);
     for (const name of ['pdd_capture_stats_daily', 'pdd_public_stats_history', 'pdd_public_insight_reports', 'pdd_public_outreach', 'pdd_publish_content', 'pdd_admin_publication_status']) await assert.rejects(() => sql(`set role ${role}; ${invoke(name, {})}`), /permission denied/);
   }
-  console.log('Public insights real PostgreSQL passed: no history backfill, Bangkok window, immutable first daily sample, changed business count isolation, concurrent optimistic publication, hash verification, complete content, shared source references, retained withdrawal audit and browser privilege denial.');
+  console.log('Public insights real PostgreSQL passed: no history backfill, actual server-time Bangkok day (20:00 is schedule only), immutable first daily sample, changed business count isolation, concurrent optimistic publication, hash verification, complete content, shared source references, retained withdrawal audit and browser privilege denial.');
 }
 function transactionSession() {
   const child = spawn(path.join(bin, 'psql'), ['-X', '-A', '-t', '-q', '--set', 'ON_ERROR_STOP=1', '--set', 'VERBOSITY=verbose'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
