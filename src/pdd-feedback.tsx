@@ -1,6 +1,7 @@
+import { ContactInput, checkedContact } from './pdd-contact';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { validateFeedbackMessage, type PddFeedbackInput, type PddFeedbackList, type PddFeedbackStatus } from '../shared/feedback';
-import { validatePddContact, type PddContact } from '../shared/waybill';
+import { type PddContact } from '../shared/waybill';
 import { pddApi } from './pdd-api';
 import { trackPddEvent } from './pdd-analytics';
 import './pdd-feedback.css';
@@ -9,8 +10,7 @@ const errorText = (error: unknown) => error instanceof Error ? error.message : '
 export function feedbackInput(message: string, contact: PddContact): PddFeedbackInput {
   const text = validateFeedbackMessage(message);
   if (!contact.value.trim()) return { message: text, contact: null };
-  try { return { message: text, contact: validatePddContact(contact) }; }
-  catch { throw new Error(contact.kind === 'wechat' ? '请填写有效的微信号（字母开头，至少6位），或留空。' : '请填写有效的电话号码，或留空。'); }
+  return { message: text, contact: checkedContact(contact) };
 }
 export function FeedbackForm({ onSubmitted }: { onSubmitted?: () => void }) {
   const [message, setMessage] = useState(''), [contact, setContact] = useState<PddContact>({ kind: 'wechat', value: '' });
@@ -34,7 +34,7 @@ export function FeedbackForm({ onSubmitted }: { onSubmitted?: () => void }) {
     <label>建议或问题说明<textarea value={message} onChange={event => setMessage(event.target.value)} disabled={busy} required rows={3} maxLength={4000} placeholder="请说明发生了什么、你希望怎样改进。" aria-describedby="pdd-feedback-count" /></label>
     <small id="pdd-feedback-count">{Array.from(message).length} / 2000 字</small>
     <div className="pdd-feedback-contact"><label>联系方式（选填）<select value={contact.kind} onChange={event => setContact({ kind: event.target.value as PddContact['kind'], value: '' })} disabled={busy}><option value="wechat">微信号</option><option value="phone">电话号码</option></select></label>
-      <label>{contact.kind === 'wechat' ? '微信号（选填）' : '电话号码（选填）'}<input value={contact.value} onChange={event => setContact({ ...contact, value: event.target.value })} type={contact.kind === 'phone' ? 'tel' : 'text'} maxLength={contact.kind === 'phone' ? 32 : 64} placeholder={contact.kind === 'wechat' ? '填写微信号，方便我们跟进' : '含国家区号，例如 +66…'} disabled={busy} autoComplete="off" /></label></div>
+      <ContactInput contact={contact} onChange={setContact} disabled={busy} optional /></div>
     <p className="pdd-feedback-hint">反馈内容与联系方式仅供社区管理员查看，不会在网站公开。</p>
     {error && <p className="pdd-error" role="alert">{error}</p>}
     </div>

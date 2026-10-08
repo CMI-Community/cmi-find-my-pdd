@@ -163,18 +163,15 @@ async function verifyRecipientLifetimeStats() {
 }
 async function verifyPublicInsightsContent(actor) {
   assert.equal(await sql('select count(*) from public.pdd_stats_daily;'), '0', 'Applying the new schema must not infer historical daily counts.');
-  const before = await rpc('pdd_home_stats', {}), ready = await sql("select (clock_timestamp() at time zone 'Asia/Bangkok')::time>=time '20:00';") === 't';
-  let frozen;
-  if (ready) frozen = JSON.parse(await sql(`begin; set local role service_role; ${invoke('pdd_capture_stats_daily', {})} commit;`));
-  else {
-    await assert.rejects(() => rpc('pdd_capture_stats_daily', {}), /SNAPSHOT_WINDOW_NOT_READY/);
-    assert.equal(await sql('select count(*) from public.pdd_stats_daily;'), '0');
-    await sql("insert into public.pdd_stats_daily(day,sampled_at,metric_version,stats) values((clock_timestamp() at time zone 'Asia/Bangkok')::date,clock_timestamp(),'home-six-lifetime-v1',public.pdd_home_stats('{}'));");
-    frozen = (await rpc('pdd_public_stats_history', { days: 30 })).snapshots[0];
-  }
+  // The cron schedule controls the evening production run. Explicit calls in
+  // this disposable database test the service-only RPC's first-sample contract.
+  // Avoid an invented rejection branch based on the CI runner's wall clock.
+  assert.equal(await sql("select schedule from cron.job where jobname='pdd404-evening-public-stats';"), '0 13 * * *');
+  const before = await rpc('pdd_home_stats', {});
+  const frozen = JSON.parse(await sql(`begin; set local role service_role; ${invoke('pdd_capture_stats_daily', {})} commit;`));
   assert.deepEqual(frozen.stats, before); assert.equal(frozen.metricVersion, 'home-six-lifetime-v1');
   const changedWindow = await sql(`begin; set local role service_role; ${invoke('pdd_batch_register', batch('HISTORYIMMUTABLE99001', 'lost', capA, 'fictional_daily_history'))}
-    select jsonb_build_object('live',public.pdd_home_stats('{}'),'snapshot',${ready ? "public.pdd_capture_stats_daily('{}')" : "public.pdd_public_stats_history('{}')->'snapshots'->0"})::text; rollback;`);
+    select jsonb_build_object('live',public.pdd_home_stats('{}'),'snapshot',public.pdd_capture_stats_daily('{}'))::text; rollback;`);
   const changed = JSON.parse(changedWindow.split('\n').filter(line => line.startsWith('{')).at(-1));
   assert.equal(changed.live.lostRegistered, before.lostRegistered + 1);
   assert.deepEqual(changed.snapshot, frozen, 'A rerun must keep the exact first daily sample timestamp and counters despite new business activity.');
@@ -389,7 +386,31 @@ try {
       await rpc('pdd_query', historicalQuery);
       forwardingBefore = await forwardingSnapshot();
     }
-    await sql(publicContentUpgrade ? `begin; ${migration} commit;` : migration);
+    if (name.endsWith('_wechat_leading_underscore.sql')) {
+      const contactMetadataSQL = `select jsonb_build_object('oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig)::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='pdd_contact_valid';`;
+      const metadata = JSON.parse(await sql(contactMetadataSQL)), digest = await tableDigest();
+      const input = quote({ kind: 'wechat', value: '_PDD404TEST_2026' });
+      assert.equal(await sql(`select public.pdd_contact_valid(${input});`), 'f');
+      assert.equal(await sql(`begin; ${migration} select public.pdd_contact_valid(${input}); rollback;`), 't');
+      assert.equal(await sql(`select public.pdd_contact_valid(${input});`), 'f');
+      assert.deepEqual(JSON.parse(await sql(contactMetadataSQL)), metadata);
+      assert.deepEqual(await tableDigest(), digest);
+      await sql(`begin; ${migration} commit;`);
+      assert.deepEqual(JSON.parse(await sql(contactMetadataSQL)), metadata);
+      assert.deepEqual(await tableDigest(), digest);
+      assert.equal(await sql(`select public.pdd_contact_valid(${input});`), 't');
+      assert.equal(await sql(`select public.pdd_contact_projection(${input})->>'value';`), '_PDD404TEST_2026');
+      assert.equal(await sql(`select public.pdd_contact_valid(${quote({ kind: 'wechat', value: 'A'.repeat(64) })});`), 't');
+      for (const value of ['昵称', 'space name', '-PDD404TEST', '123456', '_tiny']) {
+        assert.equal(await sql(`select public.pdd_contact_valid(${quote({ kind: 'wechat', value })});`), 'f');
+      }
+      const lead = await rpc('pdd_recipient_batch_register', recipientBatch('下划线迁移合成收件人', 'received', capA, '_PDD404TEST_2026'));
+      assert.equal(lead.items[0].registration.contact.value, '_PDD404TEST_2026');
+      assert.equal((await rpc('pdd_recipient_query', recipientQuery('下划线迁移合成收件人'))).leads[0].contact.value, '_PDD404TEST_2026');
+      console.log('WeChat underscore migration passed real rollback/commit, unchanged stored rows/function identity/ACL, legacy length compatibility, and exact-name contact readback.');
+    } else {
+      await sql(publicContentUpgrade ? `begin; ${migration} commit;` : migration);
+    }
     if (publicContentUpgrade) {
       assert.equal(await sql('select count(*) from public.pdd_stats_daily;'), '0');
       assert.equal(await sql('select count(*) from public.pdd_content_revisions;'), '0');
@@ -986,6 +1007,7 @@ try {
   await businessError(() => rpc('pdd_feedback_submit', { ...feedbackInput, body_hash: 'restored-changed-feedback' }, 'pdd404_restore_check'), 'IDEMPOTENCY_CONFLICT');
   assert.deepEqual(await rpc('pdd_telemetry_summary', { days: 30 }, 'pdd404_restore_check'), telemetrySummary);
   await verifyRecipientTelemetry('pdd404_restore_check');
+  assert.equal(await sql(`select public.pdd_contact_valid(${quote({ kind: 'wechat', value: '_PDD404TEST_2026' })});`, 'pdd404_restore_check'), 't');
   assert.equal(await sql("select string_agg(key,',' order by key) from jsonb_object_keys(public.pdd_monitor_status('{}')) key;", 'pdd404_restore_check'), monitorColumns);
   assert.equal(JSON.parse(await sql(monitorMetadataSQL, 'pdd404_restore_check')).definition, monitorDefinition);
   assertClusterSize(JSON.parse(await sql(`begin read only; set local role service_role; ${monitorSizeSQL} commit;`, 'pdd404_restore_check')));
