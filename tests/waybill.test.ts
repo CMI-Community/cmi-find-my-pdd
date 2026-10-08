@@ -20,6 +20,12 @@ describe('domestic waybill and self-supplied contacts', () => {
   });
   it('accepts WeChat IDs and international phones but no additional fields', () => {
     expect(validatePddContact({ kind: 'wechat', value: ' Example_12 ' })).toEqual({ kind: 'wechat', value: 'Example_12' });
+    for (const value of ['_demo_2026', '_111234555656', 'example-12', 'wxid_test123456789']) {
+      expect(validatePddContact({ kind: 'wechat', value })).toEqual({ kind: 'wechat', value });
+    }
+    for (const value of ['小禾', 'demo name', 'demo😊', 'demo.123', '-demo12', '123456', '_demo']) {
+      expect(() => validatePddContact({ kind: 'wechat', value })).toThrow('INVALID_CONTACT');
+    }
     expect(validatePddContact({ kind: 'phone', value: '+66 81 234 5678' })).toEqual({ kind: 'phone', value: '+66 81 234 5678' });
     for (const value of [{ kind: 'wechat', value: '昵称' }, { kind: 'phone', value: '123' }, { kind: 'wechat', value: 'tester_12', admin: true }]) expect(() => validatePddContact(value)).toThrow('INVALID_CONTACT');
   });
