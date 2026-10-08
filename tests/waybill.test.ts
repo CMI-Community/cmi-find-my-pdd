@@ -20,7 +20,7 @@ describe('domestic waybill and self-supplied contacts', () => {
   });
   it('accepts WeChat IDs and international phones but no additional fields', () => {
     expect(validatePddContact({ kind: 'wechat', value: ' Example_12 ' })).toEqual({ kind: 'wechat', value: 'Example_12' });
-    for (const value of ['_demo_2026', '_111234555656', 'example-12', 'wxid_test123456789']) {
+    for (const value of ['_demo_2026', '_000000000000', 'example-12', 'wxid_test123456789']) {
       expect(validatePddContact({ kind: 'wechat', value })).toEqual({ kind: 'wechat', value });
     }
     for (const value of ['小禾', 'demo name', 'demo😊', 'demo.123', '-demo12', '123456', '_demo']) {
