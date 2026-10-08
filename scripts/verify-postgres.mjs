@@ -8,6 +8,8 @@ import path from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { encryptFile, decryptFile } from './crypto.mjs';
+import { FORMAT, canonical, migrationManifest, rowsHash, sha256, tablesForMigrations, writeEncryptedChunks } from './backup-scoped.mjs';
+import { verifyScopedRestore } from './verify-scoped-restore.mjs';
 
 const run = promisify(execFile);
 let bin;
@@ -39,7 +41,10 @@ async function bootstrap(database, roles = false) {
     create schema auth; create table auth.users(id uuid primary key,email text);
     create schema storage; create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
     create schema net; create function net.http_post(url text,headers jsonb,body jsonb,timeout_milliseconds integer) returns bigint language sql as 'select 1::bigint';
-    create schema cron; create function cron.schedule(job_name text,schedule text,command text) returns bigint language sql as 'select 1::bigint';`, database);
+    create schema cron; create table cron.job(jobid bigint generated always as identity primary key,jobname text unique,schedule text,command text);
+    create function cron.schedule(job_name text,schedule text,command text) returns bigint language plpgsql as $$declare result bigint; begin
+      insert into cron.job(jobname,schedule,command) values(job_name,schedule,command) on conflict(jobname) do update set schedule=excluded.schedule,command=excluded.command returning jobid into result; return result;
+    end$$;`, database);
 }
 const batch = (number, mode, capability, person, requestId = randomUUID(), note) => ({ request_id: requestId, mode, note, contact: { kind: 'wechat', value: person },
   items: [{ request_id: randomUUID(), number, source: 'manual' }], capability_hash: capability, body_hash: randomBytes(32).toString('hex') });
@@ -156,6 +161,78 @@ async function verifyRecipientLifetimeStats() {
   assert.equal(await sql(`select recipient_matched_at is not null from public.pdd_recipient_leads where registration_code='${lostName.registrationCode}';`), 't');
   console.log('Six-statistics real transactions passed: both sources/sides, per-record cumulative totals, duplicate/replay isolation, late-name marking, rename/clear retention, concurrent first-hit deduplication, privacy cleanup preserving markers, and registration/hit rollback with parcel/return isolation.');
 }
+async function verifyPublicInsightsContent(actor) {
+  assert.equal(await sql('select count(*) from public.pdd_stats_daily;'), '0', 'Applying the new schema must not infer historical daily counts.');
+  const before = await rpc('pdd_home_stats', {}), ready = await sql("select (clock_timestamp() at time zone 'Asia/Bangkok')::time>=time '20:00';") === 't';
+  let frozen;
+  if (ready) frozen = JSON.parse(await sql(`begin; set local role service_role; ${invoke('pdd_capture_stats_daily', {})} commit;`));
+  else {
+    await assert.rejects(() => rpc('pdd_capture_stats_daily', {}), /SNAPSHOT_WINDOW_NOT_READY/);
+    assert.equal(await sql('select count(*) from public.pdd_stats_daily;'), '0');
+    await sql("insert into public.pdd_stats_daily(day,sampled_at,metric_version,stats) values((clock_timestamp() at time zone 'Asia/Bangkok')::date,clock_timestamp(),'home-six-lifetime-v1',public.pdd_home_stats('{}'));");
+    frozen = (await rpc('pdd_public_stats_history', { days: 30 })).snapshots[0];
+  }
+  assert.deepEqual(frozen.stats, before); assert.equal(frozen.metricVersion, 'home-six-lifetime-v1');
+  const changedWindow = await sql(`begin; set local role service_role; ${invoke('pdd_batch_register', batch('HISTORYIMMUTABLE99001', 'lost', capA, 'fictional_daily_history'))}
+    select jsonb_build_object('live',public.pdd_home_stats('{}'),'snapshot',${ready ? "public.pdd_capture_stats_daily('{}')" : "public.pdd_public_stats_history('{}')->'snapshots'->0"})::text; rollback;`);
+  const changed = JSON.parse(changedWindow.split('\n').filter(line => line.startsWith('{')).at(-1));
+  assert.equal(changed.live.lostRegistered, before.lostRegistered + 1);
+  assert.deepEqual(changed.snapshot, frozen, 'A rerun must keep the exact first daily sample timestamp and counters despite new business activity.');
+  assert.deepEqual(await rpc('pdd_home_stats', {}), before, 'The history verification registration is rolled back.');
+  assert.deepEqual((await rpc('pdd_public_stats_history', { days: 30 })).snapshots, [frozen]);
+  assert.equal(await sql('select count(*) from public.pdd_stats_daily;'), '1');
+  await assert.rejects(() => rpc('pdd_capture_stats_daily', { day: '2020-01-01' }), /INVALID_REQUEST/);
+  await assert.rejects(() => sql('update public.pdd_stats_daily set sampled_at=sampled_at;'), /IMMUTABLE_HISTORY/);
+  await assert.rejects(() => sql('delete from public.pdd_stats_daily;'), /IMMUTABLE_HISTORY/);
+
+  const asOf = new Date(Date.now() - 60_000).toISOString(), day = new Date(Date.parse(asOf) + 7 * 3600_000).toISOString().slice(0, 10);
+  const sourceItem = { id: 'synthetic-news', kind: 'news', origin: 'third-party', title: 'Synthetic source title', summary: 'Synthetic public source summary', source: 'Synthetic publisher',
+    sourceUrl: 'https://example.org/synthetic-report', publishedAt: asOf, checkedAt: asOf, channels: ['网站'], thumbnailUrl: null, downloadUrl: null, copyText: null };
+  const catalog = { items: [sourceItem] };
+  const publication = (kind, key, action, expectedRevision, content) => {
+    const envelope = { kind, key, action, expectedRevision, content };
+    return { kind, key, action, expected_revision: expectedRevision, content, actor_id: actor, approval_artifact_sha: sha256(canonical(envelope)) };
+  };
+  const initial = publication('outreach', 'main', 'publish', 0, catalog);
+  assert.deepEqual(await rpc('pdd_admin_publication_status', { kind: 'outreach', key: 'main' }), { kind: 'outreach', key: 'main', revision: 0, action: null, publishedAt: null, approvalArtifactSha: null });
+  const concurrent = await Promise.allSettled([rpc('pdd_publish_content', initial), rpc('pdd_publish_content', initial)]);
+  assert.equal(concurrent.filter(result => result.status === 'fulfilled').length, 1);
+  assert.match(String(concurrent.find(result => result.status === 'rejected').reason), /VERSION_CONFLICT/);
+  const first = concurrent.find(result => result.status === 'fulfilled').value;
+  assert.equal(first.revision, 1); assert.equal(first.approvalArtifactSha, initial.approval_artifact_sha);
+  const savedFirst = JSON.parse(await sql("select to_jsonb(r)::text from public.pdd_content_revisions r where kind='outreach' and revision=1;"));
+  const revised = { items: [{ ...sourceItem, title: 'Synthetic corrected public title' }] };
+  assert.equal((await rpc('pdd_publish_content', publication('outreach', 'main', 'publish', 1, revised))).revision, 2);
+  const projected = await rpc('pdd_public_outreach', {});
+  assert.equal(projected.catalog.content.items[0].title, revised.items[0].title);
+  assert(!JSON.stringify(projected).includes(actor) && !JSON.stringify(projected).includes('approvalArtifactSha'));
+  assert.equal((await rpc('pdd_publish_content', publication('outreach', 'main', 'withdraw', 2, null))).revision, 3);
+  assert.equal((await rpc('pdd_public_outreach', {})).catalog, null);
+  const withdrawnStatus = await rpc('pdd_admin_publication_status', { kind: 'outreach', key: 'main' });
+  assert.equal(withdrawnStatus.revision, 3); assert.equal(withdrawnStatus.action, 'withdraw');
+  assert.equal(withdrawnStatus.approvalArtifactSha, publication('outreach', 'main', 'withdraw', 2, null).approval_artifact_sha);
+  assert.deepEqual(JSON.parse(await sql("select to_jsonb(r)::text from public.pdd_content_revisions r where kind='outreach' and revision=1;")), savedFirst, 'Revisions and withdrawal retain the original approved content and audit identity.');
+  await rpc('pdd_publish_content', publication('outreach', 'main', 'publish', 3, revised));
+  const report = { date: day, title: 'Synthetic daily insights', summary: 'Synthetic aggregate report summary', asOf, window: 'Synthetic observation window',
+    findings: [{ title: 'Synthetic finding', observed: 'Synthetic measured count', interpretation: 'Synthetic bounded interpretation', unknown: 'Synthetic limitation', helpUrl: '/help' }], newsIds: ['synthetic-news'], limitations: ['Synthetic fixture; never real parcel outcomes.'] };
+  const reportReceipt = await rpc('pdd_publish_content', publication('insight', day, 'publish', 0, report));
+  assert.equal(reportReceipt.approvalArtifactSha, publication('insight', day, 'publish', 0, report).approval_artifact_sha);
+  assert.deepEqual((await rpc('pdd_public_insight_reports', { date: day })).reports[0].content, report);
+  const beforeInvalid = await sql('select count(*) from public.pdd_content_revisions;');
+  await assert.rejects(() => rpc('pdd_publish_content', { ...publication('insight', day, 'publish', 1, report), approval_artifact_sha: '0'.repeat(64) }), /ARTIFACT_MISMATCH/);
+  const incomplete = structuredClone(report); delete incomplete.findings[0].unknown;
+  await assert.rejects(() => rpc('pdd_publish_content', publication('insight', day, 'publish', 1, incomplete)), /INVALID_REQUEST/);
+  await assert.rejects(() => rpc('pdd_publish_content', publication('insight', day, 'publish', 1, { ...report, newsIds: ['unapproved-source'] })), /INVALID_REQUEST/);
+  await assert.rejects(() => rpc('pdd_publish_content', publication('outreach', 'main', 'publish', 4, { items: [{ ...sourceItem, contact: 'synthetic-private-extra' }] })), /INVALID_REQUEST/);
+  assert.equal(await sql('select count(*) from public.pdd_content_revisions;'), beforeInvalid);
+  await assert.rejects(() => sql("update public.pdd_content_revisions set payload=payload where kind='outreach';"), /IMMUTABLE_HISTORY/);
+  await assert.rejects(() => sql("delete from public.pdd_content_revisions where kind='outreach';"), /IMMUTABLE_HISTORY/);
+  for (const role of ['anon', 'authenticated']) {
+    for (const table of ['pdd_stats_daily', 'pdd_content_revisions']) await assert.rejects(() => sql(`set role ${role}; select * from public.${table};`), /permission denied/);
+    for (const name of ['pdd_capture_stats_daily', 'pdd_public_stats_history', 'pdd_public_insight_reports', 'pdd_public_outreach', 'pdd_publish_content', 'pdd_admin_publication_status']) await assert.rejects(() => sql(`set role ${role}; ${invoke(name, {})}`), /permission denied/);
+  }
+  console.log('Public insights real PostgreSQL passed: no history backfill, Bangkok window, immutable first daily sample, changed business count isolation, concurrent optimistic publication, hash verification, complete content, shared source references, retained withdrawal audit and browser privilege denial.');
+}
 function transactionSession() {
   const child = spawn(path.join(bin, 'psql'), ['-X', '-A', '-t', '-q', '--set', 'ON_ERROR_STOP=1', '--set', 'VERBOSITY=verbose'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   let output = '', errors = '', ended = false;
@@ -187,6 +264,7 @@ try {
   let domesticGuardChecked = false;
   let monitorClusterChecked = false;
   let recipientStatsUpgradeChecked = false;
+  let publicContentUpgradeChecked = false;
   let recipientUpgradeFixture, recipientUpgradeBefore, recipientUpgradeDigest, recipientUpgradeMetadata;
   const recipientStatsMetadataSQL = `select jsonb_agg(jsonb_build_object('name',p.proname,'oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig,'arguments',p.proargtypes::text) order by p.proname)::text
     from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('pdd_home_stats','pdd_recipient_lookup','pdd_recipient_query_response');`;
@@ -221,6 +299,7 @@ try {
     const domesticUpgrade = name.endsWith('_domestic_waybill_guard.sql');
     const monitorClusterUpgrade = name.endsWith('_monitor_cluster_database_size.sql');
     const recipientStatsUpgrade = name.endsWith('_home_recipient_stats.sql');
+    const publicContentUpgrade = name.endsWith('_public_insights_content.sql');
     const beforeBusinessMetadata = businessUpgrade ? JSON.parse(await sql(businessMetadataSQL)) : null;
     if (businessUpgrade) assert.equal(beforeBusinessMetadata.length, 6);
     if (upgrade) {
@@ -234,6 +313,17 @@ try {
       await rpc('pdd_query', evidence);
     }
     const migration = (await readFile(new URL(name, directory), 'utf8')).replace(/^create extension if not exists pg_net.*$/m, '').replace(/^create extension if not exists pg_cron.*$/m, '');
+    let publicContentBeforeTables, publicContentBeforeCron;
+    if (publicContentUpgrade) {
+      publicContentBeforeTables = await tableDigest();
+      publicContentBeforeCron = await sql("select coalesce(jsonb_agg(to_jsonb(j) order by jobname),'[]')::text from cron.job j;");
+      await sql(`begin; ${migration} rollback;`);
+      assert.equal(await sql("select to_regclass('public.pdd_stats_daily') is null and to_regclass('public.pdd_content_revisions') is null;"), 't');
+      assert.equal(await sql("select count(*) from storage.buckets where id='pdd-public-assets';"), '0');
+      assert.equal(await sql("select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='pdd_capture_stats_daily';"), '0');
+      assert.equal(await sql("select coalesce(jsonb_agg(to_jsonb(j) order by jobname),'[]')::text from cron.job j;"), publicContentBeforeCron);
+      assert.deepEqual(await tableDigest(), publicContentBeforeTables);
+    }
     if (recipientStatsUpgrade) {
       const withName = (number, mode, recipientName) => {
         const input = batch(number, mode, capA, 'fictional_stats_upgrade');
@@ -299,7 +389,18 @@ try {
       await rpc('pdd_query', historicalQuery);
       forwardingBefore = await forwardingSnapshot();
     }
-    await sql(migration);
+    await sql(publicContentUpgrade ? `begin; ${migration} commit;` : migration);
+    if (publicContentUpgrade) {
+      assert.equal(await sql('select count(*) from public.pdd_stats_daily;'), '0');
+      assert.equal(await sql('select count(*) from public.pdd_content_revisions;'), '0');
+      assert.equal(await sql("select public from storage.buckets where id='pdd-public-assets';"), 't');
+      assert.equal(await sql("select schedule from cron.job where jobname='pdd404-evening-public-stats';"), '0 13 * * *');
+      assert.equal(await sql("select coalesce(jsonb_agg(to_jsonb(j) order by jobname),'[]')::text from cron.job j where jobname<>'pdd404-evening-public-stats';"), publicContentBeforeCron);
+      const afterTables = await tableDigest(); delete afterTables.pdd_stats_daily; delete afterTables.pdd_content_revisions;
+      assert.deepEqual(afterTables, publicContentBeforeTables);
+      publicContentUpgradeChecked = true;
+      console.log('Public-content migration passed actual transaction rollback/commit: no residual tables/RPC/bucket/cron job after rollback, no historical inference, prior table digests and cron jobs preserved.');
+    }
     if (recipientStatsUpgrade) {
       assert.deepEqual(JSON.parse(await sql(recipientStatsMetadataSQL)), recipientUpgradeMetadata);
       assert.deepEqual(await rpc('pdd_home_stats', {}), { ...recipientUpgradeBefore, lostRecipientRegistered: 2, receivedRecipientRegistered: 1, matchedRecipientLeads: 0 });
@@ -379,6 +480,7 @@ try {
   assert(domesticGuardChecked, 'The domestic-waybill guard upgrade was not exercised.');
   assert(monitorClusterChecked, 'The cluster database-size migration was not exercised.');
   assert(recipientStatsUpgradeChecked, 'The recipient statistics migration was not exercised.');
+  assert(publicContentUpgradeChecked, 'The public insight/content migration was not exercised.');
   await sql(await readFile(new URL('../tests/db.sql', import.meta.url), 'utf8'));
   assert.equal((await rpc('runtime_config', {})).OCR_ENABLED, 'false');
   console.log('Legacy real PostgreSQL transaction regression and server-only OCR default passed.');
@@ -851,6 +953,7 @@ try {
   await verifyRecipientTelemetry();
   console.log('Recipient real PostgreSQL checks passed: NFC/multilingual exact lookup, both sources, post-hit registration, independent counts, duplicate ownership, rename/withdraw races, live opaque pagination, cleanup revocation barrier and old duplicate tombstones preventing recreation.');
   console.log('Recipient telemetry real PostgreSQL checks passed: all 14 fixed events accepted under the unchanged synthetic cap; private metadata, scanner/source flags and unknown events rejected atomically.');
+  await verifyPublicInsightsContent(actor);
 
   const dumped = path.join(root, 'database.dump'), sealed = path.join(root, 'database.cmibak'), reopened = path.join(root, 'restored.dump');
   const beforeRestoreStats = await rpc('pdd_home_stats', {});
@@ -864,8 +967,8 @@ try {
   assert.equal((await rpc('pdd_public', { public_code: code }, 'pdd404_restore_check')).resolution, 'resolved');
   assert.deepEqual(await rpc('pdd_home_stats', {}, 'pdd404_restore_check'), await rpc('pdd_home_stats', {}));
   assert.equal(await sql(recipientMarkerColumnsSQL, 'pdd404_restore_check'), await sql(recipientMarkerColumnsSQL));
-  for (const table of ['pdd_waybills', 'pdd_registrations', 'pdd_feedback', 'pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events', 'pdd_write_requests']) {
-    const order = table === 'pdd_write_requests' ? 'r.scope,r.key' : 'r.id';
+  for (const table of ['pdd_waybills', 'pdd_registrations', 'pdd_feedback', 'pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events', 'pdd_write_requests', 'pdd_stats_daily', 'pdd_content_revisions']) {
+    const order = table === 'pdd_write_requests' ? 'r.scope,r.key' : table === 'pdd_stats_daily' ? 'r.day' : 'r.id';
     const statement = `select coalesce(jsonb_agg(to_jsonb(r) order by ${order}),'[]'::jsonb)::text from public.${table} r;`;
     assert.deepEqual(JSON.parse(await sql(statement, 'pdd404_restore_check')), JSON.parse(await sql(statement)));
   }
@@ -893,6 +996,19 @@ try {
   await assert.rejects(() => rpc('pdd_query', { ...historicalQuery, query_id: randomUUID() }, 'pdd404_restore_check'), /NON_DOMESTIC_WAYBILL/);
   await assert.rejects(() => rpc('pdd_batch_register', batch(forwardingNumber, 'lost', capA, 'fictional_restored_forwarding'), 'pdd404_restore_check'), /NON_DOMESTIC_WAYBILL/);
   console.log('Encrypted dump/decrypt and independent database restore passed, including lifetime stats, notes and feedback; restored RLS remains closed.');
+  const migrations = await migrationManifest(), scopedTables = [];
+  for (const table of tablesForMigrations(migrations)) {
+    const rows = JSON.parse(await sql(`select coalesce(jsonb_agg(to_jsonb(r)),'[]')::text from public.${table.name} r;`));
+    scopedTables.push({ name: table.name, rows, rowCount: rows.length, sha256: rowsHash(rows) });
+  }
+  const publicImage = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aLj8AAAAASUVORK5CYII=', 'base64'), imageSha = sha256(publicImage);
+  const scoped = { format: FORMAT, project: 'abcdefghijklmnopqrst', migrations, tables: scopedTables,
+    storage: [{ bucket: 'pdd-public-assets', key: imageSha + '.png', mime: 'image/png', size: publicImage.length, sha256: imageSha, base64: publicImage.toString('base64') }] };
+  const scopedFile = path.join(root, 'public-content-scoped.cmibak');
+  await writeEncryptedChunks(scopedFile, password, [JSON.stringify(scoped)]);
+  const restoredScoped = await verifyScopedRestore(scopedFile, password);
+  assert.equal(restoredScoped.tables, 28); assert.equal(restoredScoped.storageObjects, 1); assert(restoredScoped.auditActorPlaceholders >= 1);
+  console.log('Actual PostgreSQL encrypted scoped restore passed all 28 table values/constraints/privileges, including daily snapshots and every immutable publication revision; dedicated public asset bytes/identity and bucket configuration verified offline.');
 } finally {
   if (running) await run(path.join(bin, 'pg_ctl'), ['-D', data, '-m', 'fast', '-w', 'stop'], { env }).catch(() => undefined);
   await rm(root, { recursive: true, force: true });

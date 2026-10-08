@@ -1,6 +1,6 @@
 # PDD404 v0.2.0 API 合同
 
-实现入口为 `supabase/functions/api/index.ts`、`_shared/waybill-api.ts` 和 `_shared/feedback-api.ts`，共享类型为 `shared/waybill.ts` 与 `shared/feedback.ts`；社区、历史统计、健康检查和统一响应沿用 `shared/contracts.ts`。修改字段必须同时更新服务端、类型、前端调用和验收。
+实现入口为 `supabase/functions/api/index.ts`、`_shared/waybill-api.ts` 和 `_shared/feedback-api.ts`，共享类型为 `shared/waybill.ts` 与 `shared/feedback.ts`；社区、历史统计、健康检查和统一响应沿用 `shared/contracts.ts`。新增公开洞察和传播内容使用 `shared/public-content.ts`、`_shared/public-content-api.ts` 与 `_shared/public-assets-api.ts`。修改字段必须同时更新服务端、类型、前端调用和验收。
 
 ## 地址、响应与权限
 
@@ -39,7 +39,7 @@ type PddContact = { kind: 'wechat' | 'phone'; value: string };
 | `GET /v1/health` | 无 | `Health`：`service=pdd404`、版本、SHA、环境、ok、ready |
 | `GET /v1/community` | 无 | `Community`；缺项为 null，不使用假二维码 |
 | `GET /v1/stats` | 无 | `Stats`：有效误收包裹数、按联系方式规范值去重的未完成寻件人数；实际交还数不大于 5 时为 null |
-| `GET /v1/waybill-stats` | 无 | `{lostRegistered,receivedRegistered,matchedParcels}`，三个非负安全整数 |
+| `GET /v1/waybill-stats` | 无 | `{lostRegistered,receivedRegistered,matchedParcels,lostRecipientRegistered,receivedRecipientRegistered,matchedRecipientLeads}`，六个非负安全整数 |
 | `POST /v1/waybill-queries` | 本人头；`{queryId,number,mode,source,allowPossible?}` | `PddQueryResult`；HTTP 200 |
 | `POST /v1/waybill-queries/:queryId/contact` | 查询凭证、稳定 `Idempotency-Key`；`{contact}` | `PddQueryContactResult`；HTTP 200 |
 | `POST /v1/waybill-batches` | 本批凭证、稳定 `Idempotency-Key`；`{mode,contact,note?,items:[{requestId,number,source}]}` | `PddBatchResult`；HTTP 200 |
@@ -114,3 +114,28 @@ action：`verify` 开始核实；`claim` 确认归属，进入待交还；`retur
 本版物理表：`pdd_waybills,pdd_registrations,pdd_query_events,pdd_write_requests,pdd_audit_events,pdd_handovers,pdd_feedback`。事务 RPC 包含 `pdd_query,pdd_query_contact,pdd_batch_register,pdd_manage,pdd_manage_update,pdd_public,pdd_admin_list,pdd_admin_detail,pdd_admin_queries,pdd_admin_action,pdd_stats,pdd_home_stats,pdd_feedback_submit,pdd_admin_feedback_list,pdd_admin_feedback_update,pdd_cleanup`。RPC 请求字段为 snake_case，Edge API 和 DTO 为 camelCase；RPC 仅 service_role 可调用。
 
 首发配置 `OCR_ENABLED=false`。旧 `scans/trackers/manage` 及管理员识别/任务/记录写入口返回服务暂停；候选 GET 也停止，避免读取触发匹配写入。历史公开或有凭证/管理员保护的详情仍可读取，不触发匹配或识别写入。worker 仍核验内部密钥，关闭 OCR 时只执行旧资料清理，返回 HTTP 202 `{accepted:true,mode:'cleanup'}`，不租用识别任务、不调用 OpenAI；旧图、证据、预算、租约和安全校验保留。PDD404 每小时第 17 分钟的 `pdd404-retention` 独立运行，不依赖 worker、OCR 任务或额度。重新启用 OCR 需另行验收其旧合同，不能只切开关便宣称可用。
+
+## 公开洞察、传播目录与审核发表
+
+| 方法及路径 | 请求 | 返回 data |
+|---|---|---|
+| `GET /v1/insights/history?days=30` | `days`为1–90整数，默认30 | `{snapshots:[{day,sampledAt,metricVersion,stats}]}`，按日升序；`stats`为首页六项累计数字 |
+| `GET /v1/insights/reports?offset=0` | 默认offset0，每页20；也可`date=YYYY-MM-DD`且offset只能0 | `{reports:[{key,revision,publishedAt,content}],nextOffset}`，日期倒序；仅每日期最新已发表版本 |
+| `GET /v1/outreach` | 无参数 | `{catalog,developerGroup}`，各为`{key,revision,publishedAt,content}`或null |
+| `GET /v1/admin/publications?kind=outreach&key=main` | 管理员JWT；kind/key必须为合法组合 | `{kind,key,revision,action,publishedAt,approvalArtifactSha}`；未发表revision0且后三项null，已撤回仍返回最新版本元数据 |
+| `POST /v1/admin/publications` | 管理员JWT；下述审核发表输入，JSON32KiB | `{kind,key,revision,action,publishedAt,approvalArtifactSha}`；HTTP201 |
+| `POST /v1/admin/public-assets` | 管理员JWT；原始PNG/JPEG/WebP/ZIP bytes，正确Content-Type，`x-content-sha256`为本聊天已审公开副本64位小写hex | `{url,key,sha256,mime,bytes}`；HTTP201，最高5MiB |
+
+这三个公众读接口只返回正式六数及已发表公开内容，不返回匿名私有埋点表、数据库压力、原始业务行、完整单号、收件人名、联系人、备注、管理员或审核SHA。失败保持错误状态，不把缺报、无历史或取数失败当作零。历史`metricVersion=home-six-lifetime-v1`，`day`与服务器`sampledAt`在Asia/Bangkok的日期一致；没有回填，读取不创建快照。
+
+发表输入为 `{kind,key,action,expectedRevision,content,approvalArtifactSha}`，不接受其他字段。`kind=insight`时key为报告日期，`kind=outreach`时key固定main，`kind=group`时key固定developer。`action=publish|withdraw`；撤回时content必须null。`expectedRevision`为非负安全整数，首次0；并发同修订只有一项成功，其他返回409。批准SHA必须等于 `SHA256(canonicalPublicationArtifact(input))`，规范对象为 `{kind,key,action,expectedRevision,content}`，先用共享验证器规范化内容，按键排序、UTF-8编码；SHA本身不进入该摘要。管理员ID来自服务端登录核验，不能由请求指定。
+
+`InsightReport={date,title,summary,asOf,window,findings,newsIds,limitations}`。1–8条finding各含`title,observed,interpretation,unknown,helpUrl`；helpUrl只能本站查询/帮助路径或null。asOf需属于报告曼谷日期且不能晚于发表时刻。newsIds最多12个，不重复，须引用共用目录中已发表的第三方news/video；不从多个副本填来源。报告正文为纯文本，由前端安全渲染，无任意HTML。
+
+`OutreachCatalog={items}`最多100项，id唯一。每项严格含 `id,kind,origin,title,summary,source,sourceUrl,publishedAt,checkedAt,channels,thumbnailUrl,downloadUrl,copyText`。kind为news/video/guide/comic/copy/image/pack，origin为third-party/pdd404；第三方仅news/video且须有真实sourceUrl。guide/video/news需源链接，comic为介绍网站用法的原创说明漫画，copy需正文，comic/image/pack需下载地址。publishedAt未知为null；checkedAt是实际核对时刻，不能晚于发表；channels为1–8个不重复纯文本渠道。sourceUrl仅HTTPS公开来源，拒绝凭证/管理/业务存储/敏感参数；页面呈现摘要与外链，不注入播放器或第三方脚本。
+
+`DeveloperGroup={title,invitation,qrUrl,qrUpdatedAt,expiresAt}`。只允许独立开发者群真实图片，qrUpdatedAt记录实际码更新时间，expiresAt未知为null。找货群、公众号及小助手配置不因此改名或替换。原始社区码地址不能通过这个新内容入口绕过审核。
+
+公开素材URL必须是当前独立Supabase源下 `/storage/v1/object/public/pdd-public-assets/<SHA256>.<ext>`，不能带query/fragment或私密能力；旧业务bucket、公用社区联系人素材不合法。共享类型预留mp4/pdf，但此版上传仅支持PNG/JPEG/WebP/ZIP；视频使用可核验外部播放链接。发表目录或群码前最多核对40个素材元数据，不下载业务文件；不存在或不符合独立bucket/类型/大小的素材返回422。图片在本地准备时去隐藏元数据，实际上传字节必须等于已审核副本；ZIP须结构完整且SHA覆盖全部原字节，服务端不解压或改写。服务端以upsert:false创建hash对象，已存在返回409 `VERSION_CONFLICT`，不覆盖；上传申请和完成都写安全审计。
+
+`ARTIFACT_MISMATCH`、`VERSION_CONFLICT`均为409，不使用数据库40001模拟业务冲突。网络中断后结果未知，先以管理员只读status核对版本、action与批准SHA，再决定下一次人工授权操作，不能盲目自动重试。发表与撤回追加 `pdd_content_revisions`，无修改/删除接口；`pdd_stats_daily`同样不可改写。两表和全部相关RPC拒绝anon/普通authenticated直连；service_role只有表读取，写入经受控事务函数。

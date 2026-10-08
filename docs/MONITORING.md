@@ -55,3 +55,28 @@ Vercel月用量接口受到平台功能限制，账单接口不可用不是零�
 设置 `TELEMETRY_ENABLED=false` 可停止站内写入；将上述三个前端标志显式设为 `false` 并重新构建发布可停止对应浏览器采集，保留既有汇总。删除生产前端标志会恢复正式域名默认采集。生产数据库不reset。站内匿名采集预算与注册/匹配统计完全独立；每日上限不是整个平台月调用额度的保证，被限流/拒绝的Edge请求仍可能计费。
 
 公开配置与统计有实例内30秒缓存，管理员配置修改清除当前实例缓存。它减少数据库读取/限流写入，不减少到达Edge的调用次数，也不是全局缓存。容量模型及尚未实测的并发见 [CAPACITY.md](CAPACITY.md)。
+
+## 每日晚间公开观察与发表
+
+公开 `/insights` 与 `/share` 使用正式累计统计和独立已发表内容目录，不公开管理员埋点、资源压力或原始业务行。新 `pdd404-evening-public-stats` 数据库任务每日UTC13:00（曼谷20:00）保存当日首次六数快照；函数按Asia/Bangkok拒绝20:00之前的手动捕获，重复执行保留首次sampledAt及数字。启动生产调度前核对实际pg_cron时区为UTC、job命令与权限、其后真实一次采样；代码或job已建立不能证明该任务已经运行。原有五分钟告警、匿名UTC日汇总预算和保留任务不改。
+
+历史开始于新采样，不从过去有效登记报告回填。漏日、采样延迟、口径不一致或缺今日文章分别呈现；缺日不当零，跨多日增长不称昨日增量。20点采样不是完整自然日，报告必须写明各来源时间窗口。仍可按现有只读分析核查扫码、查件、登记等卡点，操作次数与正式记录分开；匿名事件含维护/重复且可能漏计，不能冒充人数、个人成功率或改版因果。没有原文的新闻不写成事实，已有帮助负责解法。
+
+本地晚间心跳准备公开候选及分析证据，保存到Git忽略output的带日期/时间目录，保留历史，不能自动上传、发表文字或更新二维码。维护者在本聊天查看具体候选内容与SHA后明确批准，再使用管理员JWT及该审核SHA发表；每日快照采集与每日文章发表是两种状态。缺开发者码、新闻或公开视频时保持缺项，不能改用找货群或草稿视频。公网页面显示已发表版本、源日期及码更新时间，已知过期群码不继续声称可用。
+
+CLI默认只读本地预览，不需要管理员凭据，也不发送网络请求。内容文件遵循 `shared/public-content.ts`，必须先核对当前修订，审完完整规范化SHA后才能提交。管理员JWT只放私有环境 `PDD_ADMIN_JWT`，URL通过独立 `SUPABASE_URL` 核验；不能用service-role替代本次发表授权、不能放进VITE变量或命令文本。
+
+```sh
+# 本地预览：输出确切内容及批准SHA，未发表。
+node --experimental-strip-types scripts/publications.mjs output/content-review/example/outreach-candidate.json
+# 管理员只读当前修订；撤回后的修订仍可核查。
+node --env-file=.private/publication.env --experimental-strip-types scripts/publications.mjs --status --kind=outreach --key=main
+# 本地预览公开副本的真实字节SHA，未上传。
+node --experimental-transform-types scripts/public-assets.mjs output/content-review/example/image.png
+```
+
+实际提交额外使用 `--publish --approved-sha=<已在本聊天批准的SHA> --expected-revision=<该候选的修订>`；素材上传使用 `--upload --approved-sha=<已批准公开副本字节SHA>`。flag不是审批的替代品，自动心跳不能自行添加。原图不覆盖，图片只去隐藏元数据后按新字节审核；ZIP整包审核其内容和原字节，最多5MiB。PNG/JPEG/WebP与ZIP对象均以hash命名、禁止覆盖。先上传已批素材，再发表引用这些实际存在素材的目录；预定URL不证明上传已完成。
+
+提交只尝试一次，超时/中断标为结果未知；用只读status对照kind/key/revision/action/SHA，不从错误推断未发表。409修订冲突不能静默改expectedRevision重发，须重新核对新候选并审核。撤回也经具体审核SHA追加一个版本，保留旧正文、管理员及时间审计；存储旧hash对象保持，删除公开对象是另一个需明确授权的操作。
+
+新迁移范围快照包含 `pdd_stats_daily`、`pdd_content_revisions` 与 `pdd-public-assets`。两次表读一致及加密认证规则保持；新增版本发表时可能使安静窗口备份失败，不作无限重试。旧迁移manifest既不要求新表，也不读取新bucket。离线恢复在真实隔离PostgreSQL核对行值、RLS/RPC权限和bucket配置，存储字节SHA与hash文件名核对；它不提取公用文件到磁盘、不连接云，也不宣称恢复Auth凭据或完成素材重新部署。范围备份/恢复失败仍按原监控规则处置。
