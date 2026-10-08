@@ -3,9 +3,9 @@
 Last updated: 2026-10-09 Asia/Bangkok
 
 ## Snapshot
-- Status: Runtime released; editorial review pending; automation prompt update approval-blocked
+- Status: Runtime released; daily automation updated; editorial review pending
 - Current focus: Implement approved data insights and outreach pages, daily snapshots and reviewed publication.
-- Next step: Review the exact first editorial/material candidates; receive the real independent developer QR. Evening automation prompt update remains blocked by the tool approval policy.
+- Next step: Review the exact first editorial/material candidates; receive the real independent developer QR. Existing evening automation now uses the new reviewed-draft workflow, with its schedule and target preserved.
 
 ## Project Goal
 Provide readable, continuously updated public data at `/insights` and usable sharing materials at `/share`, while preserving parcel lookup, privacy and the distinction between clues, matches and actual returns.
@@ -34,7 +34,7 @@ Provide readable, continuously updated public data at `/insights` and usable sha
 - [x] Implement both pages, responsive navigation and help anchors after baseline.
 - [x] Complete candidate state matrix, database transactional/restore tests, check and build.
 - [x] Seal production UI acceptance; PR #47 and database/API/frontend deployment are complete with real identity checks.
-- [ ] Update existing evening automation to the new draft/review workflow — automatic approval rejected view/update because the tool requires approval while the active policy is never; original ACTIVE heartbeat remains unchanged.
+- [x] Update and read back the existing ACTIVE evening automation with the new draft/review workflow; schedule, name and target preserved after approval policy restoration.
 ### Done
 - [x] User approved detailed implementation plan.
 - [x] Created `codex/insights-outreach`; initial working tree was clean.
@@ -71,10 +71,13 @@ Provide readable, continuously updated public data at `/insights` and usable sha
 | 2026-10-09 | Actual public acceptance | Passed | 15 API/route assertions, 12 static file hashes, empty unapproved content, no business/editorial submission |
 | 2026-10-09 | Midnight real-PG verification-tool repair | Passed | 20:00 is cron schedule only; direct service-role first capture and rerun are tested at any time. 28 tables / 294 synthetic rows / 1 stored asset restored |
 | 2026-10-09 | Follow-up project check | Passed | 287 Vitest + 67 Edge checks; runtime source and deployed bytes unchanged |
-| 2026-10-09 | Evening heartbeat prompt change | Approval-blocked | Original ACTIVE daily heartbeat preserved. Exact new prompt ready locally; tool requires approval while active policy is never |
+| 2026-10-08–09 | Initial evening heartbeat prompt attempt | Rejected, then resolved | Initial tool policy was never; after the environment changed to auto_review, the same authorized update succeeded and saved content was read back |
 | 2026-10-09 | Production full state archive | Complete | 1159 pairs; 1157 fresh captured / 2 N/A, 2038 matrix PNGs, 16 native OS surfaces; manifest3a5605f9a9d7c5591d15555dc1bcfda013b6d00b3d0eaf6f2c6bafebba32b367 |
 | 2026-10-09 | Actual public browser supplement | Passed | 21 completed-read first screens at320/390/1280; actualsource0150, no business submissions, sampling times separately preserved |
+
+| 2026-10-09 | Integrated main checks after PR48 | Passed | 289 Vitest + 67 Edge, build and actual PG; 28 tables / 298 synthetic rows / 1 asset, earlier294-row evidence preserved. This task did not deploy the separate WeChat change |
 
 ## Handoff Notes
 - Backend, publication/backup and UI baseline subtasks operate in the same checkout with separate file ownership.
 - Do not edit UI until baseline verification explicitly succeeds.
+

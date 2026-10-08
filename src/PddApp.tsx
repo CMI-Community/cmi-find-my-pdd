@@ -1,3 +1,4 @@
+import { ContactInput, checkedContact } from './pdd-contact';
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
@@ -8,7 +9,7 @@ import type { Community } from '../shared/contracts';
 import type { PddLookupType } from '../shared/waybill';
 import { normalizeRecipientName, optionalRecipientName, validateRecipientName, type PddRecipientBatchResult } from '../shared/recipient';
 import { AdminRecipientPanel, RecipientBatchReceipt, RecipientManagePage, RecipientQueryResults, type RecipientQueryView } from './pdd-recipient';
-import { validatePddContact, type PddAdminAction, type PddAdminDetail, type PddAdminList, type PddBatchResult, type PddContact, type PddHomeStats, type PddPublicRecord, type PddQueryLogPage, type PddQueryResult, type PddRegistration } from '../shared/waybill';
+import { type PddAdminAction, type PddAdminDetail, type PddAdminList, type PddBatchResult, type PddContact, type PddHomeStats, type PddPublicRecord, type PddQueryLogPage, type PddQueryResult, type PddRegistration } from '../shared/waybill';
 import { pddApi } from './pdd-api';
 import { makeCapability } from './photos';
 import { cameraConstraintsForDevice, createCameraSession, describeCamera, setCameraFocus, startBarcodeScanner, type BarcodeScanMode, type CameraDescription, type CameraFocusMode, type CameraSession } from './pdd-camera';
@@ -118,9 +119,8 @@ function Footer() {
 }
 function ContactFields({ contact, onChange, disabled = false, lookupType = 'waybill', hasRecipientNames = false }: { contact: PddContact; onChange: (contact: PddContact) => void; disabled?: boolean; lookupType?: PddLookupType; hasRecipientNames?: boolean }) {
   const id = useId();
-  return <div className="pdd-contact-fields"><label htmlFor={id + '-kind'}>联系方式<select id={id + '-kind'} value={contact.kind} onChange={event => onChange({ kind: event.target.value as PddContact['kind'], value: '' })} disabled={disabled}><option value="wechat">微信号</option><option value="phone">电话号码</option></select></label><label htmlFor={id + '-value'}>{contact.kind === 'wechat' ? '您的微信号' : '您的电话号码'}<input id={id + '-value'} type={contact.kind === 'phone' ? 'tel' : 'text'} value={contact.value} maxLength={contact.kind === 'phone' ? 32 : 64} onChange={event => onChange({ ...contact, value: event.target.value })} placeholder={contact.kind === 'wechat' ? '填写微信号，请勿填写昵称' : '包含国家区号，如 +66…'} autoComplete="off" disabled={disabled} required /></label><p className="pdd-privacy-hint"><ShieldCheck size={17} />{lookupType === 'recipient' ? '查询相同收件人名的对方可查看联系方式和补充说明，请核实包裹信息。' : hasRecipientNames ? '查询相同完整单号或相同收件人名的对方可查看联系方式和补充说明，用于联系与核实。' : '相同单号的另一方可查看，用于联系、核实与交还。'}</p></div>;
+  return <div className="pdd-contact-fields"><label htmlFor={id + '-kind'}>联系方式<select id={id + '-kind'} value={contact.kind} onChange={event => onChange({ kind: event.target.value as PddContact['kind'], value: '' })} disabled={disabled}><option value="wechat">微信号</option><option value="phone">电话号码</option></select></label><ContactInput contact={contact} onChange={onChange} disabled={disabled} /><p className="pdd-privacy-hint"><ShieldCheck size={17} />{lookupType === 'recipient' ? '查询相同收件人名的对方可查看联系方式和补充说明，请核实包裹信息。' : hasRecipientNames ? '查询相同完整单号或相同收件人名的对方可查看联系方式和补充说明，用于联系与核实。' : '相同单号的另一方可查看，用于联系、核实与交还。'}</p></div>;
 }
-function checkedContact(contact: PddContact) { try { return validatePddContact(contact); } catch { throw new Error(contact.kind === 'wechat' ? '请填写有效的微信号（字母开头，至少6位），不要填写昵称。' : '请填写有效的电话号码，可包含国家区号、空格或连字符。'); } }
 
 export function WaybillNote({ note, label = '补充说明' }: { note?: string | null; label?: string }) {
   return note?.trim() ? <div className="pdd-waybill-note"><strong>{label}</strong><p className="pdd-selectable">{note}</p></div> : null;

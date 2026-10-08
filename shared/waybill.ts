@@ -85,7 +85,9 @@ export function validatePddContact(input: unknown): PddContact {
   const raw = input as Record<string, unknown>;
   if (Object.keys(raw).some(key => !['kind', 'value'].includes(key)) || typeof raw.value !== 'string') throw new Error('INVALID_CONTACT');
   const value = raw.value.trim();
-  if (raw.kind === 'wechat' && /^[a-zA-Z][-_a-zA-Z0-9]{5,63}$/.test(value)) return { kind: 'wechat', value };
+  // Existing contacts retain the historical 64-character allowance. WeChat's
+  // current setting rule is 6–20 characters and permits a leading underscore.
+  if (raw.kind === 'wechat' && /^[a-zA-Z_][-_a-zA-Z0-9]{5,63}$/.test(value)) return { kind: 'wechat', value };
   if (raw.kind === 'phone' && value.length <= 32 && /^\+?[0-9][0-9 ()-]{5,30}[0-9]$/.test(value) && value.replace(/\D/g, '').length >= 7) return { kind: 'phone', value };
   throw new Error('INVALID_CONTACT');
 }

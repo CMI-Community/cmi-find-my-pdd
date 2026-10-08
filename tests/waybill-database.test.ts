@@ -47,6 +47,15 @@ async function businessError(name: string, payload: Record<string, unknown>, mes
 }
 
 describe('PDD404 isolated transactional flow', () => {
+  it('keeps leading-underscore contacts usable through registration and exact lookup while public codes stay masked', async () => {
+    const contact: PddContact = { kind: 'wechat', value: '_PDD404TEST_2026' };
+    const created = (await batch('PDD404TESTUNDER001', 'received', contact)).items[0];
+    expect(created.registration?.contact).toEqual(contact);
+    expect((await query('PDD404TESTUNDER001', 'lost')).contact).toEqual(contact);
+    expect(await rpc('pdd_manage', { registration_code: created.registration!.registrationCode, capability_hash: capA })).toMatchObject({ contact });
+    const publicRecord = await rpc('pdd_public', { public_code: created.record.code });
+    expect(publicRecord).not.toHaveProperty('contact');
+  });
   it('reports business conflicts as P0001 without mutating contacts, notes, counters or idempotent receipts', async () => {
     const input = { request_id: randomUUID(), mode: 'lost', contact: lostContact, note: 'Preserved private note', capability_hash: capA, body_hash: 'first-body', items: [{ request_id: randomUUID(), number: 'LOCKOWNER1234', source: 'manual' }] };
     const original = (await rpc<PddBatchResult>('pdd_batch_register', input)).items[0];
