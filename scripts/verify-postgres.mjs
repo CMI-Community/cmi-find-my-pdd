@@ -163,18 +163,15 @@ async function verifyRecipientLifetimeStats() {
 }
 async function verifyPublicInsightsContent(actor) {
   assert.equal(await sql('select count(*) from public.pdd_stats_daily;'), '0', 'Applying the new schema must not infer historical daily counts.');
-  const before = await rpc('pdd_home_stats', {}), ready = await sql("select (clock_timestamp() at time zone 'Asia/Bangkok')::time>=time '20:00';") === 't';
-  let frozen;
-  if (ready) frozen = JSON.parse(await sql(`begin; set local role service_role; ${invoke('pdd_capture_stats_daily', {})} commit;`));
-  else {
-    await assert.rejects(() => rpc('pdd_capture_stats_daily', {}), /SNAPSHOT_WINDOW_NOT_READY/);
-    assert.equal(await sql('select count(*) from public.pdd_stats_daily;'), '0');
-    await sql("insert into public.pdd_stats_daily(day,sampled_at,metric_version,stats) values((clock_timestamp() at time zone 'Asia/Bangkok')::date,clock_timestamp(),'home-six-lifetime-v1',public.pdd_home_stats('{}'));");
-    frozen = (await rpc('pdd_public_stats_history', { days: 30 })).snapshots[0];
-  }
+  // The cron schedule controls the evening production run. Explicit calls in
+  // this disposable database test the service-only RPC's first-sample contract.
+  // Avoid an invented rejection branch based on the CI runner's wall clock.
+  assert.equal(await sql("select schedule from cron.job where jobname='pdd404-evening-public-stats';"), '0 13 * * *');
+  const before = await rpc('pdd_home_stats', {});
+  const frozen = JSON.parse(await sql(`begin; set local role service_role; ${invoke('pdd_capture_stats_daily', {})} commit;`));
   assert.deepEqual(frozen.stats, before); assert.equal(frozen.metricVersion, 'home-six-lifetime-v1');
   const changedWindow = await sql(`begin; set local role service_role; ${invoke('pdd_batch_register', batch('HISTORYIMMUTABLE99001', 'lost', capA, 'fictional_daily_history'))}
-    select jsonb_build_object('live',public.pdd_home_stats('{}'),'snapshot',${ready ? "public.pdd_capture_stats_daily('{}')" : "public.pdd_public_stats_history('{}')->'snapshots'->0"})::text; rollback;`);
+    select jsonb_build_object('live',public.pdd_home_stats('{}'),'snapshot',public.pdd_capture_stats_daily('{}'))::text; rollback;`);
   const changed = JSON.parse(changedWindow.split('\n').filter(line => line.startsWith('{')).at(-1));
   assert.equal(changed.live.lostRegistered, before.lostRegistered + 1);
   assert.deepEqual(changed.snapshot, frozen, 'A rerun must keep the exact first daily sample timestamp and counters despite new business activity.');
