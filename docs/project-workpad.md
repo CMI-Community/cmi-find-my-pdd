@@ -80,4 +80,3 @@ Provide readable, continuously updated public data at `/insights` and usable sha
 ## Handoff Notes
 - Backend, publication/backup and UI baseline subtasks operate in the same checkout with separate file ownership.
 - Do not edit UI until baseline verification explicitly succeeds.
-
