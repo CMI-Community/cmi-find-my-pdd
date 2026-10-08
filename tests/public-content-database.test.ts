@@ -114,7 +114,8 @@ describe('public insight snapshots and reviewed publication transactions', () =>
     const input = publishPayload({ kind: 'outreach', key: 'main', content: { items: [comic] } });
     await rpc('pdd_publish_content', input);
     expect((await rpc('pdd_public_outreach')).catalog.content.items[0].kind).toBe('comic');
-    for (const changed of [{ ...comic, downloadUrl: null }, { ...comic, origin: 'third-party', sourceUrl: 'https://example.com/story' }]) await rejection(() => rpc('pdd_publish_content', { ...input, expected_revision: 1, content: { items: [changed] } }), 'INVALID_REQUEST');
+    for (const changed of [{ ...comic, downloadUrl: null }, { ...comic, downloadUrl: url.replace('.webp', '.zip') }, { ...comic, thumbnailUrl: url.replace('.webp', '.zip') }, { ...comic, kind: 'pack' }, { ...comic, kind: 'copy', copyText: 'Synthetic message', thumbnailUrl: url.replace('.webp', '.zip') }, { ...comic, origin: 'third-party', sourceUrl: 'https://example.com/story' }]) await rejection(() => rpc('pdd_publish_content', { ...input, expected_revision: 1, content: { items: [changed] } }), 'INVALID_REQUEST');
+    await rpc('pdd_publish_content', publishPayload({ kind: 'outreach', key: 'main', expectedRevision: 1, content: { items: [{ ...comic, kind: 'pack', downloadUrl: url.replace('.webp', '.zip') }] } }));
     await rejection(() => rpc('pdd_publish_content', publishPayload({ content: { ...report('2020-01-01'), newsIds: ['synthetic-comic'] } })), 'INVALID_REQUEST');
   });
 });

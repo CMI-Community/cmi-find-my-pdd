@@ -72,7 +72,10 @@ declare item jsonb; f jsonb; field text; names text[]:='{}'; channels text[]; be
     or (item->>'origin'='third-party' and (item->'sourceUrl'='null'::jsonb or item->>'kind' not in ('news','video')))
     or (item->>'kind' in ('news','video','guide') and item->'sourceUrl'='null'::jsonb)
     or (item->>'kind'='copy' and item->'copyText'='null'::jsonb)
-    or (item->>'kind' in ('comic','image','pack') and item->'downloadUrl'='null'::jsonb) then return false; end if;
+    or (item->>'kind' in ('comic','image','pack') and item->'downloadUrl'='null'::jsonb)
+    or (item->'thumbnailUrl'<>'null'::jsonb and (item->>'thumbnailUrl') !~ '\.(png|jpg|jpeg|webp)$')
+    or (item->>'kind' in ('comic','image') and (item->>'downloadUrl') !~ '\.(png|jpg|jpeg|webp)$')
+    or (item->>'kind'='pack' and (item->>'downloadUrl') !~ '\.zip$') then return false; end if;
    channels:='{}'; for f in select value from jsonb_array_elements(item->'channels') loop
     if not public.pdd_content_text(f,40) or (f#>>'{}')=any(channels) then return false; end if; channels:=array_append(channels,f#>>'{}');
    end loop;

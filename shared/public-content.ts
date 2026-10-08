@@ -111,15 +111,19 @@ export function validateOutreachCatalog(value: unknown, supabaseUrl?: string): O
     if (!['news', 'video', 'guide', 'comic', 'copy', 'image', 'pack'].includes(String(item.kind)) || !['third-party', 'pdd404'].includes(String(item.origin))) invalid();
     const kind = item.kind as OutreachItemKind, origin = item.origin as OutreachItem['origin'];
     const sourceUrl = nullable(item.sourceUrl, validatePublicSourceUrl), downloadUrl = nullable(item.downloadUrl, value => validatePublicAssetUrl(value, supabaseUrl));
+    const thumbnailUrl = nullable(item.thumbnailUrl, value => validatePublicAssetUrl(value, supabaseUrl));
     const copyText = nullable(item.copyText, value => text(value, 4000));
     if ((origin === 'third-party' && (!sourceUrl || !['news', 'video'].includes(kind)))
       || (['news', 'guide', 'video'].includes(kind) && !sourceUrl)
-      || (kind === 'copy' && !copyText) || (['comic', 'image', 'pack'].includes(kind) && !downloadUrl)) invalid();
+      || (kind === 'copy' && !copyText) || (['comic', 'image', 'pack'].includes(kind) && !downloadUrl)
+      || (thumbnailUrl !== null && !/\.(?:png|jpg|jpeg|webp)$/.test(thumbnailUrl))
+      || (['comic', 'image'].includes(kind) && !/\.(?:png|jpg|jpeg|webp)$/.test(downloadUrl ?? ''))
+      || (kind === 'pack' && !/\.zip$/.test(downloadUrl ?? ''))) invalid();
     const channels = array(item.channels, 8).map(value => text(value, 40));
     if (!channels.length || new Set(channels).size !== channels.length) invalid();
     return { id: itemId(item.id), kind, origin, title: text(item.title, 160), summary: text(item.summary, 1000), source: text(item.source, 160), sourceUrl,
       publishedAt: nullable(item.publishedAt, timestamp), checkedAt: timestamp(item.checkedAt), channels,
-      thumbnailUrl: nullable(item.thumbnailUrl, value => validatePublicAssetUrl(value, supabaseUrl)), downloadUrl, copyText };
+      thumbnailUrl, downloadUrl, copyText };
   });
   if (new Set(items.map(item => item.id)).size !== items.length) invalid();
   return { items };

@@ -86,7 +86,7 @@ Deno.test('approved PDD404 explanation comics require an uploaded asset and rema
   assert((await publicContentRoute(request('admin/publications', input), ['admin', 'publications'], {}, ctx))!.status === 201 && checks === 1);
   const read = publicOutreach({ catalog: { key: 'main', revision: 1, publishedAt: stamp, content: input.content }, developerGroup: null }, base);
   assert(read.catalog!.content.items[0].kind === 'comic');
-  for (const changed of [{ ...item, downloadUrl: null }, { ...item, origin: 'third-party', sourceUrl: 'https://example.com/story' }]) {
+  for (const changed of [{ ...item, downloadUrl: null }, { ...item, downloadUrl: url.replace('.webp', '.zip') }, { ...item, thumbnailUrl: url.replace('.webp', '.zip') }, { ...item, kind: 'pack' }, { ...item, kind: 'copy', copyText: 'Synthetic message', thumbnailUrl: url.replace('.webp', '.zip') }, { ...item, origin: 'third-party', sourceUrl: 'https://example.com/story' }]) {
     await rejects(() => publicContentRoute(request('admin/publications', { ...input, content: { items: [changed] } }), ['admin', 'publications'], {}, ctx), 'INVALID_REQUEST');
   }
 });
