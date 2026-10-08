@@ -163,12 +163,16 @@ async function verifyRecipientLifetimeStats() {
 }
 async function verifyPublicInsightsContent(actor) {
   assert.equal(await sql('select count(*) from public.pdd_stats_daily;'), '0', 'Applying the new schema must not infer historical daily counts.');
-  // The cron schedule controls the evening production run. Explicit calls in
-  // this disposable database test the service-only RPC's first-sample contract.
-  // Avoid an invented rejection branch based on the CI runner's wall clock.
-  assert.equal(await sql("select schedule from cron.job where jobname='pdd404-evening-public-stats';"), '0 13 * * *');
   const before = await rpc('pdd_home_stats', {});
+  // 20:00 is the cron schedule, not a capture RPC guard. Exercise the real
+  // service-role capture at any test time instead of inserting a stand-in row.
+  assert.equal(await sql("select schedule from cron.job where jobname='pdd404-evening-public-stats';"), '0 13 * * *');
+  const captureStartedAt = JSON.parse(await sql('select to_jsonb(clock_timestamp())::text;'));
   const frozen = JSON.parse(await sql(`begin; set local role service_role; ${invoke('pdd_capture_stats_daily', {})} commit;`));
+  const timing = JSON.parse(await sql("select jsonb_build_object('bangkokDay',day=(sampled_at at time zone 'Asia/Bangkok')::date,'notFuture',sampled_at<=clock_timestamp())::text from public.pdd_stats_daily;"));
+  assert.equal(timing.bangkokDay, true, 'The day must come from the actual server sample in Bangkok.');
+  assert.equal(timing.notFuture, true, 'The sample must record actual server time.');
+  assert(Date.parse(frozen.sampledAt) >= Date.parse(captureStartedAt), 'The first capture must be acquired by this real RPC call.');
   assert.deepEqual(frozen.stats, before); assert.equal(frozen.metricVersion, 'home-six-lifetime-v1');
   const changedWindow = await sql(`begin; set local role service_role; ${invoke('pdd_batch_register', batch('HISTORYIMMUTABLE99001', 'lost', capA, 'fictional_daily_history'))}
     select jsonb_build_object('live',public.pdd_home_stats('{}'),'snapshot',public.pdd_capture_stats_daily('{}'))::text; rollback;`);
@@ -228,7 +232,7 @@ async function verifyPublicInsightsContent(actor) {
     for (const table of ['pdd_stats_daily', 'pdd_content_revisions']) await assert.rejects(() => sql(`set role ${role}; select * from public.${table};`), /permission denied/);
     for (const name of ['pdd_capture_stats_daily', 'pdd_public_stats_history', 'pdd_public_insight_reports', 'pdd_public_outreach', 'pdd_publish_content', 'pdd_admin_publication_status']) await assert.rejects(() => sql(`set role ${role}; ${invoke(name, {})}`), /permission denied/);
   }
-  console.log('Public insights real PostgreSQL passed: no history backfill, Bangkok window, immutable first daily sample, changed business count isolation, concurrent optimistic publication, hash verification, complete content, shared source references, retained withdrawal audit and browser privilege denial.');
+  console.log('Public insights real PostgreSQL passed: no history backfill, actual server-time Bangkok day (20:00 is schedule only), immutable first daily sample, changed business count isolation, concurrent optimistic publication, hash verification, complete content, shared source references, retained withdrawal audit and browser privilege denial.');
 }
 function transactionSession() {
   const child = spawn(path.join(bin, 'psql'), ['-X', '-A', '-t', '-q', '--set', 'ON_ERROR_STOP=1', '--set', 'VERBOSITY=verbose'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
