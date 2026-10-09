@@ -1,7 +1,7 @@
 import { HOURLY_STATS_METRIC_VERSION, type HourlyCandidate, type HourlyModelInput, type HourlySelection, type HourlySourceInput, type HourSnapshot } from './hourly-content.ts';
 import { TELEMETRY_EVENTS, TELEMETRY_PAGES } from './telemetry.ts';
 
-export const OBSERVATION_PROMPT_VERSION = 'hourly-observation-v2';
+export const OBSERVATION_PROMPT_VERSION = 'hourly-observation-v1';
 export const OBSERVATION_MODEL = 'gpt-5.6-luna';
 const HOUR = 3_600_000;
 const WINDOWS = [1, 3, 24] as const;

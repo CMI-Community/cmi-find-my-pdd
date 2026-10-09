@@ -31,7 +31,7 @@
 
 ## AI 拆分与输出提示词
 
-完整实际系统提示词在 `supabase/functions/insights-worker/prompt.ts`，版本 `hourly-observation-v2`。核心合同如下：
+完整实际系统提示词在 `supabase/functions/insights-worker/prompt.ts`，首个实际发布版本 `hourly-observation-v1`，与数据库的配置及预算预约合同一致。核心合同如下：
 
 1. 每小时从服务器已达标候选中选择0–3条。没有候选返回空列表；不添加解释、建议、可能性、价值判断或局限性段落。
 2. 每个主题最多一条。一个指标的主窗口和补充对照合为一条；只有单号登记、扫码、查询或上新等各自独立现象才拆开。不能把同时发生写成因果。
