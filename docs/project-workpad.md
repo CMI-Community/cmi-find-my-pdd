@@ -3,18 +3,18 @@
 Last updated: 2026-10-09 Asia/Bangkok
 
 ## Snapshot
-- Status: Runtime released; daily automation updated; editorial review pending
-- Current focus: Implement approved data insights and outreach pages, daily snapshots and reviewed publication.
-- Next step: Review the exact first editorial/material candidates; receive the real independent developer QR. Existing evening automation now uses the new reviewed-draft workflow, with its schedule and target preserved.
+- Status: Hourly insights implementation in progress; existing runtime retained until acceptance
+- Current focus: Implement the approved compact single-page six counters, hourly table/charts and timestamped neutral observation feed.
+- Next step: Freeze and validate the hourly candidate, then release the data page and sampling. The user will provide a usable API key later after the existing-key probe returned429; the AI task stays disabled until then.
 
 ## Project Goal
 Provide readable, continuously updated public data at `/insights` and usable sharing materials at `/share`, while preserving parcel lookup, privacy and the distinction between clues, matches and actual returns.
 
 ## Scope
-- Existing six lifetime homepage statistics, daily same-definition snapshots, 7/30-day history, reviewed dated observations and shared media directory.
+- Existing six lifetime homepage statistics, new same-definition hourly snapshots, colored hourly charts/table and short timestamped observations retained in a folded feed; shared media directory remains available.
 - Independent developer-group configuration, navigation, anchored help links, copy/download interactions and honest missing-content states.
 - Append-only publication versions and administrator audit, public allowlisted read APIs, immutable public assets, backup and restore coverage.
-- Daily statistics collected independently with pg_cron at 20:00 Asia/Bangkok; local evening reports remain drafts until an exact artifact is approved in this chat.
+- Hourly statistics collected independently with pg_cron, with visible-page data refresh. Hourly short observations use the approved deterministic fact-selection policy; manual directory/group publication keeps its administrator approval process.
 - No invented historical data, news, video, QR codes, personal success rates, or changes to existing five-minute monitoring.
 
 ## Key Decisions
@@ -24,12 +24,19 @@ Provide readable, continuously updated public data at `/insights` and usable sha
 | 2026-10-08 | Preserve homepage lifetime metric contract; start history at first genuine snapshot | Earlier local report counts use a different definition | Confirmed |
 | 2026-10-08 | Developer group is independent of the current parcel-finding group | User confirmed separate group; QR asset remains pending | Confirmed |
 | 2026-10-08 | Third-party summary cards link to originals | Avoid unreviewed embeds and copied media | Confirmed |
+| 2026-10-09 | One-page hourly data and short factual observations; 0–3 entries, older entries collapsed and retained | User replaced the explanatory daily-report design and approved execution | Confirmed |
+| 2026-10-09 | Actual developer QR supplied; conservative display cutoff before October16 | User-provided group image and explicit execution authorization | Confirmed |
+| 2026-10-09 | Isolated managed worktree on codex/hourly-insights | Preserve parallel task checkout and all accepted WeChat changes | Active |
 
 ## Task Board
 ### Now
-- [x] Verify and seal complete current UI baseline: 1011 pairs, 1009 captured and 2 source-backed not-applicable, no gaps; existing runtime evidence retains its genuine original dates.
-- [x] Implement snapshots, safe public content APIs and audited administrator publication, including read-only revision status after withdrawal.
-- [x] Implement publication tooling, scoped backup/restore support and content preparation.
+- [x] Verify and seal current production7457d63 baseline: 513 cases / 1183 pairs, 1181 captured and 2 source-backed not-applicable, no gaps; retained images preserve genuine provenance.
+- [x] Implement compact hourly page and public DTOs after baseline; independent UI checks are in progress.
+- [ ] Validate new hourly snapshot and telemetry migration with real PostgreSQL transactions, concurrency and restore.
+- [x] User explicitly chose reuse of the existing API key for the PDD404 server hourly task.
+- [x] Implement the hourly model task with atomic independent call reservations, strict selection and failure handling.
+- [ ] Enable actual AI generation after the user provides a usable key later; the one existing-key synthetic probe returned429 and was not retried.
+- [ ] Upload and publish the supplied real QR using existing administrator authorization; no plaintext credentials in chat.
 ### Next
 - [x] Implement both pages, responsive navigation and help anchors after baseline.
 - [x] Complete candidate state matrix, database transactional/restore tests, check and build.
@@ -43,10 +50,11 @@ Provide readable, continuously updated public data at `/insights` and usable sha
 ## Risks And Open Questions
 | Type | Item | Impact | Next check | Status |
 | --- | --- | --- | --- | --- |
-| Asset | Real independent developer-group QR file/location not supplied | Group panel must show missing state | Await user location; content can update independently | Open |
+| Asset | Real independent developer-group QR supplied | Upload/publication needs existing administrator authentication | Use verified pixel-identical metadata-free copy; show actual expiry | Prepared, not published |
+| Credential | Existing key returned429; user chose to change key later | AI stays disabled; data sampling and the page can release independently | Configure and accept one real task when a usable key is supplied | Explicitly deferred by user |
 | Content | No verified first news/video release links | Empty directory sections remain honest | Prepare reviewable directory without invented links | Open |
-| Evidence | Current-runtime complete baseline | Required before first UI source edit | Live SHA, 12 static hashes and original matrix matched; 24 fresh captures added | Validated |
-| Release | Complete candidate archive and production acceptance | Runtime rollout and acceptance complete | Candidate and production each 505 cases / 1159 pairs, 1157 captured + 2 source-backed N/A; production is entirely fresh | Validated |
+| Evidence | Current-runtime complete baseline | Required before first UI source edit | Live SHA7457d63, 13 static hashes and frozen accepted matrix matched | Validated |
+| Release | Hourly candidate archive and production acceptance | Required before rollout | Expand state matrix; previous release evidence does not establish the new runtime | Pending |
 
 ## Implementation Notes
 - Contract: [PRODUCT.md](PRODUCT.md); operational rules: [MONITORING.md](MONITORING.md).
@@ -76,6 +84,8 @@ Provide readable, continuously updated public data at `/insights` and usable sha
 | 2026-10-09 | Actual public browser supplement | Passed | 21 completed-read first screens at320/390/1280; actualsource0150, no business submissions, sampling times separately preserved |
 
 | 2026-10-09 | Integrated main checks after PR48 | Passed | 289 Vitest + 67 Edge, build and actual PG; 28 tables / 298 synthetic rows / 1 asset, earlier294-row evidence preserved. This task did not deploy the separate WeChat change |
+| 2026-10-09 | Hourly independent stage checks | Passed | 309 Vitest + 71 Edge; build, actual PG atomic/concurrent migration and 34 tables / 301 synthetic rows scoped restore. Hourly model code awaits credential choice |
+| 2026-10-09 | Existing evening heartbeat prompt | Updated and read back | ACTIVE, same20:00 schedule and target; current page and short observations replace separate explanatory reports. Prompt SHA f1a1d9fe882d47e50dac774fa581e98fb78636e6a624baa70636a210cefa93b1 |
 
 ## Handoff Notes
 - Backend, publication/backup and UI baseline subtasks operate in the same checkout with separate file ownership.

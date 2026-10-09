@@ -15,7 +15,7 @@ export const TELEMETRY_EVENTS = [
   'pdd_contact_copy', 'pdd_contact_saved', 'pdd_contact_error', 'pdd_feedback_open', 'pdd_feedback_started', 'pdd_feedback_submitted', 'pdd_feedback_error',
   'pdd_help_open', 'pdd_local_open', 'pdd_privacy_open', 'pdd_community_open', 'pdd_code_open', 'pdd_helper_qr_open',
 ] as const;
-export const TELEMETRY_PAGES = ['home', 'help', 'privacy', 'local'] as const;
+export const TELEMETRY_PAGES = ['home', 'help', 'privacy', 'local', 'insights', 'share'] as const;
 export const TELEMETRY_DWELL_BUCKETS = ['0-9s', '10-29s', '30-59s', '1-2m', '3-9m', '10-30m'] as const;
 export type TelemetryEvent = typeof TELEMETRY_EVENTS[number];
 export type TelemetryPage = typeof TELEMETRY_PAGES[number];

@@ -3,6 +3,7 @@ import { PUBLIC_STATS_METRIC_VERSION, publicContentDate, validateInsightReport, 
   type PddStatsHistory, type PddInsightReports, type PddOutreach, type PublishedContent } from '../shared/public-content';
 import type { PddHomeStats } from '../shared/waybill';
 import { bangkokDay } from '../shared/insight-history';
+import { hourlyDashboard, hourlyFeed, hourlyId, type HourlyDashboard, type HourlyFeed, type HourlyReadParameters } from '../shared/hourly-content';
 
 const invalid = () => new ApiFailure('公开内容暂时无法读取，请稍后重试。', 'INVALID_RESPONSE');
 function row(value: unknown): Record<string, unknown> {
@@ -31,6 +32,13 @@ async function safe<T>(path: string, validate: (value: unknown) => T, signal?: A
   try { return validate(value); } catch { throw invalid(); }
 }
 export const publicContentApi = {
+  dashboard: (parameters: HourlyReadParameters = {}, signal?: AbortSignal) => {
+    const query = new URLSearchParams();
+    if (parameters.date) query.set('date', publicContentDate(parameters.date));
+    else if (parameters.hours !== undefined) query.set('hours', String(parameters.hours));
+    return safe<HourlyDashboard>('/v1/insights/dashboard' + (query.size ? '?' + query : ''), hourlyDashboard, signal);
+  },
+  feed: (before: string, signal?: AbortSignal) => safe<HourlyFeed>('/v1/insights/feed?before=' + encodeURIComponent(hourlyId(before)), hourlyFeed, signal),
   history: (days: 7 | 30, signal?: AbortSignal) => safe<PddStatsHistory>('/v1/insights/history?days=' + days, value => {
     const result = row(value);
     if (!Array.isArray(result.snapshots) || result.snapshots.length > 31) throw invalid();

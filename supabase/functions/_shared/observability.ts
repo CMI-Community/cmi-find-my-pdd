@@ -12,6 +12,7 @@ export function observedRoute(request: Request): string {
   if (first === 'community') return 'community';
   if (first === 'stats') return 'legacy.stats';
   if (first === 'waybill-stats') return 'waybill.stats';
+  if (first === 'insights' && ['dashboard', 'hourly', 'feed'].includes(second)) return 'public.insights.' + second;
   if (first === 'insights' && second === 'history') return 'public.insights.history';
   if (first === 'insights' && second === 'reports') return 'public.insights.reports';
   if (first === 'outreach') return 'public.outreach';

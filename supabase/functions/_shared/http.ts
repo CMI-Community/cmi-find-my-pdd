@@ -11,7 +11,7 @@ export function corsHeaders(request: Request, readConfig: (name: string) => stri
   if (origin && !allowed.includes(origin)) throw new ApiError('FORBIDDEN', '此网站未被授权调用服务。', 403);
   return {
     ...(origin ? { 'Access-Control-Allow-Origin': origin } : {}),
-    'Access-Control-Allow-Headers': 'authorization, content-type, idempotency-key, apikey, x-client-info',
+    'Access-Control-Allow-Headers': 'authorization, content-type, idempotency-key, apikey, x-client-info, x-content-sha256',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Max-Age': '600', 'Vary': 'Origin',
     'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',

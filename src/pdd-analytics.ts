@@ -1,14 +1,16 @@
 import { track } from '@vercel/analytics';
-import { TELEMETRY_EVENTS, TELEMETRY_DWELL_BUCKETS, telemetryMetadataKeys, validateTelemetryRows, type TelemetryEvent, type TelemetryRow } from '../shared/telemetry';
+import { TELEMETRY_EVENTS, TELEMETRY_DWELL_BUCKETS, telemetryMetadataKeys, validateTelemetryRows, type TelemetryEvent, type TelemetryRow, type TelemetryPage } from '../shared/telemetry';
 import { addTelemetryEvent } from './pdd-telemetry';
 
-export type AnalyticsPage = 'home' | 'help' | 'privacy' | 'local';
+export type AnalyticsPage = TelemetryPage;
 const publicPages: Record<string, { page: AnalyticsPage; path: string }> = {
   '/': { page: 'home', path: '/' },
   '/help': { page: 'help', path: '/help' },
   '/community': { page: 'help', path: '/help' },
   '/privacy': { page: 'privacy', path: '/privacy' },
   '/local': { page: 'local', path: '/local' },
+  '/insights': { page: 'insights', path: '/insights' },
+  '/share': { page: 'share', path: '/share' },
 };
 
 // Do not generalize dynamic routes: management fragments and public codes must
