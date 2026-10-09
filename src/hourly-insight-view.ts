@@ -7,6 +7,7 @@ export const HOUR = 3_600_000;
 export type HourRow = {
   start: string; end: string; status: 'complete' | 'current' | 'missing';
   counts: Record<keyof PddHomeStats, number | null>; sampledFrom: string | null; sampledUntil: string | null;
+  source?: 'recorded'; firstRecordedAt?: string;
 };
 const emptyCounts = () => Object.fromEntries(HOURLY_STATS_KEYS.map(key => [key, null])) as HourRow['counts'];
 
@@ -25,6 +26,21 @@ function increase(previous: HourSnapshot | undefined, next: { sampledAt: string;
 /** Default is the latest 24 hour slots, including the labelled in-progress slot. */
 export function hourRows(dashboard: HourlyDashboard, date = ''): HourRow[] {
   const sampled = Date.parse(dashboard.sampledAt), currentHour = Math.floor(sampled / HOUR) * HOUR;
+  if (dashboard.records) {
+    const until = Date.parse(dashboard.records.until), current = until % HOUR !== 0;
+    const visibleStart = date ? Date.parse(date + 'T00:00:00+07:00') : currentHour - (current ? 23 : 24) * HOUR;
+    const visibleEnd = date ? Math.min(visibleStart + 24 * HOUR, until) : until;
+    const first = dashboard.records.firstRecordedAt;
+    return dashboard.records.hours.filter(item => {
+      const hour = Date.parse(item.hour); return hour >= visibleStart && hour < visibleEnd;
+    }).map(item => {
+      const hour = Date.parse(item.hour), end = Math.min(hour + HOUR, until);
+      return { start: item.hour, end: new Date(hour + HOUR).toISOString(),
+        status: hour === currentHour ? 'current' : 'complete', counts: { ...item.stats },
+        sampledFrom: item.hour, sampledUntil: new Date(end).toISOString(), source: 'recorded',
+        ...(first && Math.floor(Date.parse(first) / HOUR) * HOUR === hour ? { firstRecordedAt: first } : {}) };
+    });
+  }
   const start = date ? Date.parse(date + 'T00:00:00+07:00') : currentHour - 23 * HOUR;
   const end = date ? Math.min(start + 24 * HOUR, currentHour + HOUR) : currentHour + HOUR;
   const byHour = new Map(dashboard.snapshots.map(snapshot => [Date.parse(snapshot.hour), snapshot]));

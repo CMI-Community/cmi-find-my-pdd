@@ -1,7 +1,7 @@
 import { HOURLY_STATS_METRIC_VERSION, type HourlyCandidate, type HourlyModelInput, type HourlySelection, type HourlySourceInput, type HourSnapshot } from './hourly-content.ts';
 import { TELEMETRY_EVENTS, TELEMETRY_PAGES } from './telemetry.ts';
 
-export const OBSERVATION_PROMPT_VERSION = 'hourly-observation-v1';
+export const OBSERVATION_PROMPT_VERSION = 'hourly-observation-v2';
 export const OBSERVATION_MODEL = 'gpt-5.6-luna';
 const HOUR = 3_600_000;
 const WINDOWS = [1, 3, 24] as const;
@@ -70,7 +70,7 @@ function makeCandidate(id: string, kind: HourlyCandidate['kind'], topic: string,
   return { id: `${id}-${windowId}`, kind, topic, score: Math.round(score * 100) / 100, priority: 2,
     windowStart: iso(current.start), windowEnd: iso(current.end), dedupKey: `${id}:${windowId}:${iso(current.end)}:${value}:${direction}`,
     headlines: [{ id: 'label', text: label }], facts: [{ id: 'primary', text }], windowId, source,
-    definitionVersion: kind === 'registration' || kind === 'side-difference' ? HOURLY_STATS_METRIC_VERSION : 'server-hourly-v1', value, direction };
+    definitionVersion: kind === 'registration' || kind === 'side-difference' ? source === 'public-six-records' ? 'home-six-recorded-additions-v1' : HOURLY_STATS_METRIC_VERSION : 'server-hourly-v1', value, direction };
 }
 
 /** Coverage checks are private. The public feed contains facts, not diagnostic paragraphs. */
@@ -88,7 +88,9 @@ function boundedWindow(source: HourlySourceInput, start: number, end: number): b
 }
 function querySeries(source: HourlySourceInput, lookup: 'waybill' | 'recipient', result?: string): Series {
   return (start, end) => {
-    if (!boundedWindow(source, start, end) || start < Date.parse(source.telemetry.startedAt)) return null;
+    const first = source.queriesFirstRecordedAt === undefined ? source.telemetry.startedAt : source.queriesFirstRecordedAt[lookup];
+    const available = first === null ? NaN : Math.ceil(Date.parse(first) / HOUR) * HOUR;
+    if (!boundedWindow(source, start, end) || !Number.isFinite(available) || start < available) return null;
     const rows = source.queries.filter(row => row.lookup === lookup && (!result || row.result === result) && inRange(row.hour, start, end));
     if (rows.some(row => !integer(row.count))) return null;
     const count = rows.reduce((sum, row) => sum + row.count, 0);
@@ -108,6 +110,17 @@ function statsSeries(source: HourlySourceInput, metric: keyof HourSnapshot['stat
   const snapshots = new Map(source.snapshots.map(item => [Date.parse(item.hour), item]));
   return (start, end) => {
     if (!boundedWindow(source, start, end)) return null;
+    if (source.businessFirstRecordedAt !== undefined) {
+      const first = source.businessFirstRecordedAt[metric];
+      const available = first === null ? NaN : Math.ceil(Date.parse(first) / HOUR) * HOUR;
+      if (!Number.isFinite(available) || start < available) return null;
+      const rows = source.businessHours.filter(row => inRange(row.hour, start, end));
+      const slots = new Set(rows.map(row => Date.parse(row.hour)));
+      if (rows.length !== (end - start) / HOUR || slots.size !== rows.length
+        || rows.some(row => Date.parse(row.hour) % HOUR !== 0 || row.excludedTests !== 0 || !integer(row.stats[metric]))) return null;
+      const count = rows.reduce((sum, row) => sum + row.stats[metric], 0);
+      return integer(count) ? { start, end, count } : null;
+    }
     const first = snapshots.get(start), last = snapshots.get(end);
     if (!first || !last || Date.parse(last.sampledAt) > Date.parse(source.observedUntil)) return null;
     // All intermediate captures must exist. Do not smear multi-hour gaps into one hour.
@@ -173,7 +186,8 @@ export function observationCandidates(source: HourlySourceInput): HourlyCandidat
   };
   // A capture a few seconds after an hour is not data before that boundary. Use the newest completed real sampling interval.
   const atBoundary = source.snapshots.find(row => Date.parse(row.hour) === until && Date.parse(row.sampledAt) <= until);
-  const statsEnd = atBoundary ? until : until - HOUR;
+  const statsEnd = source.businessFirstRecordedAt !== undefined || atBoundary ? until : until - HOUR;
+  const statsSource = source.businessFirstRecordedAt !== undefined ? 'public-six-records' : 'public-six-snapshot';
   const metrics = [
     ['lostRegistered', 'waybill-lost', 'waybill-registration', '单号登记', '找包裹单号新增登记', '条'],
     ['receivedRegistered', 'waybill-received', 'waybill-registration', '单号登记', '找失主单号新增登记', '条'],
@@ -182,7 +196,7 @@ export function observationCandidates(source: HourlySourceInput): HourlyCandidat
   ] as const;
   for (const [metric, id, topic, label, noun, unit] of metrics) {
     if (!Number.isFinite(statsEnd)) break;
-    const candidate = countCandidate(id, topic, label, noun, 'registration', statsSeries(source, metric), statsEnd, 'public-six-snapshot', unit);
+    const candidate = countCandidate(id, topic, label, noun, 'registration', statsSeries(source, metric), statsEnd, statsSource, unit);
     add(candidate);
   }
   for (const [leftMetric, rightMetric, id, topic, label, noun] of [
@@ -193,7 +207,7 @@ export function observationCandidates(source: HourlySourceInput): HourlyCandidat
       const left = statsSeries(source, leftMetric)(statsEnd - hours * HOUR, statsEnd), right = statsSeries(source, rightMetric)(statsEnd - hours * HOUR, statsEnd);
       if (!left || !right || !sideChange(left.count, right.count)) continue;
       add(makeCandidate(id, 'side-difference', topic, label, left, `${range(left.start, left.end)}${noun}：找包裹 ${left.count}条，找失主 ${right.count}条。`,
-        Math.abs(left.count - right.count) / 5, 'public-six-snapshot', hours, Math.abs(left.count - right.count), left.count > right.count ? 'up' : 'down')); break;
+        Math.abs(left.count - right.count) / 5, statsSource, hours, Math.abs(left.count - right.count), left.count > right.count ? 'up' : 'down')); break;
     }
   }
   for (const lookup of ['waybill', 'recipient'] as const) {
@@ -226,6 +240,28 @@ export function observationCandidates(source: HourlySourceInput): HourlyCandidat
   for (const [event, id, topic, label, noun] of operations) if ((TELEMETRY_EVENTS as readonly string[]).includes(event))
     add(countCandidate(id, topic, label, noun, 'operation', eventSeries(source, event), until, 'browser-received-events'));
   add(countCandidate('page-views', 'page-views', '网站浏览', '收到页面浏览事件', 'traffic', eventSeries(source, 'pdd_page_view'), until, 'browser-received-events'));
+
+  // Retained UTC-day events are compared as whole days, never spread into invented hours.
+  if (source.legacyDailyTraffic && !source.legacyDailyTraffic.truncated) {
+    const end = Math.floor(until / (24 * HOUR)) * 24 * HOUR;
+    const day = (at: number) => iso(at).slice(0, 10);
+    const currentDay = day(end - 24 * HOUR), previousDay = day(end - 48 * HOUR);
+    const daily = (date: string): number | null => {
+      const budget = source.telemetry.budget.find(row => row.day === date);
+      const rows = source.legacyDailyTraffic!.events.filter(row => row.day === date);
+      if (!budget || budget.limitedAt !== null || !integer(budget.acceptedEvents) || budget.acceptedEvents >= budget.dailyLimit
+        || rows.length !== 1 || !integer(rows[0].count) || rows[0].count > budget.acceptedEvents) return null;
+      return rows[0].count;
+    };
+    const current = daily(currentDay), previous = daily(previousDay);
+    if (current !== null && previous !== null && countChange('traffic', current, previous, 24)) {
+      const candidate = makeCandidate('daily-page-views', 'traffic', 'daily-page-views', '网站浏览',
+        { start: end - 24 * HOUR, end, count: current },
+        `${range(end - 24 * HOUR, end)}收到页面浏览事件 ${current}次，前24小时 ${previous}次。`,
+        Math.abs(current - previous) / 20, 'browser-utc-daily-events', 24, current, current > previous ? 'up' : 'down');
+      candidate.definitionVersion = 'server-utc-daily-v1'; add(candidate);
+    }
+  }
 
   if (source.outcomesAvailable && source.publishedFactKeys.every(key => FACT_KEY.test(key))) {
     const published = new Set(source.publishedFactKeys);
