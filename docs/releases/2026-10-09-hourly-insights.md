@@ -22,13 +22,14 @@
 
 ## 验证
 
-- `npm run check`：374 Vitest通过，1项原有可选真实PG测试在常规命令中跳过；另有独立真实PG检查覆盖。91 Edge检查通过。第一次完整检查因沙箱禁止本机测试监听而失败，授权重跑全部通过；不是忽略失败。
+- `npm run check`：374 Vitest通过，1项原有可选真实PG测试在常规命令中跳过；另有独立真实PG检查覆盖。最终含CORS回归的92 Edge检查通过。第一次完整检查因沙箱禁止本机测试监听而失败，授权重跑全部通过；不是忽略失败。
 - `npm run build`：TypeScript及Vite通过。最终冻结源仍需按候选流程核对构建身份。
 - 真实PostgreSQL完成新迁移rollback/commit、旧表摘要、cron与旧RPC OID/ACL保留、8并发同小时采样、原有12竞争遥测严格预算、日/小时双汇总一致，以及第二汇总失败导致双方和预算全部回滚。
 - 最终真实PostgreSQL与加密范围恢复核对36表/330合成行，新增8表有实际合成数据参与逐值恢复、RLS/私有RPC权限/immutable校验；旧34表与28表manifest仍兼容。Vault凭据不进入范围备份。另验证12并发模型预留仅一个获得调用、24次/0.24美元每日上限、未知费用保留、无效观察批次全部回滚、必需主事实、统一批次时间戳、停止任务与提交竞争，以及服务角色以真实NULL管理员记录发布验收。
 - 私密bounded source只返回允许的聚合；稳定事实HMAC缺密钥时不可用，不把原始业务ID提供给模型或公众。恢复后须保留原ledger密钥，不能重建去重身份。
 - 证据：`output/analysis/2026-10-09-hourly-insights-implementation/phase1-verification.json`，SHA256 `73deb6da456b087074d11016dfe2ac3f3fdbcd2933c2e4754da863dff1f896e5`。本地证据和真实群码均不进入Git。
 - 最终证据：`output/analysis/2026-10-09-hourly-insights-implementation/phase2-verification-20261009T051246Z.json`，SHA256 `923ed5f38ba1e3d559477fdcf5da16d6842460d1934cda76b6d9902e79f5b366`；完整检查日志`final-check-authorized.log`保存在同目录。
+- 最终独立审阅发现素材校验头未列入跨源预检允许名单；补充`x-content-sha256`及真实OPTIONS请求回归，不放宽来源或认证。旧冻结候选`ed58aa9`停留未完成，不用于部署；补丁后重新冻结并生成候选。
 - 已有晚间heartbeat已更新并读回：保留ACTIVE、曼谷20:00、原名称与聊天目标；交付现有页面链接和简短观察，停止单独解释性日报，不额外建立本机小时调用。新prompt SHA256 `f1a1d9fe882d47e50dac774fa581e98fb78636e6a624baa70636a210cefa93b1`。这不表示服务器小时模型已经启用，五分钟监控未修改。
 
 ## 未完成项

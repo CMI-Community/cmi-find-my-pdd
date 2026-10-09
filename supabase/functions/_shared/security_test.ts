@@ -58,6 +58,21 @@ Deno.test('CORS allows configured origin only, with no wildcard credential leak'
   throws(() => corsHeaders(new Request('https://api.test', { headers: { origin: 'https://malicious.test' } }), configured), 'FORBIDDEN');
 });
 
+Deno.test('approved binary asset upload preflight permits its exact checksum and authentication headers', () => {
+  const settings: Record<string, string> = { APP_PUBLIC_URL: 'https://example.test' };
+  const request = new Request('https://api.test/v1/admin/public-assets', { method: 'OPTIONS', headers: {
+    origin: 'https://example.test', 'access-control-request-method': 'POST',
+    'access-control-request-headers': 'authorization,apikey,content-type,x-content-sha256',
+  } });
+  const headers = corsHeaders(request, name => settings[name]);
+  const permitted = new Set(headers['Access-Control-Allow-Headers'].split(',').map(value => value.trim().toLowerCase()));
+  for (const requested of request.headers.get('access-control-request-headers')!.split(',')) assert(permitted.has(requested));
+  assert(headers['Access-Control-Allow-Origin'] === 'https://example.test');
+  assert(headers['Access-Control-Allow-Methods'].split(',').map(value => value.trim()).includes('POST'));
+  assert(!permitted.has('x-insights-secret') && !permitted.has('*'));
+  throws(() => corsHeaders(new Request(request, { headers: { origin: 'https://malicious.test' } }), name => settings[name]), 'FORBIDDEN');
+});
+
 Deno.test('candidate paging requires the displayed input version and identifier selection', () => {
   const valid = candidateRequest(new URL('https://example.test/candidates?imageVersion=3&offset=20&selectedIdentifierId=chosen-id'), 3, 'chosen-id');
   assert(valid.offset === 20 && valid.imageVersion === 3 && valid.selectedIdentifierId === 'chosen-id');
