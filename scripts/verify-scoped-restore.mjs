@@ -6,7 +6,7 @@ import { access, mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { FORMAT, PUBLIC_CONTENT_MIGRATION, RUNTIME_KEYS, bucketsForMigrations, migrationManifest, readEncryptedSnapshot, rowsHash, safeStorageKey, sha256, tablesForMigrations } from './backup-scoped.mjs';
+import { FORMAT, PUBLIC_CONTENT_MIGRATION, HOURLY_INSIGHTS_MIGRATION, HOURLY_WORKER_MIGRATION, HOURLY_INSIGHTS_TABLES, RUNTIME_KEYS, bucketsForMigrations, migrationManifest, readEncryptedSnapshot, rowsHash, safeStorageKey, sha256, tablesForMigrations } from './backup-scoped.mjs';
 import { required } from './ops.mjs';
 
 const run = promisify(execFile);
@@ -80,7 +80,7 @@ export async function restoreAndCompare(snapshot, sql) {
   await sql(BOOTSTRAP_SQL);
   for (const migration of migrations) await sql(migration);
   const actorIds = new Set();
-  for (const name of ['audit_events', 'handovers', 'pdd_audit_events', 'pdd_handovers', 'pdd_recipient_audit_events', 'pdd_content_revisions']) for (const row of tables.get(name) ?? []) {
+  for (const name of ['audit_events', 'handovers', 'pdd_audit_events', 'pdd_handovers', 'pdd_recipient_audit_events', 'pdd_content_revisions', 'pdd_insights_settings', 'pdd_insights_releases','pdd_insights_audit']) for (const row of tables.get(name) ?? []) {
     if (row.actor_id != null) {
       if (!uuid.test(row.actor_id)) throw new Error('Invalid audit actor UUID.');
       actorIds.add(row.actor_id);
@@ -111,6 +111,23 @@ export async function restoreAndCompare(snapshot, sql) {
   if (snapshot.migrations.some(entry => entry.version === PUBLIC_CONTENT_MIGRATION)) {
     const bucket = JSON.parse(await sql("select jsonb_build_object('public',public,'limit',file_size_limit,'mime',allowed_mime_types)::text from storage.buckets where id='pdd-public-assets';"));
     if (!bucket?.public || bucket.limit !== 5 * 1024 * 1024 || JSON.stringify(bucket.mime) !== JSON.stringify(['image/png', 'image/jpeg', 'image/webp', 'application/zip'])) throw new Error('Dedicated public asset bucket differs from its migration.');
+  }
+  if (snapshot.migrations.some(entry => entry.version === HOURLY_INSIGHTS_MIGRATION)) {
+    for (const table of HOURLY_INSIGHTS_TABLES) {
+      const writable = await sql(`select has_table_privilege('service_role','public.${table}','INSERT,UPDATE,DELETE');`);
+      if (!['f','false'].includes(writable)) throw new Error(`Restored hourly table permits unaudited service writes: ${table}.`);
+    }
+    const immutableTables = ['pdd_stats_hourly','pdd_insights_feed','pdd_insights_fact_ledger','pdd_insights_releases'];
+    for (const table of immutableTables) {
+      const triggers = Number(await sql(`select count(*) from pg_trigger where tgrelid='public.${table}'::regclass and not tgisinternal and tgfoid='public.pdd_content_immutable()'::regprocedure and (tgtype & 24)=24;`));
+      if (triggers !== 1) throw new Error(`Restored hourly immutability differs: ${table}.`);
+    }
+  }
+  if (snapshot.migrations.some(entry => entry.version === HOURLY_WORKER_MIGRATION)) {
+    if (!['f','false'].includes(await sql("select has_table_privilege('service_role','public.pdd_insights_runs','INSERT,UPDATE,DELETE') or has_table_privilege('service_role','public.pdd_insights_audit','INSERT,UPDATE,DELETE');"))) throw new Error('Restored private observer tables permit direct writes.');
+    if (Number(await sql("select count(*) from pg_trigger where tgrelid='public.pdd_insights_audit'::regclass and not tgisinternal and tgfoid='public.pdd_content_immutable()'::regprocedure;"))!==1) throw new Error('Restored observer audit history guard differs.');
+    if (Number(await sql("select count(*) from pg_trigger where tgrelid='public.pdd_insights_runs'::regclass and not tgisinternal and tgfoid='public.pdd_insights_run_immutable()'::regprocedure;"))!==1) throw new Error('Restored private run transition guard differs.');
+    if (Number(await sql("select count(*) from pg_constraint where conrelid='public.pdd_insights_feed'::regclass and confrelid='public.pdd_insights_runs'::regclass and contype='f';"))!==1) throw new Error('Restored facts lack their private run foreign key.');
   }
   if (Number(await sql('select count(*) from auth.users;')) !== actorIds.size) throw new Error('Audit actor placeholders were not restored.');
   // Storage bytes have authenticated size/hash verification in memory. There is

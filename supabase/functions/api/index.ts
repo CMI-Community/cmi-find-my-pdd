@@ -15,6 +15,7 @@ import { createPublicCache } from '../_shared/public-cache.ts';
 import { configuredTelemetryLimit, createTelemetryLimiter, createTelemetryRoutes } from '../_shared/telemetry-api.ts';
 import { publicAssetMetadataMatches, publicContentRoute } from '../_shared/public-content-api.ts';
 import { PUBLIC_ASSET_BUCKET, publicAssetsRoute } from '../_shared/public-assets-api.ts';
+import { hourlyContentRoute } from '../_shared/hourly-content-api.ts';
 
 type Row = Record<string, any>;
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
@@ -309,6 +310,8 @@ async function route(request: Request, db: SupabaseClient, headers: Record<strin
     if (path === '/stats') return json(await publicCache.get('stats', () => publicLegacyStats(db)), 200, headers);
   }
   await limited(db, request, parts[0] ?? 'root', method === 'GET' ? 120 : 20);
+  const hourlyResponse = await hourlyContentRoute(request, parts, headers, { rpc: (name, payload) => rpc(db, name, payload) });
+  if (hourlyResponse) return hourlyResponse;
   const publicContentResponse = await publicContentRoute(request, parts, headers, {
     rpc: (name, payload) => rpc(db, name, payload), admin: () => admin(db, request), publicBaseUrl: getRuntime('SUPABASE_URL') ?? '',
     assetExists: async url => {

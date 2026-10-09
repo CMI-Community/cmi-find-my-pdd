@@ -26,3 +26,7 @@ verify_jwt = false
 [functions.worker]
 # Constant-time comparison of a private internal worker secret.
 verify_jwt = false
+
+[functions.insights-worker]
+# A separate Vault-backed secret is checked before any data or model key is read.
+verify_jwt = false

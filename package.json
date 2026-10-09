@@ -9,9 +9,9 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "setup": "node scripts/local-setup.mjs",
-    "typecheck": "tsc --noEmit && deno check --config supabase/functions/deno.json supabase/functions/api/index.ts supabase/functions/worker/index.ts",
+    "typecheck": "tsc --noEmit && deno check --config supabase/functions/deno.json supabase/functions/api/index.ts supabase/functions/worker/index.ts supabase/functions/insights-worker/index.ts",
     "test": "vitest run",
-    "test:edge": "deno test --allow-env=APP_PUBLIC_URL,ALLOWED_ORIGINS --config supabase/functions/deno.json supabase/functions/_shared/security_test.ts supabase/functions/_shared/waybill-api_test.ts supabase/functions/_shared/recipient-api_test.ts supabase/functions/_shared/feedback-api_test.ts supabase/functions/_shared/monitoring_test.ts supabase/functions/_shared/telemetry-api_test.ts supabase/functions/_shared/public-content-api_test.ts supabase/functions/_shared/public-assets-api_test.ts",
+    "test:edge": "deno test --allow-env=APP_PUBLIC_URL,ALLOWED_ORIGINS --config supabase/functions/deno.json supabase/functions/_shared/security_test.ts supabase/functions/_shared/waybill-api_test.ts supabase/functions/_shared/recipient-api_test.ts supabase/functions/_shared/feedback-api_test.ts supabase/functions/_shared/monitoring_test.ts supabase/functions/_shared/telemetry-api_test.ts supabase/functions/_shared/public-content-api_test.ts supabase/functions/_shared/public-assets-api_test.ts supabase/functions/_shared/hourly-content-api_test.ts supabase/functions/insights-worker/worker_test.ts",
     "check": "npm run typecheck && npm run test && npm run test:edge",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",

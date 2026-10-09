@@ -7,7 +7,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import type { PddRecipientBatchResult, PddRecipientQueryResult } from '../shared/recipient';
 // @ts-expect-error Native operational ESM is intentionally outside TS compilation.
-import { TABLES, FORMAT, FEEDBACK_MIGRATION, TELEMETRY_MIGRATION, RECIPIENT_MIGRATION, PUBLIC_CONTENT_MIGRATION, bucketsForMigrations, canonical, migrationManifest, readEncryptedSnapshot, rowsHash, sanitizeRow, sha256, snapshotChunks, tablesForMigrations, writeEncryptedChunks } from '../scripts/backup-scoped.mjs';
+import { TABLES, FORMAT, FEEDBACK_MIGRATION, TELEMETRY_MIGRATION, RECIPIENT_MIGRATION, PUBLIC_CONTENT_MIGRATION, HOURLY_INSIGHTS_MIGRATION, HOURLY_WORKER_MIGRATION, HOURLY_INSIGHTS_TABLES, bucketsForMigrations, canonical, migrationManifest, readEncryptedSnapshot, rowsHash, sanitizeRow, sha256, snapshotChunks, tablesForMigrations, writeEncryptedChunks } from '../scripts/backup-scoped.mjs';
 // @ts-expect-error Native operational ESM is intentionally outside TS compilation.
 import { BOOTSTRAP_SQL, restoreAndCompare, validateSnapshot, verifiedMigrations, verifyScopedRestore } from '../scripts/verify-scoped-restore.mjs';
 
@@ -69,6 +69,14 @@ beforeAll(async () => {
   await source.query("insert into public.pdd_stats_daily(day,sampled_at,metric_version,stats) values((now() at time zone 'Asia/Bangkok')::date,now(),'home-six-lifetime-v1',public.pdd_home_stats('{}'))");
   const publication = { kind: 'outreach', key: 'main', action: 'publish', expectedRevision: 0, content: { items: [] } };
   await source.query('select public.pdd_publish_content($1::jsonb)', [JSON.stringify({ kind: publication.kind, key: publication.key, action: publication.action, expected_revision: 0, content: publication.content, actor_id: actor, approval_artifact_sha: sha256(canonical(publication)) })]);
+  await source.query("select public.pdd_capture_stats_hourly('{}'::jsonb)");
+  await source.query("update public.pdd_insights_settings set enabled=true,model='gpt-5.6-luna',prompt_version='hourly-observation-v1'");
+  const observedUntil=(await source.query<{value:string}>("select public.pdd_hourly_source('{}')->>'observedUntil' value")).rows[0].value;
+  const candidate={id:'synthetic-hourly-candidate',kind:'registration',topic:'registrations',score:1,priority:3,windowStart:new Date(Date.parse(observedUntil)-3600000).toISOString(),windowEnd:observedUntil,dedupKey:'synthetic-hourly-dedup',headlines:[{id:'label',text:'登记'}],facts:[{id:'fact-one',text:'过去一小时新增 2 条登记记录。'}],stableFactKeys:['f'.repeat(64)],windowId:'h1',source:'same-six-snapshot',definitionVersion:'home-six-lifetime-v1',value:2,direction:'up'};
+  const modelCandidates=(await source.query<{value:unknown}>('select public.pdd_insights_model_candidates($1::jsonb) value',[JSON.stringify([candidate])])).rows[0].value;
+  const run=(await source.query<{value:{runId:string}}>('select public.pdd_insights_reserve($1::jsonb) value',[JSON.stringify({input:{observedUntil,timezone:'Asia/Bangkok',selectionLimit:3,candidates:modelCandidates,recentObservations:[]},candidates:[candidate],model:'gpt-5.6-luna',prompt_version:'hourly-observation-v1'})])).rows[0].value;
+  await source.query('select public.pdd_insights_finish($1::jsonb)',[JSON.stringify({run_id:run.runId,state:'completed',selection:{observations:[{candidateId:candidate.id,headlineId:'label',factIds:['fact-one']}]},usage:{inputTokens:100,outputTokens:10,costUsd:0.000032}})]);
+  await source.query('select public.pdd_insights_accept_release($1::jsonb)',[JSON.stringify({release_key:'d'.repeat(64),accepted_at:new Date(Date.now()-1000).toISOString(),fact_text:'合成测试：小时统计页面已完成生产验收。',frontend_sha:'a'.repeat(40),api_sha:'b'.repeat(40),database_versions:['20261009040000'],actor_id:actor})]);
   const tables = [];
   for (const name of tableNames) {
     const rows = (await source.query<{ value: Row }>(`select to_jsonb(row) value from public.${name} row`)).rows.map(row => row.value);
@@ -140,8 +148,8 @@ describe('scoped encrypted fallback and restore', () => {
       expect(sealed.includes(Buffer.from('fictional_owner'))).toBe(false);
       expect((await stat(file)).mode & 0o777).toBe(0o600);
       const opened = await readEncryptedSnapshot(file, password);
-      expect(validateSnapshot(opened).size).toBe(28);
-      expect(client.calls.size).toBe(28);
+      expect(validateSnapshot(opened).size).toBe(tableNames.length);
+      expect(client.calls.size).toBe(tableNames.length);
       expect(opened.storage).toEqual(fixture.storage);
       expect(client.bucketCalls.has('pdd-public-assets')).toBe(true);
       expect([...client.calls.values()].every(count => count === 2)).toBe(true);
@@ -177,12 +185,13 @@ describe('scoped encrypted fallback and restore', () => {
       expect(() => validateSnapshot({ ...fixture, tables: fixture.tables.filter(table => table.name !== name) })).toThrow('Incomplete');
     }
     const emptyRecipientTables = { ...fixture, tables: fixture.tables.map(table => table.name.startsWith('pdd_recipient_') ? { ...table, rows: [], rowCount: 0, sha256: rowsHash([]) } : table) };
-    expect(validateSnapshot(emptyRecipientTables).size).toBe(28);
+    expect(validateSnapshot(emptyRecipientTables).size).toBe(tableNames.length);
     for (const name of ['pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events']) {
       expect(() => validateSnapshot({ ...emptyRecipientTables, tables: emptyRecipientTables.tables.filter(table => table.name !== name) })).toThrow('Incomplete');
     }
+    for (const name of HOURLY_INSIGHTS_TABLES) expect(() => validateSnapshot({ ...fixture, tables: fixture.tables.filter(table => table.name !== name) })).toThrow('Incomplete');
     const emptyPublic = { ...fixture, tables: fixture.tables.map(table => ['pdd_stats_daily','pdd_content_revisions'].includes(table.name) ? { ...table, rows: [], rowCount: 0, sha256: rowsHash([]) } : table) };
-    expect(validateSnapshot(emptyPublic).size).toBe(28);
+    expect(validateSnapshot(emptyPublic).size).toBe(tableNames.length);
     for (const name of ['pdd_stats_daily','pdd_content_revisions']) expect(() => validateSnapshot({ ...emptyPublic, tables: emptyPublic.tables.filter(table => table.name !== name) })).toThrow('Incomplete');
     expect(() => validateSnapshot({ ...fixture, storage: fixture.storage.map(item => item.bucket === 'pdd-public-assets' ? { ...item, key: '0'.repeat(64) + '.png' } : item) })).toThrow('immutable bytes');
   });
@@ -196,8 +205,19 @@ describe('scoped encrypted fallback and restore', () => {
         return last ? String(Object.values(last)[0]) : '';
       };
       const result = await restoreAndCompare(fixture, sql);
-      expect(result).toMatchObject({ tables: 28, storageObjects: 2, auditActorPlaceholders: 1 });
+      expect(result).toMatchObject({ tables: tableNames.length, storageObjects: 2, auditActorPlaceholders: 1 });
       expect(await sql("select count(*) from public.pdd_stats_daily")).toBe('1');
+      expect(await sql("select count(*) from public.pdd_stats_hourly")).toBe('1');
+      expect(await sql("select sum(event_count) from public.pdd_telemetry_hourly")).toBe('6');
+      expect(await sql("select count(*) from public.pdd_insights_runs")).toBe('1');
+      expect(await sql("select count(*) from public.pdd_insights_feed")).toBe('1');
+      expect(await sql("select count(*) from public.pdd_insights_fact_ledger")).toBe('1');
+      expect(await sql("select count(*) from public.pdd_insights_releases")).toBe('1');
+      expect(JSON.parse(await sql("select public.pdd_public_hourly_feed('{}')::text")).observations[0].text).toBe('过去一小时新增 2 条登记记录。');
+      expect(await sql("select has_table_privilege('service_role','public.pdd_insights_feed','INSERT,UPDATE,DELETE')::text")).toBe('false');
+      expect(await sql("select has_function_privilege('authenticated','public.pdd_hourly_source(jsonb)','EXECUTE')::text")).toBe('false');
+      await expect(database.exec('delete from public.pdd_insights_feed;')).rejects.toThrow('IMMUTABLE_HISTORY');
+
       expect(await sql("select count(*) from public.pdd_content_revisions where approval_artifact_sha ~ '^[0-9a-f]{64}$'")).toBe('1');
       expect(JSON.parse(await sql("select public.pdd_public_outreach('{}')::text"))).toMatchObject({ catalog: { revision: 1, content: { items: [] } }, developerGroup: null });
       expect(await sql("select has_table_privilege('authenticated','public.pdd_content_revisions','SELECT')::text")).toBe('false');
@@ -220,6 +240,34 @@ describe('scoped encrypted fallback and restore', () => {
       expect((await database.query<{ accepted_batches: number; accepted_events: number; daily_limit: number; limited_at: string | null }>('select accepted_batches,accepted_events,daily_limit,limited_at from public.pdd_telemetry_budget')).rows).toEqual([{ accepted_batches: 1, accepted_events: 6, daily_limit: 100000, limited_at: null }]);
     } finally { await database.close(); }
   }, 30_000);
+  it('restores encrypted hourly statistics backups from before the model worker without new private run/audit tables',async()=>{
+    const migrations=fixture.migrations.filter(entry=>entry.version<HOURLY_WORKER_MIGRATION),old=await snapshotForMigrations(migrations),database=new PGlite({extensions:{pgcrypto}});
+    const directory=await mkdtemp(path.join(tmpdir(),'pdd404-pre-hourly-worker-'));
+    try {
+      expect(validateSnapshot(old).size).toBe(34);const client=mockClient(false,false,old),file=path.join(directory,'older.cmibak');await writeEncryptedChunks(file,password,snapshotChunks(client,{project,migrations}));
+      const opened=await readEncryptedSnapshot(file,password);expect(client.calls.has('pdd_insights_runs')).toBe(false);expect(client.calls.has('pdd_insights_audit')).toBe(false);
+      const sql=async(statement:string)=>{const result=await database.exec(statement);const row=result.at(-1)?.rows[0];return row?String(Object.values(row)[0]):'';};
+      expect(await restoreAndCompare(opened,sql)).toMatchObject({tables:34,storageObjects:2,auditActorPlaceholders:1});expect(await sql("select to_regclass('public.pdd_insights_runs') is null")).toBe('true');
+      expect(()=>validateSnapshot({...opened,migrations:fixture.migrations})).toThrow('Incomplete');
+    } finally {await database.close();await rm(directory,{recursive:true,force:true});}
+  },30000);
+  it('restores pre-hourly encrypted snapshots without requiring new telemetry, feed, private ledger or settings', async () => {
+    const migrations=fixture.migrations.filter(entry=>entry.version<HOURLY_INSIGHTS_MIGRATION);
+    const old=await snapshotForMigrations(migrations),database=new PGlite({extensions:{pgcrypto}});
+    try {
+      expect(validateSnapshot(old).size).toBe(28);
+      const client=mockClient(false,false,old),directory=await mkdtemp(path.join(tmpdir(),'pdd404-pre-hourly-'));
+      try {
+        const file=path.join(directory,'legacy.cmibak');await writeEncryptedChunks(file,password,snapshotChunks(client,{project,migrations}));
+        const opened=await readEncryptedSnapshot(file,password);
+        expect([...client.calls.keys()].some(name=>[...HOURLY_INSIGHTS_TABLES,'pdd_insights_runs','pdd_insights_audit'].includes(name))).toBe(false);
+        const sql=async(statement:string)=>{const result=await database.exec(statement);const row=result.at(-1)?.rows[0];return row?String(Object.values(row)[0]):'';};
+        expect(await restoreAndCompare(opened,sql)).toMatchObject({tables:28,storageObjects:2,auditActorPlaceholders:1});
+        expect(await sql("select to_regclass('public.pdd_stats_hourly') is null")).toBe('true');
+        expect(()=>validateSnapshot({...opened,migrations:fixture.migrations})).toThrow('Incomplete');
+      } finally {await rm(directory,{recursive:true,force:true});}
+    } finally {await database.close();}
+  },30000);
   it('restores the encrypted pre-public-content schema without requiring or reading the two new tables or public asset bucket', async () => {
     const migrations = fixture.migrations.filter(entry => entry.version < PUBLIC_CONTENT_MIGRATION);
     const old = await snapshotForMigrations(migrations), database = new PGlite({ extensions: { pgcrypto } });
@@ -364,7 +412,7 @@ describe('scoped encrypted fallback and restore', () => {
     try {
       const file = path.join(directory, 'snapshot.cmibak');
       await writeFixture(file);
-      expect(await verifyScopedRestore(file, password)).toMatchObject({ tables: 28, storageObjects: 2, auditActorPlaceholders: 1 });
+      expect(await verifyScopedRestore(file, password)).toMatchObject({ tables: tableNames.length, storageObjects: 2, auditActorPlaceholders: 1 });
     } finally { await rm(directory, { recursive: true, force: true }); }
   }, 30_000);
 });

@@ -12,6 +12,10 @@ export const FEEDBACK_MIGRATION = '20261006141735';
 export const TELEMETRY_MIGRATION = '20261006173511';
 export const RECIPIENT_MIGRATION = '20261007083319';
 export const PUBLIC_CONTENT_MIGRATION = '20261008133000';
+export const HOURLY_INSIGHTS_MIGRATION = '20261009040000';
+export const HOURLY_WORKER_MIGRATION = '20261009050000';
+export const HOURLY_WORKER_TABLES = ['pdd_insights_runs','pdd_insights_audit'];
+export const HOURLY_INSIGHTS_TABLES = ['pdd_stats_hourly','pdd_telemetry_hourly','pdd_insights_settings','pdd_insights_feed','pdd_insights_fact_ledger','pdd_insights_releases'];
 export const TABLES = Object.freeze([
   ['scans', ['id']], ['images', ['id']], ['records', ['id']], ['evidence', ['id']],
   ['jobs', ['id']], ['matches', ['id']], ['followups', ['id']], ['handovers', ['id']],
@@ -26,6 +30,8 @@ export const TABLES = Object.freeze([
   ['pdd_recipient_leads', ['id']], ['pdd_recipient_query_events', ['id']],
   ['pdd_recipient_audit_events', ['id']],
   ['pdd_stats_daily', ['day']], ['pdd_content_revisions', ['kind', 'content_key', 'revision']],
+  ['pdd_stats_hourly', ['hour']], ['pdd_telemetry_hourly', ['hour','event','page','mode','source','scan_mode','batch_bucket','dwell_bucket']],
+  ['pdd_insights_settings',['id']], ['pdd_insights_runs',['id']], ['pdd_insights_audit',['id']], ['pdd_insights_feed',['id']], ['pdd_insights_fact_ledger',['fact_key']], ['pdd_insights_releases',['release_key']],
 ].map(([name, order]) => Object.freeze({ name, order: Object.freeze(order) })));
 // Older encrypted snapshots must reconstruct their original schema. A snapshot
 // declaring a table's migration must include that table, even when empty.
@@ -35,10 +41,12 @@ export function tablesForMigrations(migrations) {
   const hasTelemetry = migrations.some(entry => entry?.version === TELEMETRY_MIGRATION);
   const hasRecipient = migrations.some(entry => entry?.version === RECIPIENT_MIGRATION);
   const hasPublicContent = migrations.some(entry => entry?.version === PUBLIC_CONTENT_MIGRATION);
+  const hasHourlyInsights = migrations.some(entry => entry?.version === HOURLY_INSIGHTS_MIGRATION);
+  const hasHourlyWorker = migrations.some(entry => entry?.version === HOURLY_WORKER_MIGRATION);
   return TABLES.filter(table => (hasFeedback || table.name !== 'pdd_feedback') &&
     (hasTelemetry || !['pdd_telemetry_daily', 'pdd_telemetry_budget'].includes(table.name)) &&
     (hasRecipient || !['pdd_recipient_leads', 'pdd_recipient_query_events', 'pdd_recipient_audit_events'].includes(table.name)) &&
-    (hasPublicContent || !['pdd_stats_daily', 'pdd_content_revisions'].includes(table.name)));
+    (hasPublicContent || !['pdd_stats_daily', 'pdd_content_revisions'].includes(table.name)) && (hasHourlyInsights || !HOURLY_INSIGHTS_TABLES.includes(table.name)) && (hasHourlyWorker || !HOURLY_WORKER_TABLES.includes(table.name)));
 }
 export const BUCKETS = Object.freeze(['parcel-originals', 'parcel-public', 'community-assets', 'pdd-public-assets']);
 export function bucketsForMigrations(migrations) {

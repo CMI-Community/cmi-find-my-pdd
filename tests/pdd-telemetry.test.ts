@@ -4,6 +4,7 @@ import { TELEMETRY_MAX_BYTES, validateTelemetryRows, type TelemetryRow } from '.
 
 describe('bounded first-party telemetry batching', () => {
   it('accepts fixed name-flow events but rejects names and disclosure data', () => {
+    for (const page of ['insights', 'share']) expect(validateTelemetryRows([{ event: 'pdd_page_view', page, count: 1 }])).toHaveLength(1);
     expect(validateTelemetryRows([{ event: 'pdd_recipient_query_leads_found', page: 'home', mode: 'received', count: 1 }])).toHaveLength(1);
     expect(validateTelemetryRows([{ event: 'pdd_recipient_registration_registered', page: 'home', mode: 'lost', batch: '2-5', count: 1 }])).toHaveLength(1);
     for (const privateField of ['recipientName', 'contact', 'note', 'queryId', 'number']) {

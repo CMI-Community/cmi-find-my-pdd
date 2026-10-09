@@ -28,7 +28,11 @@ describe('PDD404 anonymous analytics boundaries', () => {
     expect(sanitizedAnalyticsUrl(origin + '/?mode=received&number=SYNTHETIC001#capability=secret', origin)).toBe(origin + '/');
     expect(sanitizedAnalyticsUrl(origin + '/community?contact=synthetic#token=secret', origin)).toBe(origin + '/help');
     expect(analyticsPage('/privacy')?.page).toBe('privacy');
-    for (const path of ['/admin', '/admin/login', '/m/PDD-SYNTHETIC', '/manage/PDD-SYNTHETIC', '/p/PDD-SYNTHETIC', '/p/PDD-SYNTHETIC/share', '/unknown', '/constructor']) {
+    for (const path of ['/insights', '/share']) {
+      expect(analyticsPage(path)?.page).toBe(path.slice(1));
+      expect(sanitizedAnalyticsUrl(origin + path + '?date=2026-10-09&contact=synthetic#secret', origin)).toBe(origin + path);
+    }
+    for (const path of ['/admin', '/admin/login', '/m/PDD-SYNTHETIC', '/manage/PDD-SYNTHETIC', '/p/PDD-SYNTHETIC', '/p/PDD-SYNTHETIC/share', '/insights/synthetic-private', '/share/synthetic-private', '/unknown', '/constructor']) {
       expect(analyticsPage(path)).toBeNull();
       expect(sanitizedAnalyticsUrl(origin + path + '?secret=synthetic#cap=synthetic', origin)).toBeNull();
     }
