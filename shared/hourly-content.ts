@@ -1,6 +1,7 @@
 import type { PddHomeStats } from './waybill.ts';
 
 export const HOURLY_STATS_METRIC_VERSION = 'home-six-lifetime-v1' as const;
+export const HOURLY_RECORDS_METRIC_VERSION = 'home-six-recorded-additions-v1' as const;
 export const HOURLY_FEED_PAGE_SIZE = 20;
 export const HOURLY_HISTORY_DEFAULT_HOURS = 48;
 export const HOURLY_HISTORY_MAX_HOURS = 720;
@@ -8,7 +9,11 @@ export const HOURLY_STATS_KEYS = ['lostRegistered', 'receivedRegistered', 'match
 /** hour is the UTC server slot; sampledAt is the actual first capture, not an invented boundary. */
 export interface HourSnapshot { hour: string; sampledAt: string; metricVersion: typeof HOURLY_STATS_METRIC_VERSION; stats: PddHomeStats }
 export interface PublicObservation { id: string; category: string; text: string; publishedAt: string; windowStart: string; windowEnd: string }
-export interface HourlyHistory { sampledAt: string; snapshots: HourSnapshot[] }
+export interface HourlyRecordedAdditions {
+  metricVersion: typeof HOURLY_RECORDS_METRIC_VERSION; from: string; until: string; firstRecordedAt: string | null;
+  hours: Array<{ hour: string; stats: PddHomeStats }>;
+}
+export interface HourlyHistory { sampledAt: string; snapshots: HourSnapshot[]; records?: HourlyRecordedAdditions }
 export interface HourlyFeed { observations: PublicObservation[]; nextBefore: string | null }
 export interface HourlyDashboard extends HourlyHistory, HourlyFeed { metricVersion: typeof HOURLY_STATS_METRIC_VERSION; stats: PddHomeStats }
 export interface HourlyReadParameters { hours?: number; date?: string; before?: string }
@@ -32,6 +37,9 @@ export type HourlyBusinessCount = { hour: string; stats: PddHomeStats; handovers
 export interface HourlySourceInput {
   sampledAt: string; observedUntil: string; fromHour: string; metricVersion: typeof HOURLY_STATS_METRIC_VERSION;
   snapshots: HourSnapshot[]; businessHours: HourlyBusinessCount[]; queries: HourlyQueryCount[];
+  businessFirstRecordedAt?: Record<keyof PddHomeStats, string | null>;
+  queriesFirstRecordedAt?: { waybill: string | null; recipient: string | null };
+  legacyDailyTraffic?: { truncated: boolean; events: Array<{ day: string; count: number }> };
   outcomesAvailable: boolean; outcomes: Array<{ kind: 'parcel-match' | 'recipient-match' | 'handover'; at: string; key: string }> ; publishedFactKeys: string[]; recentObservations: Array<{ candidateId: string; topic: string; dedupKey: string; publishedAt: string; windowStart: string; windowEnd: string;windowId?:'h1'|'h3'|'h24';source?:string;definitionVersion?:string;value?:number;direction?:'up'|'down'|'equal' }>; verifiedReleases: Array<{ key: string; at: string; category: string; text: string }>;
   telemetry: { truncated: boolean; startedAt: string; events: Array<{ hour: string; event: string; page: string; mode: string | null; source: string | null; scanMode: string | null; batch: string | null; bucket: string | null; count: number }>; budget: Array<{ day: string; acceptedEvents: number; acceptedBatches: number; dailyLimit: number; limitedAt: string | null }> };
 }
@@ -54,12 +62,38 @@ export function hourlyObservation(value: unknown): PublicObservation {
   if (Date.parse(windowStart) >= Date.parse(windowEnd) || Date.parse(windowEnd) > Date.parse(publishedAt)) invalid();
   return { id: hourlyId(input.id), category: text(input.category, 24), text: text(input.text, 90), publishedAt, windowStart, windowEnd };
 }
+/** Recorded additions are event-time buckets, never reconstructed cumulative snapshots. */
+export function hourlyRecordedAdditions(value: unknown, sampledAt: string): HourlyRecordedAdditions {
+  const input = row(value), hourSize = 3_600_000;
+  const strictTime = (value: unknown) => {
+    const parsed = timestamp(value), civil = parsed.slice(0, 10);
+    const [year, month, day] = civil.split('-').map(Number);
+    if (new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10) !== civil) invalid();
+    return parsed;
+  };
+  const from = strictTime(input.from), until = strictTime(input.until);
+  const firstRecordedAt = input.firstRecordedAt === null ? null : strictTime(input.firstRecordedAt);
+  const start = Date.parse(from), end = Date.parse(until), first = firstRecordedAt === null ? null : Date.parse(firstRecordedAt);
+  if (input.metricVersion !== HOURLY_RECORDS_METRIC_VERSION || start % hourSize !== 0 || start > end
+    || end !== Date.parse(sampledAt) || end - start > (HOURLY_HISTORY_MAX_HOURS + 1) * hourSize
+    || (first !== null && first > end) || !Array.isArray(input.hours) || input.hours.length > HOURLY_HISTORY_MAX_HOURS + 1) invalid();
+  let previous: number | null = null;
+  const expectedFirst = first === null ? null : Math.max(start, Math.floor(first / hourSize) * hourSize);
+  const hours = input.hours.map(value => {
+    const item = row(value), hour = strictTime(item.hour), at = Date.parse(hour);
+    if (first === null || at % hourSize !== 0 || at < start || at >= end || at < Math.floor(first / hourSize) * hourSize
+      || (previous === null ? at !== expectedFirst : at !== previous + hourSize)) invalid();
+    previous = at;
+    return { hour, stats: hourlySix(item.stats) };
+  });
+  return { metricVersion: HOURLY_RECORDS_METRIC_VERSION, from, until, firstRecordedAt, hours };
+}
 export function hourlyHistory(value: unknown): HourlyHistory {
   const input = row(value), sampledAt = timestamp(input.sampledAt);
   if (!Array.isArray(input.snapshots) || input.snapshots.length > HOURLY_HISTORY_MAX_HOURS + 1) invalid();
   const snapshots = input.snapshots.map(hourlySnapshot), seen = new Set<string>(); let previous = -Infinity;
   for (const snapshot of snapshots) { const at = Date.parse(snapshot.hour); if (seen.has(snapshot.hour) || at <= previous || Date.parse(snapshot.sampledAt) > Date.parse(sampledAt)) invalid(); seen.add(snapshot.hour); previous = at; }
-  return { sampledAt, snapshots };
+  return { sampledAt, snapshots, ...(input.records === undefined ? {} : { records: hourlyRecordedAdditions(input.records, sampledAt) }) };
 }
 export function hourlyFeed(value: unknown): HourlyFeed {
   const input = row(value); if (!Array.isArray(input.observations) || input.observations.length > HOURLY_FEED_PAGE_SIZE) invalid();

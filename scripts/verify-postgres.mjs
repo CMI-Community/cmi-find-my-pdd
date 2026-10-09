@@ -12,6 +12,7 @@ import { FORMAT, canonical, migrationManifest, rowsHash, sha256, tablesForMigrat
 import { verifyScopedRestore } from './verify-scoped-restore.mjs';
 import { verifyHourlyInsights } from './verify-hourly-insights.mjs';
 import { verifyHourlyWorker } from './verify-hourly-worker.mjs';
+import { verifyHourlyRecordedHistory } from './verify-hourly-recorded-history.mjs';
 
 const run = promisify(execFile);
 let bin;
@@ -269,6 +270,7 @@ try {
   let recipientStatsUpgradeChecked = false;
   let publicContentUpgradeChecked = false;
   let hourlyUpgradeChecked = false;
+  let historyUpgradeChecked = false;
   const hourlyTables = ['pdd_stats_hourly','pdd_telemetry_hourly','pdd_insights_settings','pdd_insights_feed','pdd_insights_fact_ledger','pdd_insights_releases'];
   const hourlyMetadataSQL = `select jsonb_agg(jsonb_build_object('name',p.proname,'oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig,'arguments',p.proargtypes::text,'definition',pg_get_functiondef(p.oid)) order by p.proname)::text
     from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('pdd_home_stats','pdd_telemetry_ingest','pdd_telemetry_cleanup');`;
@@ -309,6 +311,7 @@ try {
     const publicContentUpgrade = name.endsWith('_public_insights_content.sql');
     const hourlyUpgrade = name.endsWith('_hourly_public_insights.sql');
     const workerUpgrade = name.endsWith('_hourly_insights_worker.sql');
+    const historyUpgrade = name.endsWith('_hourly_recorded_history.sql');
     const beforeBusinessMetadata = businessUpgrade ? JSON.parse(await sql(businessMetadataSQL)) : null;
     if (businessUpgrade) assert.equal(beforeBusinessMetadata.length, 6);
     if (upgrade) {
@@ -322,6 +325,16 @@ try {
       await rpc('pdd_query', evidence);
     }
     const migration = (await readFile(new URL(name, directory), 'utf8')).replace(/^create extension if not exists pg_net.*$/m, '').replace(/^create extension if not exists pg_cron.*$/m, '');
+    let historyBeforeTables,historyBeforeCron,historyBeforeMetadata;
+    const historyMetadataSQL="select jsonb_agg(jsonb_build_object('name',p.proname,'oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig,'arguments',p.proargtypes::text,'definition',pg_get_functiondef(p.oid)) order by p.proname)::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('pdd_home_stats','pdd_public_hourly_history','pdd_public_hourly_dashboard','pdd_hourly_source','pdd_capture_stats_hourly','pdd_telemetry_ingest','pdd_telemetry_cleanup','pdd_insights_wake');";
+    if(historyUpgrade){
+      historyBeforeTables=await tableDigest();historyBeforeCron=await sql("select coalesce(jsonb_agg(to_jsonb(j) order by jobname),'[]')::text from cron.job j;");historyBeforeMetadata=JSON.parse(await sql(historyMetadataSQL));
+      assert.equal(historyBeforeMetadata.length,8);
+      await sql(`begin; ${migration} rollback;`);
+      assert.equal(await sql("select to_regprocedure('public.pdd_public_hourly_records(jsonb)') is null;"),'t');
+      assert.deepEqual(await tableDigest(),historyBeforeTables);assert.equal(await sql("select coalesce(jsonb_agg(to_jsonb(j) order by jobname),'[]')::text from cron.job j;"),historyBeforeCron);
+      assert.deepEqual(JSON.parse(await sql(historyMetadataSQL)),historyBeforeMetadata);
+    }
     let workerBeforeTables,workerBeforeCron,workerBeforeSource,workerBeforeMetadata;
     const workerMetadataSQL="select jsonb_agg(jsonb_build_object('name',p.proname,'oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig,'arguments',p.proargtypes::text) order by p.proname)::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('pdd_hourly_source','pdd_insights_accept_release');";
     if(workerUpgrade){
@@ -445,7 +458,20 @@ try {
       assert.equal((await rpc('pdd_recipient_query', recipientQuery('下划线迁移合成收件人'))).leads[0].contact.value, '_PDD404TEST_2026');
       console.log('WeChat underscore migration passed real rollback/commit, unchanged stored rows/function identity/ACL, legacy length compatibility, and exact-name contact readback.');
     } else {
-      await sql(publicContentUpgrade || hourlyUpgrade || workerUpgrade ? `begin; ${migration} commit;` : migration);
+      await sql(publicContentUpgrade || hourlyUpgrade || workerUpgrade || historyUpgrade ? `begin; ${migration} commit;` : migration);
+    }
+    if(historyUpgrade){
+      assert.deepEqual(await tableDigest(),historyBeforeTables);assert.equal(await sql("select coalesce(jsonb_agg(to_jsonb(j) order by jobname),'[]')::text from cron.job j;"),historyBeforeCron);
+      const after=JSON.parse(await sql(historyMetadataSQL));
+      for(let i=0;i<historyBeforeMetadata.length;i++){
+        const {definition:oldDefinition,...oldIdentity}=historyBeforeMetadata[i],{definition:newDefinition,...newIdentity}=after[i];
+        assert.deepEqual(newIdentity,oldIdentity);
+        if(['pdd_public_hourly_history','pdd_hourly_source'].includes(oldIdentity.name))assert.notEqual(newDefinition,oldDefinition);else assert.equal(newDefinition,oldDefinition);
+      }
+      assert.equal(await sql('select count(*) from public.pdd_stats_hourly;'),'0','Reading record timestamps must not populate past snapshots.');
+      assert.equal(await sql("select has_function_privilege('service_role','public.pdd_public_hourly_records(jsonb)','EXECUTE') and not has_function_privilege('anon','public.pdd_public_hourly_records(jsonb)','EXECUTE') and not has_function_privilege('authenticated','public.pdd_public_hourly_records(jsonb)','EXECUTE');"),'t');
+      historyUpgradeChecked=true;
+      console.log('Recorded-history migration passed real rollback/commit, no business/snapshot/setting row changes, all cron jobs and eight RPC identities/ACL preserved; only history/source definitions extend safe aggregates.');
     }
     if (publicContentUpgrade) {
       assert.equal(await sql('select count(*) from public.pdd_stats_daily;'), '0');
@@ -1045,6 +1071,8 @@ try {
   assert(hourlyUpgradeChecked);
   await verifyHourlyInsights({sql,rpc,quote,invoke,businessError,actor});
   await verifyHourlyWorker({sql,rpc,quote,invoke});
+  assert(historyUpgradeChecked);
+  await verifyHourlyRecordedHistory({sql,rpc,invoke});
 
   const dumped = path.join(root, 'database.dump'), sealed = path.join(root, 'database.cmibak'), reopened = path.join(root, 'restored.dump');
   const beforeRestoreStats = await rpc('pdd_home_stats', {});
@@ -1088,6 +1116,7 @@ try {
   await assert.rejects(() => rpc('pdd_query', { ...historicalQuery, query_id: randomUUID() }, 'pdd404_restore_check'), /NON_DOMESTIC_WAYBILL/);
   await assert.rejects(() => rpc('pdd_batch_register', batch(forwardingNumber, 'lost', capA, 'fictional_restored_forwarding'), 'pdd404_restore_check'), /NON_DOMESTIC_WAYBILL/);
   console.log('Encrypted dump/decrypt and independent database restore passed, including lifetime stats, notes and feedback; restored RLS remains closed.');
+  await verifyHourlyRecordedHistory({sql,rpc,invoke},'pdd404_restore_check');
   const migrations = await migrationManifest(), scopedTables = [];
   for (const table of tablesForMigrations(migrations)) {
     const rows = JSON.parse(await sql(`select coalesce(jsonb_agg(to_jsonb(r)),'[]')::text from public.${table.name} r;`));
