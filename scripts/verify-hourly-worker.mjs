@@ -4,11 +4,15 @@ import {randomUUID} from 'node:crypto';
 const MODEL='gpt-5.6-luna',PROMPT='hourly-observation-v1',SECRET='a'.repeat(64),KEY='sk-synthetic_private_local_only_123456789';
 export async function verifyHourlyWorker({sql,rpc,invoke,quote}) {
  await sql(`create schema vault;create table vault.decrypted_secrets(id uuid primary key default gen_random_uuid(),name text unique,decrypted_secret text);
- create function vault.create_secret(secret text,name text,description text) returns uuid language sql as $$insert into vault.decrypted_secrets(name,decrypted_secret) values(name,secret) returning id$$;
- create function vault.update_secret(secret_id uuid,secret text,name text,description text) returns void language sql as $$update vault.decrypted_secrets set decrypted_secret=secret,name=update_secret.name where id=secret_id$$;`);
+ create function vault.create_secret(new_secret text,new_name text default null,new_description text default '',new_key_id uuid default null) returns uuid language sql as $$insert into vault.decrypted_secrets(name,decrypted_secret) values(new_name,new_secret) returning id$$;
+ create function vault.update_secret(secret_id uuid,new_secret text default null,new_name text default null,new_description text default '',new_key_id uuid default null) returns void language sql as $$update vault.decrypted_secrets set decrypted_secret=new_secret,name=new_name where id=secret_id$$;`);
  await sql(`create table net.test_calls(id bigint generated always as identity primary key,url text,headers jsonb,body jsonb,timeout_ms integer);
  create or replace function net.http_post(url text,headers jsonb,body jsonb,timeout_milliseconds integer) returns bigint language plpgsql as $$declare result bigint;begin insert into net.test_calls(url,headers,body,timeout_ms) values(url,headers,body,timeout_milliseconds) returning id into result;return result;end$$;`);
  const config={url:'https://fogncjjsnakbhfdbfvdi.supabase.co/functions/v1/insights-worker',model_key:KEY,worker_secret:SECRET,model:MODEL,prompt_version:PROMPT,actor_id:null,enabled:true};
+ assert.equal(await sql("select to_regprocedure('vault.create_secret(text,text,text)') is null and to_regprocedure('vault.update_secret(uuid,text,text,text)') is null;"),'t');
+ // An exact identity without the optional final parameter must fail closed.
+ await assert.rejects(()=>sql(`begin;alter function vault.create_secret(text,text,text,uuid) rename to create_secret_with_defaults;create function vault.create_secret(new_secret text,new_name text,new_description text,new_key_id uuid) returns uuid language sql as $$insert into vault.decrypted_secrets(name,decrypted_secret) values(new_name,new_secret) returning id$$;${invoke('pdd_insights_configure_worker',config)}commit;`),/CONFIGURATION_INVALID/);
+ assert.equal(await sql('select count(*) from vault.decrypted_secrets;'),'0');
  assert.equal((await rpc('pdd_insights_configure_worker',config)).configured,true);
  const runtime=await rpc('pdd_insights_runtime',{worker_secret:SECRET});assert.equal(runtime.modelKey,KEY);assert.equal(runtime.workerSecret,undefined);assert.equal(runtime.reservationUsd,.01);
  await assert.rejects(()=>rpc('pdd_insights_runtime',{worker_secret:'b'.repeat(64)}),/FORBIDDEN/);

@@ -64,8 +64,8 @@ describe('hourly public snapshot and atomic telemetry',()=>{
 const workerSecret='a'.repeat(64),modelKey='sk-synthetic_key_for_local_tests_only_123456789';
 async function configureVault(enabled=true) {
  await db.exec(`create schema vault;create table vault.decrypted_secrets(id uuid primary key default gen_random_uuid(),name text unique,decrypted_secret text);
- create function vault.create_secret(secret text,name text,description text) returns uuid language sql as 'insert into vault.decrypted_secrets(name,decrypted_secret) values(name,secret) returning id';
- create function vault.update_secret(secret_id uuid,secret text,name text,description text) returns void language sql as 'update vault.decrypted_secrets set decrypted_secret=secret,name=update_secret.name where id=secret_id';`);
+ create function vault.create_secret(new_secret text,new_name text default null,new_description text default '',new_key_id uuid default null) returns uuid language sql as 'insert into vault.decrypted_secrets(name,decrypted_secret) values(new_name,new_secret) returning id';
+ create function vault.update_secret(secret_id uuid,new_secret text default null,new_name text default null,new_description text default '',new_key_id uuid default null) returns void language sql as 'update vault.decrypted_secrets set decrypted_secret=new_secret,name=new_name where id=secret_id';`);
  return rpc('pdd_insights_configure_worker',{url:'https://fogncjjsnakbhfdbfvdi.supabase.co/functions/v1/insights-worker',model_key:modelKey,worker_secret:workerSecret,model:'gpt-5.6-luna',prompt_version:'hourly-observation-v1',actor_id:null,enabled});
 }
 async function reserve(candidates:Record<string,any>[]=[]) {

@@ -271,6 +271,7 @@ try {
   let publicContentUpgradeChecked = false;
   let hourlyUpgradeChecked = false;
   let historyUpgradeChecked = false;
+  let vaultSignatureUpgradeChecked = false;
   const hourlyTables = ['pdd_stats_hourly','pdd_telemetry_hourly','pdd_insights_settings','pdd_insights_feed','pdd_insights_fact_ledger','pdd_insights_releases'];
   const hourlyMetadataSQL = `select jsonb_agg(jsonb_build_object('name',p.proname,'oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig,'arguments',p.proargtypes::text,'definition',pg_get_functiondef(p.oid)) order by p.proname)::text
     from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('pdd_home_stats','pdd_telemetry_ingest','pdd_telemetry_cleanup');`;
@@ -312,6 +313,7 @@ try {
     const hourlyUpgrade = name.endsWith('_hourly_public_insights.sql');
     const workerUpgrade = name.endsWith('_hourly_insights_worker.sql');
     const historyUpgrade = name.endsWith('_hourly_recorded_history.sql');
+    const vaultSignatureUpgrade = name.endsWith('_insights_vault_signatures.sql');
     const beforeBusinessMetadata = businessUpgrade ? JSON.parse(await sql(businessMetadataSQL)) : null;
     if (businessUpgrade) assert.equal(beforeBusinessMetadata.length, 6);
     if (upgrade) {
@@ -325,6 +327,13 @@ try {
       await rpc('pdd_query', evidence);
     }
     const migration = (await readFile(new URL(name, directory), 'utf8')).replace(/^create extension if not exists pg_net.*$/m, '').replace(/^create extension if not exists pg_cron.*$/m, '');
+    let vaultBeforeTables,vaultBeforeCron,vaultBeforeFunction;
+    const vaultFunctionSQL="select jsonb_build_object('oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig,'arguments',p.proargtypes::text,'definition',pg_get_functiondef(p.oid))::text from pg_proc p where p.oid='public.pdd_insights_configure_worker(jsonb)'::regprocedure;";
+    if(vaultSignatureUpgrade){
+      vaultBeforeTables=await tableDigest();vaultBeforeCron=await sql("select coalesce(jsonb_agg(to_jsonb(j) order by jobname),'[]')::text from cron.job j;");vaultBeforeFunction=JSON.parse(await sql(vaultFunctionSQL));
+      await sql(`begin;${migration}rollback;`);
+      assert.deepEqual(JSON.parse(await sql(vaultFunctionSQL)),vaultBeforeFunction);assert.deepEqual(await tableDigest(),vaultBeforeTables);assert.equal(await sql("select coalesce(jsonb_agg(to_jsonb(j) order by jobname),'[]')::text from cron.job j;"),vaultBeforeCron);
+    }
     let historyBeforeTables,historyBeforeCron,historyBeforeMetadata;
     const historyMetadataSQL="select jsonb_agg(jsonb_build_object('name',p.proname,'oid',p.oid,'owner',p.proowner,'acl',p.proacl::text,'securityDefiner',p.prosecdef,'config',p.proconfig,'arguments',p.proargtypes::text,'definition',pg_get_functiondef(p.oid)) order by p.proname)::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('pdd_home_stats','pdd_public_hourly_history','pdd_public_hourly_dashboard','pdd_hourly_source','pdd_capture_stats_hourly','pdd_telemetry_ingest','pdd_telemetry_cleanup','pdd_insights_wake');";
     if(historyUpgrade){
@@ -458,7 +467,15 @@ try {
       assert.equal((await rpc('pdd_recipient_query', recipientQuery('下划线迁移合成收件人'))).leads[0].contact.value, '_PDD404TEST_2026');
       console.log('WeChat underscore migration passed real rollback/commit, unchanged stored rows/function identity/ACL, legacy length compatibility, and exact-name contact readback.');
     } else {
-      await sql(publicContentUpgrade || hourlyUpgrade || workerUpgrade || historyUpgrade ? `begin; ${migration} commit;` : migration);
+      await sql(publicContentUpgrade || hourlyUpgrade || workerUpgrade || historyUpgrade || vaultSignatureUpgrade ? `begin; ${migration} commit;` : migration);
+    }
+    if(vaultSignatureUpgrade){
+      const {definition:beforeDefinition,...beforeIdentity}=vaultBeforeFunction,{definition:afterDefinition,...afterIdentity}=JSON.parse(await sql(vaultFunctionSQL));
+      assert.notEqual(afterDefinition,beforeDefinition);assert(afterDefinition.includes("vault.create_secret(text,text,text,uuid)"));assert(afterDefinition.includes("vault.update_secret(uuid,text,text,text,uuid)"));assert(afterDefinition.includes('pronargdefaults>=1'));
+      assert.deepEqual(afterIdentity,beforeIdentity);assert.deepEqual(await tableDigest(),vaultBeforeTables);assert.equal(await sql("select coalesce(jsonb_agg(to_jsonb(j) order by jobname),'[]')::text from cron.job j;"),vaultBeforeCron);
+      await assert.rejects(()=>sql(`begin;${migration}commit;`),/INSIGHTS_VAULT_GUARD_SOURCE_CHANGED/);
+      vaultSignatureUpgradeChecked=true;
+      console.log('Vault signature migration passed real rollback/commit, complete optional-parameter identities, unchanged function ACL/owner/OID, all stored rows and cron jobs, and failclosed repeat guard.');
     }
     if(historyUpgrade){
       assert.deepEqual(await tableDigest(),historyBeforeTables);assert.equal(await sql("select coalesce(jsonb_agg(to_jsonb(j) order by jobname),'[]')::text from cron.job j;"),historyBeforeCron);
@@ -1070,6 +1087,7 @@ try {
   await verifyPublicInsightsContent(actor);
   assert(hourlyUpgradeChecked);
   await verifyHourlyInsights({sql,rpc,quote,invoke,businessError,actor});
+  assert(vaultSignatureUpgradeChecked);
   await verifyHourlyWorker({sql,rpc,quote,invoke});
   assert(historyUpgradeChecked);
   await verifyHourlyRecordedHistory({sql,rpc,invoke});
@@ -1108,6 +1126,8 @@ try {
   assert.equal(await sql(`select public.pdd_contact_valid(${quote({ kind: 'wechat', value: '_PDD404TEST_2026' })});`, 'pdd404_restore_check'), 't');
   assert.equal(await sql("select string_agg(key,',' order by key) from jsonb_object_keys(public.pdd_monitor_status('{}')) key;", 'pdd404_restore_check'), monitorColumns);
   assert.equal(JSON.parse(await sql(monitorMetadataSQL, 'pdd404_restore_check')).definition, monitorDefinition);
+  const vaultDefinitionSQL="select pg_get_functiondef('public.pdd_insights_configure_worker(jsonb)'::regprocedure);";
+  assert.equal(await sql(vaultDefinitionSQL,'pdd404_restore_check'),await sql(vaultDefinitionSQL));
   assertClusterSize(JSON.parse(await sql(`begin read only; set local role service_role; ${monitorSizeSQL} commit;`, 'pdd404_restore_check')));
   await assert.rejects(() => sql("set role anon; select public.pdd_telemetry_summary('{}');", 'pdd404_restore_check'), /permission denied/);
   await assert.rejects(() => sql("set role anon; select public.pdd_monitor_status('{}');", 'pdd404_restore_check'), /permission denied/);
