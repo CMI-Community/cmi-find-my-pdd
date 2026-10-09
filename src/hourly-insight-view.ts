@@ -1,9 +1,12 @@
 import type { HourSnapshot, HourlyDashboard, PublicObservation } from '../shared/hourly-content';
 import { HOURLY_STATS_KEYS } from '../shared/hourly-content';
-import { bangkokDay } from '../shared/insight-history';
+import { bangkokDay, offsetDay } from '../shared/insight-history';
 import type { PddHomeStats } from '../shared/waybill';
 
 export const HOUR = 3_600_000;
+export type DataRange = '24h' | '3d' | '7d';
+export type DataGranularity = 'hour' | 'day';
+export const rangeHours = (range: DataRange) => range === '24h' ? 24 : range === '3d' ? 72 : 168;
 export type HourRow = {
   start: string; end: string; status: 'complete' | 'current' | 'missing';
   counts: Record<keyof PddHomeStats, number | null>; sampledFrom: string | null; sampledUntil: string | null;
@@ -24,11 +27,11 @@ function increase(previous: HourSnapshot | undefined, next: { sampledAt: string;
 }
 
 /** Default is the latest 24 hour slots, including the labelled in-progress slot. */
-export function hourRows(dashboard: HourlyDashboard, date = ''): HourRow[] {
+export function hourRows(dashboard: HourlyDashboard, date = '', hours = 24): HourRow[] {
   const sampled = Date.parse(dashboard.sampledAt), currentHour = Math.floor(sampled / HOUR) * HOUR;
   if (dashboard.records) {
     const until = Date.parse(dashboard.records.until), current = until % HOUR !== 0;
-    const visibleStart = date ? Date.parse(date + 'T00:00:00+07:00') : currentHour - (current ? 23 : 24) * HOUR;
+    const visibleStart = date ? Date.parse(date + 'T00:00:00+07:00') : currentHour - (current ? hours - 1 : hours) * HOUR;
     const visibleEnd = date ? Math.min(visibleStart + 24 * HOUR, until) : until;
     const first = dashboard.records.firstRecordedAt;
     return dashboard.records.hours.filter(item => {
@@ -41,7 +44,7 @@ export function hourRows(dashboard: HourlyDashboard, date = ''): HourRow[] {
         ...(first && Math.floor(Date.parse(first) / HOUR) * HOUR === hour ? { firstRecordedAt: first } : {}) };
     });
   }
-  const start = date ? Date.parse(date + 'T00:00:00+07:00') : currentHour - 23 * HOUR;
+  const start = date ? Date.parse(date + 'T00:00:00+07:00') : currentHour - (hours - 1) * HOUR;
   const end = date ? Math.min(start + 24 * HOUR, currentHour + HOUR) : currentHour + HOUR;
   const byHour = new Map(dashboard.snapshots.map(snapshot => [Date.parse(snapshot.hour), snapshot]));
   const rows: HourRow[] = [];
@@ -54,6 +57,31 @@ export function hourRows(dashboard: HourlyDashboard, date = ''): HourRow[] {
       sampledFrom: previous?.sampledAt ?? null, sampledUntil: next?.sampledAt ?? null });
   }
   return rows;
+}
+
+/** Multi-day ranges use Bangkok calendar dates; unknown hours never become zero-day totals. */
+export function changeRows(dashboard: HourlyDashboard, date = '', range: DataRange = '7d', granularity: DataGranularity = 'day'): HourRow[] {
+  if (date || range === '24h') return hourRows(dashboard, date);
+  const start = Date.parse(offsetDay(bangkokDay(Date.parse(dashboard.sampledAt)), range === '3d' ? -2 : -6) + 'T00:00:00+07:00');
+  const hours = hourRows(dashboard, '', rangeHours(range)).filter(row => Date.parse(row.start) >= start);
+  if (granularity === 'hour') return hours;
+  const days = new Map<string, HourRow[]>();
+  for (const row of hours) {
+    const day = bangkokDay(Date.parse(row.start));
+    days.set(day, [...(days.get(day) ?? []), row]);
+  }
+  return [...days].map(([day, rows]) => {
+    const first = rows[0], last = rows.at(-1)!, counts = emptyCounts();
+    for (const key of HOURLY_STATS_KEYS) {
+      const values = rows.map(row => row.counts[key]);
+      counts[key] = values.some(value => value === null) ? null : values.reduce<number>((sum, value) => sum + value!, 0);
+    }
+    const firstRecordedAt = rows.find(row => row.firstRecordedAt)?.firstRecordedAt;
+    return { start: new Date(day + 'T00:00:00+07:00').toISOString(), end: new Date(Date.parse(day + 'T00:00:00+07:00') + 24 * HOUR).toISOString(),
+      counts, status: rows.some(row => row.status === 'current') ? 'current' : Object.values(counts).some(value => value === null) ? 'missing' : 'complete',
+      sampledFrom: first.sampledFrom, sampledUntil: last.sampledUntil,
+      ...(rows.every(row => row.source === 'recorded') ? { source: 'recorded' as const } : {}), ...(firstRecordedAt ? { firstRecordedAt } : {}) };
+  });
 }
 
 export function observationGroups(items: PublicObservation[]): { latest: PublicObservation[]; older: Array<{ date: string; items: PublicObservation[] }> } {

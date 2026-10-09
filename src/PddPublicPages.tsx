@@ -5,7 +5,7 @@ import type { PddHomeStats } from '../shared/waybill';
 import { bangkokDay, offsetDay } from '../shared/insight-history';
 import { publicContentDate, type OutreachItem, type PddOutreach } from '../shared/public-content';
 import type { HourlyDashboard, PublicObservation } from '../shared/hourly-content';
-import { appendObservationPage, emptyObservationPagination, hourRows, mergeObservations, nextObservationRequest, observationGroups, updateObservationHead, type HourRow } from './hourly-insight-view';
+import { appendObservationPage, changeRows, emptyObservationPagination, mergeObservations, nextObservationRequest, observationGroups, rangeHours, updateObservationHead, type DataGranularity, type DataRange, type HourRow } from './hourly-insight-view';
 import { publicContentApi } from './public-content-api';
 import { trackPddEvent } from './pdd-analytics';
 import './pdd-public.css';
@@ -78,13 +78,14 @@ const chartGroups: Array<{ id: string; title: string; series: Series[] }> = [
   { id: 'recipient', title: '姓名线索登记 · 条', series: [{ key: 'lostRecipientRegistered', label: '找包裹', color: '#674782' }, { key: 'receivedRecipientRegistered', label: '找失主', color: '#a36522', dash: '7 4' }] },
   { id: 'match', title: '新增匹配', series: [{ key: 'matchedParcels', label: '单号匹配 · 件', color: '#20756d' }, { key: 'matchedRecipientLeads', label: '姓名线索 · 条', color: '#aa5141', dash: '7 4' }] },
 ];
-function useDashboard(date: string): Resource<HourlyDashboard> {
-  const [state, setState] = useState<{ key: string; value: HourlyDashboard | null; loading: boolean; error: boolean }>({ key: date, value: null, loading: true, error: false });
+function useDashboard(date: string, range: DataRange): Resource<HourlyDashboard> {
+  const key = date || range;
+  const [state, setState] = useState<{ key: string; value: HourlyDashboard | null; loading: boolean; error: boolean }>({ key, value: null, loading: true, error: false });
   const action = useRef<() => void>(() => {}), refresh = useCallback(() => action.current(), []);
   useEffect(() => {
     let active = true, pending = false, lastStarted = -Infinity;
     let requestController: AbortController | null = null;
-    setState(previous => ({ key: date, value: previous.key === date ? previous.value : null, loading: true, error: false }));
+    setState(previous => ({ key, value: previous.key === key ? previous.value : null, loading: true, error: false }));
     async function load(force = false) {
       if (!active || pending || document.visibilityState !== 'visible' || (!force && Date.now() - lastStarted < 1000)) return;
       pending = true; lastStarted = Date.now();
@@ -92,8 +93,8 @@ function useDashboard(date: string): Resource<HourlyDashboard> {
       const timeout = window.setTimeout(() => controller.abort(), 15_000);
       setState(previous => ({ ...previous, loading: true, error: false }));
       try {
-        const value = await publicContentApi.dashboard(date ? { date } : {}, controller.signal);
-        if (active) setState({ key: date, value, loading: false, error: false });
+        const value = await publicContentApi.dashboard(date ? { date } : { hours: rangeHours(range) }, controller.signal);
+        if (active) setState({ key, value, loading: false, error: false });
       } catch { if (active) setState(previous => ({ ...previous, loading: false, error: true })); }
       finally { window.clearTimeout(timeout); pending = false; }
     }
@@ -102,15 +103,15 @@ function useDashboard(date: string): Resource<HourlyDashboard> {
     void load(); const timer = window.setInterval(visible, 60_000);
     window.addEventListener('focus', visible); document.addEventListener('visibilitychange', visible);
     return () => { active = false; requestController?.abort(); window.clearInterval(timer); action.current = () => {}; window.removeEventListener('focus', visible); document.removeEventListener('visibilitychange', visible); };
-  }, [date]);
-  return { value: state.key === date ? state.value : null, loading: state.key !== date || state.loading, error: state.key === date && state.error, refresh };
+  }, [date, range, key]);
+  return { value: state.key === key ? state.value : null, loading: state.key !== key || state.loading, error: state.key === key && state.error, refresh };
 }
-export function HourChart({ rows, group, recorded = false }: { rows: HourRow[]; group: typeof chartGroups[number]; recorded?: boolean }) {
+export function HourChart({ rows, group, recorded = false, granularity = 'hour' }: { rows: HourRow[]; group: typeof chartGroups[number]; recorded?: boolean; granularity?: DataGranularity }) {
   const values = rows.flatMap(row => group.series.map(series => row.counts[series.key])).filter((value): value is number => value !== null);
   const maximum = Math.max(1, ...values), step = Math.pow(10, Math.floor(Math.log10(maximum))), ceiling = Math.max(2, Math.ceil(maximum / step) * step);
   const x = (index: number) => 14 + index / Math.max(1, rows.length - 1) * 632, y = (value: number) => 190 - value / ceiling * 168;
   return <figure className="pub-chart pub-hour-chart"><figcaption><h3>{group.title}</h3><div className="pub-legend">{group.series.map(series => <span key={series.key}><svg width="22" height="8" aria-hidden="true"><line x1="0" y1="4" x2="22" y2="4" stroke={series.color} strokeWidth="3" strokeDasharray={series.dash} /></svg>{series.label}</span>)}</div></figcaption>
-    <div className="pub-chart-body"><div className="pub-chart-axis"><span>{ceiling.toLocaleString('zh-CN')}</span><span>0</span></div><svg viewBox="0 0 660 212" role="img" aria-label={group.title + '，每小时新增，' + (recorded ? '按登记与匹配记入时间，' : '缺采断线，') + '进行中小时使用虚线。具体数字见下方表格。'}>
+    <div className="pub-chart-body"><div className="pub-chart-axis"><span>{ceiling.toLocaleString('zh-CN')}</span><span>0</span></div><svg viewBox="0 0 660 212" role="img" aria-label={group.title + (granularity === 'day' ? '，按日变化，' : '，按小时变化，') + (recorded ? '按登记与匹配记入时间，' : '缺采断线，') + '进行中时段使用虚线。具体数字见下方表格。'}>
       {[22, 106, 190].map(value => <line key={value} x1="14" x2="646" y1={value} y2={value} className="pub-grid-line" />)}
       {rows.length > 0 && rows.at(-1)?.status === 'current' && <rect x={x(rows.length - 1) - 12} y="10" width="24" height="188" className="pub-current-hour-band" />}
       {group.series.map(series => <g key={series.key} stroke={series.color} fill={series.color}>{rows.map((row, index) => {
@@ -119,21 +120,22 @@ export function HourChart({ rows, group, recorded = false }: { rows: HourRow[]; 
         return <g key={row.start}>{prior !== undefined && prior !== null && <line x1={x(index - 1)} y1={y(prior)} x2={x(index)} y2={y(value)} strokeWidth="2.5" strokeDasharray={row.status === 'current' ? '3 4' : series.dash} />}
           <circle cx={x(index)} cy={y(value)} r="3.5" fill={row.status === 'current' ? 'white' : series.color}><title>{dateTime(row.start)} {series.label}：{value}{row.status === 'current' ? '（进行中）' : ''}{row.sampledFrom && row.sampledUntil ? (row.source === 'recorded' ? '；记入时段 ' : '；采样 ') + dateTime(row.sampledFrom) + ' 至 ' + dateTime(row.sampledUntil) : ''}{row.firstRecordedAt ? '；最早记录时间：' + dateTime(row.firstRecordedAt) : ''}</title></circle></g>;
       })}</g>)}
-    </svg></div>{rows.length > 0 && <div className="pub-chart-dates">{[rows[0], rows[Math.floor(rows.length / 2)], rows.at(-1)!].map((row, index) => <span key={index}>{dayLabel(bangkokDay(Date.parse(row.start)))} {hourLabel(row.start)}{row.status === 'current' ? ' · 进行中' : ''}</span>)}</div>}
+    </svg></div>{rows.length > 0 && <div className="pub-chart-dates">{[rows[0], rows[Math.floor(rows.length / 2)], rows.at(-1)!].map((row, index) => <span key={index}>{dayLabel(bangkokDay(Date.parse(row.start)))}{granularity === 'hour' ? ' ' + hourLabel(row.start) : ''}{row.status === 'current' ? granularity === 'day' && row.sampledUntil ? ' · 截至 ' + hourLabel(row.sampledUntil) : ' · 进行中' : ''}</span>)}</div>}
   </figure>;
 }
-export function HourTable({ rows, mode, recorded = false }: { rows: HourRow[]; mode: 'waybill' | 'recipient'; recorded?: boolean }) {
-  return <div className={'pub-table-scroll pub-hour-table pub-table-' + mode} tabIndex={0} aria-label="可横向滚动的小时新增数据"><table><caption>{recorded ? '按登记与匹配记入时间 · 曼谷时间' : '采样间新增 · 曼谷时间 · — 表示该段没有可用采样'}</caption><thead><tr><th scope="col">小时</th>{statsGroups.flatMap((group, index) => group.fields.map(([key, label, unit]) => <th className={index === 0 ? 'pub-waybill-column' : 'pub-recipient-column'} key={key} scope="col">{label}<small>{unit}</small></th>))}</tr></thead><tbody>{[...rows].reverse().map(row => <tr key={row.start} className={row.status === 'current' ? 'pub-current-hour' : ''}><th scope="row" title={row.firstRecordedAt ? '最早记录时间：' + dateTime(row.firstRecordedAt) : undefined}><span>{dayLabel(bangkokDay(Date.parse(row.sampledFrom ?? row.start)))} {hourLabel(row.sampledFrom ?? row.start)}—{hourLabel(row.sampledUntil ?? row.end)}</span>{row.status === 'current' && <small>进行中</small>}</th>{statsGroups.flatMap((group, index) => group.fields.map(([key]) => <td className={index === 0 ? 'pub-waybill-column' : 'pub-recipient-column'} key={key} title={row.sampledFrom && row.sampledUntil ? (recorded ? '记入时段：' : '实际采样：') + dateTime(row.sampledFrom) + ' 至 ' + dateTime(row.sampledUntil) : undefined}>{row.counts[key] === null ? <span aria-label="没有可用采样">—</span> : row.counts[key].toLocaleString('zh-CN')}</td>))}</tr>)}</tbody></table></div>;
+export function HourTable({ rows, mode, recorded = false, granularity = 'hour' }: { rows: HourRow[]; mode: 'waybill' | 'recipient'; recorded?: boolean; granularity?: DataGranularity }) {
+  return <div className={'pub-table-scroll pub-hour-table pub-table-' + mode} tabIndex={0} aria-label={'可横向滚动的' + (granularity === 'day' ? '每日数据变化' : '小时数据变化')}><table><caption>{recorded ? '按登记与匹配记入时间' + (granularity === 'day' ? ' · 按日汇总' : '') + ' · 曼谷时间' : '采样间新增 · 曼谷时间 · — 表示该段没有可用采样'}</caption><thead><tr><th scope="col">{granularity === 'day' ? '日期' : '小时'}</th>{statsGroups.flatMap((group, index) => group.fields.map(([key, label, unit]) => <th className={index === 0 ? 'pub-waybill-column' : 'pub-recipient-column'} key={key} scope="col">{label}<small>{unit}</small></th>))}</tr></thead><tbody>{[...rows].reverse().map(row => <tr key={row.start} className={row.status === 'current' ? 'pub-current-hour' : ''}><th scope="row" title={row.firstRecordedAt ? '最早记录时间：' + dateTime(row.firstRecordedAt) : undefined}><span>{granularity === 'day' ? bangkokDay(Date.parse(row.start)).replace(/-/g, '/') : dayLabel(bangkokDay(Date.parse(row.sampledFrom ?? row.start))) + ' ' + hourLabel(row.sampledFrom ?? row.start) + '—' + hourLabel(row.sampledUntil ?? row.end)}</span>{row.status === 'current' && <small>{granularity === 'day' && row.sampledUntil ? '截至 ' + hourLabel(row.sampledUntil) : '进行中'}</small>}{granularity === 'day' && row.firstRecordedAt && <small>{hourLabel(row.firstRecordedAt)} 起</small>}</th>{statsGroups.flatMap((group, index) => group.fields.map(([key]) => <td className={index === 0 ? 'pub-waybill-column' : 'pub-recipient-column'} key={key} title={row.sampledFrom && row.sampledUntil ? (recorded ? '记入时段：' : '实际采样：') + dateTime(row.firstRecordedAt ?? row.sampledFrom) + ' 至 ' + dateTime(row.sampledUntil) : undefined}>{row.counts[key] === null ? <span aria-label="没有可用采样">—</span> : row.counts[key].toLocaleString('zh-CN')}</td>))}</tr>)}</tbody></table></div>;
 }
-function HourlyData({ dashboard, date, chooseDate }: { dashboard: HourlyDashboard | null; date: string; chooseDate: (date: string) => void }) {
-  const [group, setGroup] = useState('waybill'), [mode, setMode] = useState<'waybill' | 'recipient'>('waybill'), [chosen, setChosen] = useState(date);
+function HourlyData({ dashboard, date, range, chooseDate, chooseRange }: { dashboard: HourlyDashboard | null; date: string; range: DataRange; chooseDate: (date: string) => void; chooseRange: (range: DataRange) => void }) {
+  const [group, setGroup] = useState('waybill'), [mode, setMode] = useState<'waybill' | 'recipient'>('waybill'), [chosen, setChosen] = useState(date), [granularity, setGranularity] = useState<DataGranularity>('day');
   useEffect(() => { setChosen(date); }, [date]);
-  const today = dashboard ? bangkokDay(Date.parse(dashboard.sampledAt)) : bangkokDay(), minimum = offsetDay(today, -29), rows = dashboard ? hourRows(dashboard, date) : [];
-  return <><div className="pub-hour-controls"><div className="pub-range" role="group" aria-label="小时数据范围"><button type="button" aria-pressed={!date} onClick={() => chooseDate('')}>最近 24 小时</button>{date && <span className="pub-selected-date">{date}</span>}</div>
+  const today = dashboard ? bangkokDay(Date.parse(dashboard.sampledAt)) : bangkokDay(), minimum = offsetDay(today, -29), cadence: DataGranularity = date || range === '24h' ? 'hour' : granularity, rows = dashboard ? changeRows(dashboard, date, range, cadence) : [];
+  return <><div className="pub-hour-controls"><div className="pub-range pub-data-presets" role="group" aria-label="数据变化范围">{([['24h', '最近 24 小时'], ['3d', '最近 3 天'], ['7d', '最近 7 天']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={!date && range === value} onClick={() => chooseRange(value)}>{label}</button>)}{date && <span className="pub-selected-date">{date}</span>}</div>
     <form className="pub-date-form" onSubmit={event => { event.preventDefault(); const value = validDate(chosen); if (value && value >= minimum && value <= today) chooseDate(value); }}><label htmlFor="pub-hour-date">查看日期<input id="pub-hour-date" type="date" value={chosen} min={minimum} max={today} onChange={event => setChosen(event.target.value)} /></label><button className="pub-quiet-button" type="submit" disabled={!validDate(chosen) || chosen < minimum || chosen > today}>查看</button></form></div>
-    {dashboard && <><div className="pub-range pub-chart-tabs" role="group" aria-label="小时图表类型">{chartGroups.map(item => <button type="button" key={item.id} aria-pressed={group === item.id} onClick={() => setGroup(item.id)}>{item.id === 'waybill' ? '单号登记' : item.id === 'recipient' ? '姓名线索' : '匹配'}</button>)}</div><HourChart rows={rows} group={chartGroups.find(item => item.id === group)!} recorded={!!dashboard.records} />
+    {!date && range !== '24h' && <div className="pub-granularity-line"><p>曼谷日期 · 包含今天</p><div className="pub-range" role="group" aria-label="数据变化粒度"><button type="button" aria-pressed={cadence === 'day'} onClick={() => setGranularity('day')}>按日</button><button type="button" aria-pressed={cadence === 'hour'} onClick={() => setGranularity('hour')}>按小时</button></div></div>}
+    {dashboard && <><div className="pub-range pub-chart-tabs" role="group" aria-label="小时图表类型">{chartGroups.map(item => <button type="button" key={item.id} aria-pressed={group === item.id} onClick={() => setGroup(item.id)}>{item.id === 'waybill' ? '单号登记' : item.id === 'recipient' ? '姓名线索' : '匹配'}</button>)}</div><HourChart rows={rows} group={chartGroups.find(item => item.id === group)!} recorded={!!dashboard.records} granularity={cadence} />
       <div className="pub-mobile-table-tabs pub-range" role="group" aria-label="小时表格类型"><button type="button" aria-pressed={mode === 'waybill'} onClick={() => setMode('waybill')}>单号</button><button type="button" aria-pressed={mode === 'recipient'} onClick={() => setMode('recipient')}>姓名线索</button></div>
-      <HourTable rows={rows} mode={mode} recorded={!!dashboard.records} />{!rows.some(row => Object.values(row.counts).some(value => value !== null)) && <p className="pub-state" role="status">{dashboard.records ? '暂无登记与匹配记录' : '这段时间尚无连续小时采样。'}</p>}</>}
+      <HourTable rows={rows} mode={mode} recorded={!!dashboard.records} granularity={cadence} />{!rows.some(row => Object.values(row.counts).some(value => value !== null)) && <p className="pub-state" role="status">{dashboard.records ? '暂无登记与匹配记录' : '这段时间尚无连续小时采样。'}</p>}</>}
   </>;
 }
 export function ObservationList({ items }: { items: PublicObservation[] }) {
@@ -213,12 +215,13 @@ function DeveloperDiscussion({ outreach }: { outreach: Resource<PddOutreach> }) 
 export function InsightsPage() {
   const [params, setParams] = useSearchParams(), requested = validDate(params.get('date') ?? ''), today = bangkokDay();
   const date = requested && requested >= offsetDay(today, -29) && requested <= today ? requested : '';
-  const dashboard = useDashboard(date), value = dashboard.value;
+  const range: DataRange = params.get('range') === '24h' ? '24h' : params.get('range') === '3d' ? '3d' : '7d';
+  const dashboard = useDashboard(date, range), value = dashboard.value;
   const outreach = usePublicResource('outreach', signal => publicContentApi.outreach(signal));
   const news = (outreach.value?.catalog?.content.items ?? []).filter(item => item.origin === 'third-party' && ['news', 'video'].includes(item.kind)).sort((a, b) => Date.parse(b.checkedAt) - Date.parse(a.checkedAt)).slice(0, 3);
-  return <div className="pub-page pub-insights-page"><header className="pub-page-heading"><h1>数据与洞察</h1><nav aria-label="本页目录"><a href="#current-data">累计数据</a><a href="#data-history">小时新增</a><a href="#observations">数据观察</a></nav></header>
+  return <div className="pub-page pub-insights-page"><header className="pub-page-heading"><h1>数据与洞察</h1><nav aria-label="本页目录"><a href="#current-data">累计数据</a><a href="#data-history">数据变化</a><a href="#observations">数据观察</a></nav></header>
     <Section number="01" title="累计登记与匹配" id="current-data"><CurrentStatistics stats={value?.stats ?? null} loading={dashboard.loading} error={dashboard.error ? '读取失败' : ''} readAt={value?.sampledAt ?? null} refresh={dashboard.refresh} /></Section>
-    <Section number="02" title="每小时新增" id="data-history"><HourlyData dashboard={value} date={date} chooseDate={chosen => setParams(chosen ? { date: chosen } : {})} /></Section>
+    <Section number="02" title="数据变化" id="data-history"><HourlyData dashboard={value} date={date} range={range} chooseDate={chosen => setParams(chosen ? { date: chosen } : { range })} chooseRange={chosen => setParams({ range: chosen })} /></Section>
     <Section number="03" title="数据观察" id="observations"><ObservationFeed dashboard={value} /></Section>
     {news.length > 0 && <section className="pub-compact-news" aria-label="相关新闻"><h2>相关新闻</h2><ul>{news.map(item => <li key={item.id}><a href={item.sourceUrl!} target="_blank" rel="noopener noreferrer">{item.title}<ArrowUpRight size={16} aria-hidden="true" /></a><small>{item.source}{item.publishedAt ? ' · ' + dateTime(item.publishedAt) : ''}</small></li>)}</ul></section>}
     <div className="pub-insight-help"><Link to="/help">使用帮助<ArrowRight size={16} aria-hidden="true" /></Link><Link to="/share">传播工具<ArrowRight size={16} aria-hidden="true" /></Link></div>
